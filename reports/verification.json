@@ -1,0 +1,127 @@
+{
+  "schema_version": "fw.verification/v1",
+  "recorded_at": "2026-10-30T05:16:12.958415+00:00",
+  "source": "uncommitted working tree; see source-fingerprint.json",
+  "product_status": "partial_implementation_not_release_ready",
+  "checks": [
+    {
+      "name": "specification",
+      "command": "python scripts/validate_spec.py --root docs/specs",
+      "status": "PASS",
+      "passed": 27
+    },
+    {
+      "name": "reference-contracts",
+      "command": "python scripts/check_contracts.py",
+      "status": "PASS",
+      "core_fixtures": 52,
+      "extended_fixtures": 28
+    },
+    {
+      "name": "rust-format",
+      "command": "cargo fmt --all --check",
+      "status": "PASS"
+    },
+    {
+      "name": "rust-clippy",
+      "command": "cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "status": "PASS"
+    },
+    {
+      "name": "rust-tests",
+      "command": "cargo test --workspace --locked",
+      "status": "PASS",
+      "passed": 126,
+      "failed": 0,
+      "ignored": 0,
+      "evidence": "reports/full-checks.log"
+    },
+    {
+      "name": "workspace-build",
+      "command": "cargo build --workspace --locked --offline",
+      "status": "PASS"
+    },
+    {
+      "name": "frontend-frozen-install",
+      "command": "npm ci --prefix web --offline --no-audit",
+      "status": "PASS",
+      "note": "Initial command sandbox denied esbuild spawn with EPERM; supported escalated retry succeeded without weakening verification."
+    },
+    {
+      "name": "frontend-types-locales-tests-build",
+      "command": "npm run check --prefix web && npm test --prefix web -- --run && npm run build --prefix web",
+      "status": "PASS",
+      "component_tests": 10,
+      "locales": 6,
+      "locale_keys": 119,
+      "evidence": "reports/web-tests.log"
+    },
+    {
+      "name": "real-http-openapi",
+      "command": "python scripts/smoke_control.py",
+      "status": "PASS",
+      "checks": 15,
+      "evidence": "reports/http-smoke.json"
+    },
+    {
+      "name": "real-browser",
+      "status": "PASS",
+      "checks": 10,
+      "evidence": "reports/browser/result.json"
+    },
+    {
+      "name": "cli-health",
+      "command": "./target/debug/fw_cli health",
+      "status": "PASS"
+    },
+    {
+      "name": "rust-known-advisories",
+      "status": "PASS",
+      "vulnerabilities": 0,
+      "warnings": 0,
+      "evidence": "reports/rustsec-audit-run.json"
+    },
+    {
+      "name": "npm-known-advisories",
+      "status": "PASS",
+      "vulnerabilities": 0,
+      "evidence": "reports/npm-audit.json"
+    },
+    {
+      "name": "native-linux",
+      "status": "NOT_RUN",
+      "exit_code": 2,
+      "packet_tests": 0,
+      "evidence": "reports/qualification/linux.json"
+    },
+    {
+      "name": "native-windows",
+      "status": "NOT_RUN",
+      "exit_code": 2,
+      "packet_tests": 0,
+      "evidence": "reports/qualification/windows.json"
+    },
+    {
+      "name": "native-macos",
+      "status": "NOT_RUN",
+      "exit_code": 2,
+      "packet_tests": 0,
+      "evidence": "reports/qualification/macos.json"
+    }
+  ],
+  "configuration": {
+    "install_script": "saved",
+    "start_skill": "saved",
+    "published": false,
+    "requires_publish": true
+  },
+  "limitations": [
+    "No qualified native firewall or signed installer",
+    "No Windows WFP/callout or macOS system extension implementation",
+    "Linux compiler/journal experimental; no applied native adapter/readback/watchdog",
+    "Production authentication/authority/enrollment, full OpenAPI/MCP coverage and PostgreSQL remain incomplete",
+    "UI functional subset; full WCAG and human translation/security review unverified",
+    "Dependency advisory checks do not prove absence of vulnerabilities or legal compliance",
+    "Cloud provider deployment and release acceptance not executed"
+  ]
+}

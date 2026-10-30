@@ -1,0 +1,19 @@
+{
+  "spec_version": "F-2.0",
+  "copied_spec_files": 53,
+  "aliases": {
+    "F_AGENTS.md": "AGENTS.md",
+    "F_README.md": "README.md",
+    "F_명세_검증기.py": "scripts/validate_spec.py",
+    "F_SKILL.md": "skills/firewall-install/SKILL.md",
+    "F_기준자료/F_GitHub_공개준비/F_LICENSE.txt": "LICENSE",
+    "F_기준자료/F_GitHub_공개준비/F_NOTICE.txt": "NOTICE",
+    "F_기준자료/F_GitHub_공개준비/F_SECURITY.md": "SECURITY.md",
+    "F_기준자료/F_GitHub_공개준비/F_CONTRIBUTING.md": "CONTRIBUTING.md",
+    "F_기준자료/F_GitHub_공개준비/F_GOVERNANCE.md": "GOVERNANCE.md",
+    "F_기준자료/F_FUNDING.yml": ".github/FUNDING.yml.example"
+  },
+  "git_created": false,
+  "published": false,
+  "firewall_installed": false
+}

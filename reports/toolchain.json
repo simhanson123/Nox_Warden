@@ -1,0 +1,12 @@
+{
+  "rust": "1.99.1",
+  "node": "v24.19.0",
+  "npm": "11.9.0",
+  "python": "3.12.14",
+  "jsonschema": "4.26.0",
+  "os": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "architecture": "x86_64",
+  "rust_archive_sha256": "231fcae47ee950621374725b5fc3b5441d2fbda2955ac45dd7dc816d8876cfe7",
+  "cargo_lock_sha256": "c4186a0209a4c2639dacdda6757b0dfc59b9d9c37a27354eeb503a03821b6909",
+  "node_lock_sha256": "4fe5cb458824b80ef9580d71cffc8fedee72d06c21a8b248db08f3d9419c377d"
+}

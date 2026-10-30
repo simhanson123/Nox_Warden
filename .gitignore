@@ -1,0 +1,12 @@
+/state/
+/target/
+/web/node_modules/
+/web/dist/
+.env
+.env.*
+!.env.example
+*.key
+*.pfx
+*.p12
+__pycache__/
+/reports/local/

@@ -1,0 +1,1294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:fw:internal-contracts:v1",
+  "title": "F-2.0 registration and internal transport contracts",
+  "$comment": "Shape only. UUID/key/identity binding, exact-byte DSSE verification, decimal uint64 range, time order, deadline <=300s, certificate validation, approval independence, referenced object lookup, replay and OS authorization are mandatory runtime checks. No credentials in supplied examples.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AgentMessage"
+    },
+    {
+      "$ref": "#/$defs/EnrollmentRequest"
+    },
+    {
+      "$ref": "#/$defs/EnrollmentResponse"
+    },
+    {
+      "$ref": "#/$defs/SignPlanRequest"
+    },
+    {
+      "$ref": "#/$defs/SignPlanResponse"
+    },
+    {
+      "$ref": "#/$defs/AuthorityBootstrapManifest"
+    },
+    {
+      "$ref": "#/$defs/BootstrapApprovalProof"
+    },
+    {
+      "$ref": "#/$defs/BootstrapAuthorization"
+    }
+  ],
+  "$defs": {
+    "Message_poll": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "poll"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "last_message_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "capability_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "observed_state_hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "last_message_id",
+            "capability_hash",
+            "observed_state_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "dispatch"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "grant_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "artifact_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "candidate_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "baseline_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "capability_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "operation_id",
+            "grant_hash",
+            "artifact_hash",
+            "candidate_hash",
+            "baseline_hash",
+            "capability_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_observe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "observe"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "expected_state_hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "operation_id",
+            "expected_state_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "observation"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "readback_report_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "observed_state_hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "observed",
+                "unknown",
+                "degraded"
+              ]
+            }
+          },
+          "required": [
+            "operation_id",
+            "readback_report_hash",
+            "observed_state_hash",
+            "status"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_confirm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "confirm"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "grant_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "state_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "probe_report_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "operation_id",
+            "grant_hash",
+            "state_hash",
+            "probe_report_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "receipt"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "receipt_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "installation_manifest_hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "operation_id",
+            "receipt_hash",
+            "installation_manifest_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_reconcile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "reconcile"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "grant_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "expected_state_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "operation_id",
+            "grant_hash",
+            "expected_state_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_revocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "revocation"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revocation_manifest_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "revocation_manifest_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "Message_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.internal-message/v1"
+        },
+        "message_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "correlation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "sent_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "kind": {
+          "const": "ack"
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "acknowledged_message_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": [
+                "accepted",
+                "duplicate",
+                "rejected"
+              ]
+            },
+            "evidence_hash": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "acknowledged_message_id",
+            "status",
+            "evidence_hash"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "message_id",
+        "correlation_id",
+        "target_id",
+        "authority_epoch",
+        "target_generation",
+        "sent_at",
+        "deadline",
+        "kind",
+        "body"
+      ]
+    },
+    "AgentMessage": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Message_poll"
+        },
+        {
+          "$ref": "#/$defs/Message_dispatch"
+        },
+        {
+          "$ref": "#/$defs/Message_observe"
+        },
+        {
+          "$ref": "#/$defs/Message_observation"
+        },
+        {
+          "$ref": "#/$defs/Message_confirm"
+        },
+        {
+          "$ref": "#/$defs/Message_receipt"
+        },
+        {
+          "$ref": "#/$defs/Message_reconcile"
+        },
+        {
+          "$ref": "#/$defs/Message_revocation"
+        },
+        {
+          "$ref": "#/$defs/Message_ack"
+        }
+      ]
+    },
+    "EnrollmentRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.enrollment-request/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 256
+        },
+        "csr_pem": {
+          "type": "string",
+          "minLength": 128,
+          "maxLength": 16384
+        },
+        "expected_key_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "windows",
+            "macos"
+          ]
+        },
+        "agent_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "token",
+        "csr_pem",
+        "expected_key_fingerprint",
+        "nonce",
+        "platform",
+        "agent_version"
+      ]
+    },
+    "EnrollmentResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.enrollment-response/v1"
+        },
+        "request_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "certificate_chain_pem": {
+          "type": "string",
+          "minLength": 128,
+          "maxLength": 32768
+        },
+        "trust_bundle_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "renew_after": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "mode": {
+          "const": "observe"
+        }
+      },
+      "required": [
+        "schema_version",
+        "request_id",
+        "target_id",
+        "certificate_chain_pem",
+        "trust_bundle_hash",
+        "authority_epoch",
+        "issued_at",
+        "expires_at",
+        "renew_after",
+        "mode"
+      ]
+    },
+    "SignPlanRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.sign-plan-request/v1"
+        },
+        "signer_job_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "plan_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "approval_set_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "quota_reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_generation": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "signer_job_id",
+        "plan_hash",
+        "approval_set_hash",
+        "quota_reservation_id",
+        "authority_epoch",
+        "target_id",
+        "target_generation"
+      ]
+    },
+    "SignPlanResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.sign-plan-response/v1"
+        },
+        "signer_job_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "grant_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "payload_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "grant_content_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 349528,
+          "contentEncoding": "base64"
+        }
+      },
+      "required": [
+        "schema_version",
+        "signer_job_id",
+        "grant_hash",
+        "payload_hash",
+        "grant_content_base64"
+      ]
+    },
+    "AuthorityBootstrapManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.authority-bootstrap-manifest/v1"
+        },
+        "manifest_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "org_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "target_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "old_epoch": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,19})$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "new_epoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "trust_root_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "management_baseline_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "envelope_hashes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "delegation_hashes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "capability_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "schema_version",
+        "manifest_id",
+        "org_id",
+        "project_id",
+        "target_id",
+        "old_epoch",
+        "new_epoch",
+        "created_at",
+        "expires_at",
+        "trust_root_hash",
+        "management_baseline_hash",
+        "envelope_hashes",
+        "delegation_hashes",
+        "capability_hash",
+        "reason"
+      ]
+    },
+    "BootstrapApprovalProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.bootstrap-approval-proof/v1"
+        },
+        "proof_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "subject_type": {
+          "const": "authority_bootstrap"
+        },
+        "subject_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "approver_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "webauthn_assertion_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "role_snapshot_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "valid_until": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "proof_id",
+        "subject_type",
+        "subject_hash",
+        "approver_id",
+        "webauthn_assertion_hash",
+        "role_snapshot_hash",
+        "approved_at",
+        "valid_until"
+      ]
+    },
+    "BootstrapAuthorizationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.bootstrap-authorization/v1"
+        },
+        "manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "approval_proof_hashes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "signer_key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "not_after": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "manifest_hash",
+        "approval_proof_hashes",
+        "signer_key_id",
+        "issued_at",
+        "not_after"
+      ]
+    },
+    "DSSE": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "payloadType": {
+          "const": "application/vnd.f.authority-bootstrap.v1+json"
+        },
+        "payload": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 131072,
+          "contentEncoding": "base64"
+        },
+        "signatures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "keyid": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "sig": {
+                "type": "string",
+                "minLength": 88,
+                "maxLength": 88,
+                "contentEncoding": "base64"
+              }
+            },
+            "required": [
+              "keyid",
+              "sig"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "payloadType",
+        "payload",
+        "signatures"
+      ]
+    },
+    "BootstrapAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "f.bootstrap-authorization-envelope/v1"
+        },
+        "payload": {
+          "$ref": "#/$defs/BootstrapAuthorizationPayload"
+        },
+        "dsse": {
+          "$ref": "#/$defs/DSSE"
+        }
+      },
+      "required": [
+        "schema_version",
+        "payload",
+        "dsse"
+      ]
+    }
+  }
+}

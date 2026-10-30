@@ -1,0 +1,201 @@
+{
+  "schema_version": "fw.task-ledger/v1",
+  "spec_version": "F-2.0",
+  "base_commit": "50858681aa737d329a6f3c07346d92f9a684db2b",
+  "implementation_commit": null,
+  "overall": "partial_implementation_not_release_ready",
+  "tasks": [
+    {
+      "id": "M00",
+      "status": "verified",
+      "commit": null,
+      "dependencies": [],
+      "implemented": "Workspace, pinned toolchains/locks, CI, specification validation, dependency inventory/advisory baseline.",
+      "blocker": null,
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M01",
+      "status": "in_progress",
+      "commit": null,
+      "dependencies": [
+        "M00"
+      ],
+      "implemented": "Strict core contracts, pure scope/policy/current-union evaluator, canonical hashing, 80 reference fixtures.",
+      "blocker": "Remaining full extended serializers and cross-reference/registry contracts.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M02",
+      "status": "in_progress",
+      "commit": null,
+      "dependencies": [
+        "M01"
+      ],
+      "implemented": "Transactional SQLite, tenant isolation, idempotency, audit/outbox, CAS/fencing, backup, local development session.",
+      "blocker": "PostgreSQL/RLS, OIDC, complete registry, worker queue and authenticated snapshot pagination remain.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M03",
+      "status": "in_progress",
+      "commit": null,
+      "dependencies": [
+        "M02"
+      ],
+      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas.",
+      "blocker": "WebAuthn proof adapter, isolated authority/signer service and production trust lifecycle remain.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M04L",
+      "status": "blocked",
+      "commit": null,
+      "dependencies": [
+        "M01",
+        "M03"
+      ],
+      "implemented": "Experimental nft JSON compiler and durable executor journal with replay/time guards.",
+      "blocker": "No CAP_NET_ADMIN/CAP_SYS_ADMIN/nft in this environment; real native adapter, readback, independent watchdog and packet fixture implementation remain.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M04W",
+      "status": "blocked",
+      "commit": null,
+      "dependencies": [
+        "M01",
+        "M03"
+      ],
+      "implemented": "Documented WFP/callout boundary and truthful native qualification report.",
+      "blocker": "Windows native service/driver implementation, WDK VM, signing and kernel fixtures required.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M04M",
+      "status": "blocked",
+      "commit": null,
+      "dependencies": [
+        "M01",
+        "M03"
+      ],
+      "implemented": "Documented Network Extension boundary and truthful native qualification report.",
+      "blocker": "macOS native app/extension implementation, Xcode, entitlement/signing and real-device failure tests required.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M05",
+      "status": "in_progress",
+      "commit": null,
+      "dependencies": [
+        "M02",
+        "M03"
+      ],
+      "implemented": "Loopback request/operation/audit API, CLI, read-only MCP, strict admission and actual HTTP/OpenAPI smoke.",
+      "blocker": "Remaining OpenAPI routes, production auth, enrollment/IPC, full MCP suite and snapshot pagination.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M06",
+      "status": "in_progress",
+      "commit": null,
+      "dependencies": [
+        "M05"
+      ],
+      "implemented": "React integrated UI, 6 locales, request/audit/targets/policies, component and real browser checks.",
+      "blocker": "Approval/evidence/topology workflows, full keyboard/accessibility/translation acceptance remain.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M07",
+      "status": "in_progress",
+      "commit": null,
+      "dependencies": [
+        "M02",
+        "M05"
+      ],
+      "implemented": "Signed PBOM/Merkle/DAG verifier, privacy consent/report state machine, online SQLite backup.",
+      "blocker": "Evidence-store/export integration, authority-epoch restore, retention jobs, notifications and isolated telemetry sender remain.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M08",
+      "status": "blocked",
+      "commit": null,
+      "dependencies": [
+        "M04L",
+        "M04W",
+        "M04M",
+        "M05"
+      ],
+      "implemented": "Installer/release constraints documented; no fabricated artifacts.",
+      "blocker": "Native implementations, code signing, upgrade/uninstall/reboot/coexistence runners required.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M09",
+      "status": "blocked",
+      "commit": null,
+      "dependencies": [
+        "M05",
+        "M08"
+      ],
+      "implemented": "Original seven-provider/channel requirements preserved.",
+      "blocker": "Requires qualified native releases before provider deployment implementations and actual authorized cloud accounts; no paid resources created.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    },
+    {
+      "id": "M10",
+      "status": "blocked",
+      "commit": null,
+      "dependencies": [
+        "M06",
+        "M07",
+        "M08",
+        "M09"
+      ],
+      "implemented": "Evidence-based task ledger and current verification reports.",
+      "blocker": "Full F-2.0 acceptance, three OS qualification, seven-provider results and release review outstanding.",
+      "test_evidence": [
+        "reports/verification.json",
+        "reports/source-fingerprint.json"
+      ]
+    }
+  ]
+}

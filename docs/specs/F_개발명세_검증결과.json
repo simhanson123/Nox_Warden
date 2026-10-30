@@ -1,0 +1,205 @@
+{
+  "schema_version": "f.spec-validation/v1",
+  "checked_at": "2026-10-30T04:35:10.791837+00:00",
+  "status": "PASS",
+  "passed": 27,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "json:F_OpenAPI.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기본문구.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기본설정_스키마.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기본설정_예제.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기준자료/F_개발계약/F_MCP_도구_카탈로그.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기준자료/F_개발계약/F_계약_검증결과.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기준자료/F_개발계약/F_계약_스키마.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기준자료/F_개발계약/F_계약_예제.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기준자료/F_개발계약/F_차단정책_예제.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_기준자료/F_아키텍처_구성도.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_내부통신_스키마.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_내부통신_예제.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_도구_검증결과.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_확장계약_검증결과.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "json:F_확장계약_스키마.json",
+      "status": "PASS",
+      "detail": "UTF-8; no duplicate keys"
+    },
+    {
+      "name": "schema:F_확장계약_스키마.json",
+      "status": "PASS",
+      "detail": {
+        "definitions": 137,
+        "resolved_refs": 239
+      }
+    },
+    {
+      "name": "schema:F_기본설정_스키마.json",
+      "status": "PASS",
+      "detail": {
+        "definitions": 4,
+        "resolved_refs": 16
+      }
+    },
+    {
+      "name": "schema:F_내부통신_스키마.json",
+      "status": "PASS",
+      "detail": {
+        "definitions": 19,
+        "resolved_refs": 19
+      }
+    },
+    {
+      "name": "openapi:structure",
+      "status": "PASS",
+      "detail": {
+        "paths": 46,
+        "operations": 51,
+        "resolved_refs": 1054,
+        "scope": "reference/operation structure; not full OAS conformance or live API"
+      }
+    },
+    {
+      "name": "core:backward_compatibility",
+      "status": "PASS",
+      "detail": {
+        "unchanged_definitions": 25,
+        "sha256": "d5d16b87c56097c64a236eec3cdb99cbbf91d933da5b4f1ba2817495c338a7e8"
+      }
+    },
+    {
+      "name": "locales:keys_and_interpolation",
+      "status": "PASS",
+      "detail": {
+        "locales": 6,
+        "keys_per_locale": 40,
+        "native_language_review": "NOT_RUN"
+      }
+    },
+    {
+      "name": "config:positive_and_negative",
+      "status": "PASS",
+      "detail": {
+        "positive": 1,
+        "negative_rejected": 4,
+        "runtime_security_checks": "NOT_RUN"
+      }
+    },
+    {
+      "name": "internal:positive_and_negative",
+      "status": "PASS",
+      "detail": {
+        "positive": 1,
+        "negative_rejected": 3,
+        "mTLS_and_runtime_authorization": "NOT_RUN"
+      }
+    },
+    {
+      "name": "core:reference_self_test",
+      "status": "PASS",
+      "detail": {
+        "returncode": 0,
+        "summary": {
+          "schema_version": "f.contract-test-report/v1",
+          "status": "passed",
+          "test_count": 52,
+          "passed": 52,
+          "failed": 0,
+          "schema_definitions": 25,
+          "mcp_tools": 6,
+          "fixture_time": "2026-10-30T09:00:02Z",
+          "signature_authenticity_verified": false
+        },
+        "runtime": "NOT_TESTED"
+      }
+    },
+    {
+      "name": "extension:reference_self_test",
+      "status": "PASS",
+      "detail": {
+        "passed": 28,
+        "failed": 0,
+        "scope": "shape/static checks only"
+      }
+    },
+    {
+      "name": "docs:local_links_and_fences",
+      "status": "PASS",
+      "detail": {
+        "local_markdown_links": 33
+      }
+    },
+    {
+      "name": "package:required_files",
+      "status": "PASS",
+      "detail": "13 numbered specs, agent instructions, installation skill, exporter"
+    }
+  ],
+  "not_tested": [
+    "firewall implementation",
+    "real cryptographic authority",
+    "database concurrency",
+    "Linux kernel",
+    "Windows WFP driver",
+    "macOS Network Extension",
+    "cloud deployment",
+    "installer",
+    "browser runtime",
+    "native-language translation review"
+  ]
+}

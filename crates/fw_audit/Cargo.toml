@@ -1,0 +1,16 @@
+[package]
+name = "fw_audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+fw_contracts = { path = "../fw_contracts" }
+base64 = "0.22.1"
+ed25519-dalek = "2.2.0"

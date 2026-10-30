@@ -1,0 +1,538 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "F-2.0 local runtime configuration",
+  "description": "로컬 운영 설정 계약이다. HTTP/MCP/telemetry UI wire 객체가 아니다. 기본 예제는 observe-only, loopback, SQLite, 외부 통신 비활성이다.",
+  "$comment": "MUST semantic gates: strict JSON duplicate-key rejection; platform detection must fail on unsupported OS; resolve all relative paths under installer-created state_root and reject traversal, symlink escape, network share and unsafe ownership/ACL; partition controller/authority/executor subdirectories by OS identity. Remote bind requires TLS, valid certificate/key, exact HTTPS origin allowlist, authenticated users, CSRF/session controls and explicit approved exposure. TLS false is allowed only for literal loopback addresses. 'localhost' and DNS names do not satisfy the loopback gate. Schema validation is not proof of TLS identity or path safety. mode=enforced requires signed baseline, native capability qualification, OOB/recovery and fresh management/positive/negative probes; config alone cannot approve policy. telemetry.enabled=true requires F_06 consent/policy digest/category records independently; endpoint existence is not consent. ai.enabled=true requires approved provider/credential and egress policy; a config file never grants firewall deployment authority. Positive test: supplied example. Negative schema tests: nonloopback+tls=false; telemetry true+null endpoint; unknown field. Negative semantic tests: nonloopback+TLS placeholder files, loopback symlink escape, enforced without baseline, telemetry true without F_06 consent. All must fail before unauthorized network or native policy mutation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "platform",
+    "mode",
+    "state_root",
+    "controller",
+    "database",
+    "telemetry",
+    "ai",
+    "limits",
+    "retention",
+    "security"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "f.runtime-config/v1"
+    },
+    "platform": {
+      "enum": [
+        "auto",
+        "linux",
+        "windows",
+        "macos"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "observe",
+        "enforced"
+      ]
+    },
+    "state_root": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "description": "개발 예제는 ./state. cwd가 아니라 이 설정 파일의 디렉터리를 기준으로 resolve한다. native installer는 F_01의 OS별 절대 디렉터리로 치환하고 ACL을 설정한다."
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bind_address",
+        "port",
+        "tls",
+        "allowed_origins",
+        "authentication_required",
+        "bootstrap_token_ttl_seconds"
+      ],
+      "properties": {
+        "bind_address": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "description": "IPv4/IPv6 literal only; semantic IP parser required. Default 127.0.0.1."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "tls": {
+          "$ref": "#/$defs/Tls"
+        },
+        "allowed_origins": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 2048,
+            "pattern": "^https?://"
+          }
+        },
+        "authentication_required": {
+          "const": true
+        },
+        "bootstrap_token_ttl_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 600
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "bind_address": {
+                "not": {
+                  "enum": [
+                    "127.0.0.1",
+                    "::1"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "bind_address"
+            ]
+          },
+          "then": {
+            "properties": {
+              "tls": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              },
+              "allowed_origins": {
+                "items": {
+                  "pattern": "^https://"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "database": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "path",
+            "busy_timeout_ms"
+          ],
+          "properties": {
+            "kind": {
+              "const": "sqlite"
+            },
+            "path": {
+              "$ref": "#/$defs/RelativePath"
+            },
+            "busy_timeout_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "connection_secret_path",
+            "max_connections"
+          ],
+          "properties": {
+            "kind": {
+              "const": "postgresql"
+            },
+            "connection_secret_path": {
+              "$ref": "#/$defs/RelativePath"
+            },
+            "max_connections": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
+          }
+        }
+      ]
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "운영 구성의 송신 enable/endpoint만 정의한다. F_06의 동의·categories·revision·policy digest는 별도 권위 있는 telemetry config에 보존한다. 어느 한쪽이라도 OFF이면 외부 송신하지 않는다.",
+      "required": [
+        "enabled",
+        "endpoint"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "endpoint": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/HttpsUrl"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "endpoint": {
+                "$ref": "#/$defs/HttpsUrl"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "providers"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "providers": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/AiProvider"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": false
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "providers": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "providers": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_body_bytes",
+        "mcp_response_bytes",
+        "api_concurrency",
+        "queued_operations",
+        "lite_workers",
+        "analysis_wall_time_ms",
+        "analysis_memory_mib",
+        "max_active_policies"
+      ],
+      "properties": {
+        "api_body_bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 65536
+        },
+        "mcp_response_bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 262144
+        },
+        "api_concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "queued_operations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "lite_workers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "analysis_wall_time_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 5000
+        },
+        "analysis_memory_mib": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 128
+        },
+        "max_active_policies": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audit_days",
+        "diagnostic_log_days",
+        "aggregate_metric_days",
+        "packet_capture_enabled",
+        "disk_warning_percent",
+        "disk_stop_new_expansion_percent"
+      ],
+      "properties": {
+        "audit_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650
+        },
+        "diagnostic_log_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "aggregate_metric_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "packet_capture_enabled": {
+          "const": false,
+          "description": "기본 설정에서 full capture를 켜지 않는다. 제한 scope·기간·용량의 별도 승인된 운영 동작으로만 실행한다."
+        },
+        "disk_warning_percent": {
+          "const": 80
+        },
+        "disk_stop_new_expansion_percent": {
+          "const": 90
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_signed_artifacts",
+        "require_authenticated_ipc",
+        "allow_shell_execution",
+        "trust_registry_path",
+        "authority_state_path",
+        "executor_journal_path",
+        "evidence_path"
+      ],
+      "properties": {
+        "require_signed_artifacts": {
+          "const": true
+        },
+        "require_authenticated_ipc": {
+          "const": true
+        },
+        "allow_shell_execution": {
+          "const": false
+        },
+        "trust_registry_path": {
+          "$ref": "#/$defs/RelativePath"
+        },
+        "authority_state_path": {
+          "$ref": "#/$defs/RelativePath"
+        },
+        "executor_journal_path": {
+          "$ref": "#/$defs/RelativePath"
+        },
+        "evidence_path": {
+          "$ref": "#/$defs/RelativePath"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "RelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]*$",
+      "description": "state_root 기준의 portable relative path. lexical '..' segment, symlink escape, file/directory collision, unsafe ACL은 별도 semantic validator에서 거절한다. private key 내용은 설정에 넣지 않는다."
+    },
+    "HttpsUrl": {
+      "type": "string",
+      "format": "uri",
+      "minLength": 9,
+      "maxLength": 2048,
+      "pattern": "^https://",
+      "description": "userinfo/query/fragment/redirect 금지와 destination allowlist·SSRF/DNS 재검증은 semantic gate. 실제 endpoint를 자동 생성하지 않는다."
+    },
+    "Tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "certificate_path",
+        "private_key_path"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "certificate_path": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/RelativePath"
+            }
+          ]
+        },
+        "private_key_path": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/RelativePath"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "certificate_path": {
+                "$ref": "#/$defs/RelativePath"
+              },
+              "private_key_path": {
+                "$ref": "#/$defs/RelativePath"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": false
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "certificate_path": {
+                "type": "null"
+              },
+              "private_key_path": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AiProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_id",
+        "endpoint",
+        "credential_path",
+        "model_id"
+      ],
+      "properties": {
+        "provider_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "endpoint": {
+          "$ref": "#/$defs/HttpsUrl"
+        },
+        "credential_path": {
+          "$ref": "#/$defs/RelativePath"
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,370 @@
+{
+  "status": "PASS",
+  "passed": 27,
+  "failed": 0,
+  "failures": []
+}
+{
+  "schema_version": "fw.contract-check/v1",
+  "passed": 4,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "preserved_specification_hashes",
+      "passed": true,
+      "count": 52
+    },
+    {
+      "name": "core_schema_compatibility",
+      "passed": true,
+      "count": 25
+    },
+    {
+      "name": "core_reference_fixtures",
+      "passed": true,
+      "count": 52
+    },
+    {
+      "name": "extended_contract_fixtures",
+      "passed": true,
+      "count": 28
+    }
+  ],
+  "native_enforcement_verified": false
+}
+PASS: 6 locales, 119 keys, placeholder parity and escaped React rendering. Human language review remains unverified.
+    Checking fw_control v0.1.0 (/workspace/Nox_Warden/crates/fw_control)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.37s
+   Compiling fw_control v0.1.0 (/workspace/Nox_Warden/crates/fw_control)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.23s
+     Running unittests src/lib.rs (target/debug/deps/fw_audit-d69f0ea6c6dca061)
+
+running 8 tests
+test tests::csv_does_not_execute_formulas ... ok
+test tests::completeness_requires_available_evidence_and_independent_stages ... ok
+test tests::cycle_dangling_and_duplicate_nodes_rejected ... ok
+test tests::redaction_is_derivative_never_original_signature_pass ... ok
+test tests::tenant_store_and_classification_cannot_be_asserted_by_sender ... ok
+test tests::merkle_odd_node_is_promoted_not_duplicated ... ok
+test tests::valid_graph_checks_real_content ... ok
+test tests::dsse_binds_payload_edges_tenant_and_current_key ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_authority-497a3d815c4b6065)
+
+running 21 tests
+test approval::tests::reject_decision_cannot_join_approval_set ... ok
+test approval::tests::rejects_stale_approval_epoch_and_requirement_substitution ... ok
+test approval::tests::rejects_self_approval_and_duplicate_humans ... ok
+test approval::tests::unverified_or_revoked_proof_never_becomes_authority ... ok
+test approval::tests::verifies_immutable_binding_after_proof ... ok
+test approval::tests::profiles_cannot_be_weakened ... ok
+test quota::concurrency_tests::backwards_clock_does_not_create_new_credit ... ok
+test quota::concurrency_tests::rolling_window_excludes_exact_old_boundary ... ok
+test quota::tests::idempotency_conflict_and_no_refund ... ok
+test quota::tests::project_quota_failure_does_not_consume_root ... ok
+test quota::tests::root_and_project_are_atomic_and_unknown_is_held ... ok
+test tests::dsse_pae_uses_byte_lengths ... ok
+test quota::concurrency_tests::consumed_or_released_reservation_cannot_authorize_new_signature ... ok
+test tests::overlong_grant_and_counter_forms_rejected ... ok
+test tests::policy_change_payload_has_separate_domain ... ok
+test quota::concurrency_tests::separate_connections_cannot_oversubscribe_and_survive_reopen ... ok
+test tests::domain_separation_and_unknown_fields ... ok
+test tests::expiry_and_revocation_are_strict ... ok
+test tests::tampering_either_payload_or_envelope_fails ... ok
+test tests::verifies_exact_fixture_fields ... ok
+test tests::tenant_plan_epoch_and_approval_bindings ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_backend_linux-daaf77cd22d141eb)
+
+running 6 tests
+test tests::ipv6_udp_keeps_family_and_protocol_distinct ... ok
+test tests::expires_without_reset_and_review_deny_remains ... ok
+test tests::tenant_mismatch_and_untrusted_clock_reject ... ok
+test tests::unsupported_icmp_and_future_activation_never_produce_artifacts ... ok
+test tests::dual_guards_and_reverse_interface ... ok
+test tests::deterministic_order_and_deny_precedence ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/fw_cli-f1dfef9a6c08c068)
+
+running 1 test
+test tests::origin_validation_rejects_credential_confusion ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_contracts-bbce95958fae0111)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/adversarial.rs (target/debug/deps/adversarial-44b137316fba1eb4)
+
+running 7 tests
+test counter_is_canonical_u64_and_overflow_never_wraps ... ok
+test duplicate_keys_cannot_choose_first_or_last_authority ... ok
+test float_nonfinite_unsafe_and_malformed_numbers_are_rejected ... ok
+test canonical_golden_preserves_unicode_and_array_order ... ok
+test unknown_fields_are_rejected_by_closed_domain_type ... ok
+test admission_limits_utf8_depth_size_and_trailing_documents ... ok
+test reference_fixture_hashes_match_published_plan_and_grant ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_control-b5bf13f27f78e523)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/fw_control-2d8b9768d9cae9b1)
+
+running 2 tests
+test tests::token_and_directory_symlinks_are_rejected ... ok
+test tests::token_replacement_is_private_and_does_not_modify_hardlink_target ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/http.rs (target/debug/deps/http-2287080499e91808)
+
+running 5 tests
+test body_limit_rejects_oversize ... ok
+test protected_reads_and_single_use_bootstrap ... ok
+test csrf_and_native_admission_are_enforced ... ok
+test strict_json_rejects_duplicate_and_unknown_fields ... ok
+test request_idempotency_persists_without_authorizing_network ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_domain-7648795d6dab8a20)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/semantics.rs (target/debug/deps/semantics-e548b5cbefed65bc)
+
+running 12 tests
+test c06_normalization_only_orders_sets_and_owned_nfc_text ... ok
+test invalid_flow_and_duplicate_policy_fail_closed ... ok
+test ipv6_icmp_has_separate_protocol_type_and_no_wildcard_port ... ok
+test c05_scope_rejects_widening_cidr_and_bad_transport ... ok
+test c10_allow_limits_and_tagged_lifetime_fields ... ok
+test published_policy_is_wire_compatible_and_valid ... ok
+test s01_s02_half_open_lifetime_and_current_union ... ok
+test s04_protocol_interface_and_tenant_cannot_reuse_permission ... ok
+test timestamps_require_valid_canonical_utc_integer_seconds ... ok
+test s03_review_deadline_never_removes_deny ... ok
+test scope_subset_understands_adjacent_union_and_intersections ... ok
+test permutation_and_monotonicity_properties_across_time_and_ports ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.69s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_executor-95ab2018dddbcf13)
+
+running 13 tests
+test tests::authority_epoch_transition_requires_new_enrollment ... ok
+test tests::clock_rollback_cannot_accept_or_submit_before_issue ... ok
+test tests::expired_prepared_replay_is_read_only_and_cannot_submit ... ok
+test tests::lost_journal_not_created_and_existing_not_overwritten ... ok
+test tests::forged_confirm_does_not_change_state ... ok
+test tests::replay_conflict_and_not_applied_consumes_generation ... ok
+test tests::restart_and_delayed_observation_do_not_extend_confirm_deadline ... ok
+test tests::restart_preserves_generation_and_unknown ... ok
+test tests::stale_watchdog_cannot_claim_new_generation ... ok
+test tests::unknown_journal_version_is_not_assigned_fabricated_time_bounds ... ok
+test tests::confirm_after_relative_timeout_rejected_before_absolute_cap ... ok
+test tests::recovery_wins_and_unknown_is_not_active ... ok
+test tests::signed_confirm_requires_observation_and_fences_watchdog ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_mcp-e9c8934e8d0de3f4)
+
+running 3 tests
+test tests::privileged_tools_never_dispatch ... ok
+test tests::protocol_initializes ... ok
+test tests::reads_return_shared_evidence ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_planner-fa34549ea60f4542)
+
+running 16 tests
+test tests::add_deny_cannot_smuggle_allow ... ok
+test tests::cannot_extend_allow_or_change_owner ... ok
+test tests::deleting_deny_without_any_allow_is_equivalent ... ok
+test tests::ipv6_proof_includes_high_addresses_and_excludes_mapped_addresses ... ok
+test tests::exact_semantics_empty_to_allow_is_expanding_and_inverse_restricting ... ok
+test tests::deny_removal_is_expanding_only_where_other_allows_exist ... ok
+test tests::resource_bound_is_unknown_and_never_partial_pass ... ok
+test tests::semantic_unknown_cannot_be_overridden_by_pass_gates ... ok
+test tests::replacing_allowed_destination_is_mixed ... ok
+test tests::shortening_absolute_lifetime_is_restricting ... ok
+test tests::overlapping_allow_union_and_policy_reordering_are_equivalent ... ok
+test tests::stale_and_duplicate_patch_rejected ... ok
+test tests::patch_preserves_existing_allow_and_denies ... ok
+test tests::tombstone_prevents_resurrection ... ok
+test tests::state_hash_stable_but_metadata_changes_bound ... ok
+test tests::unsupported_icmp_proof_and_changed_context_stay_unknown ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_store-dda801b3f1cdfc03)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/lite.rs (target/debug/deps/lite-03b22a8d58c0f279)
+
+running 21 tests
+test canonical_key_order_does_not_conflict ... ok
+test changed_migration_checksum_prevents_startup ... ok
+test append_only_database_constraints_and_tamper_detection ... ok
+test cross_tenant_ids_and_principals_do_not_leak ... ok
+test denials_do_not_elevate_untrusted_actor_and_clock_regression_rolls_back ... ok
+test concurrent_cas_has_exactly_one_winner ... ok
+test durable_reopen_and_online_backup_preserve_chain_and_replay ... ok
+test idempotency_is_scoped_to_principal_and_route ... ok
+test injected_audit_failure_rolls_back_outbox_and_request ... ok
+test generation_exhaustion_fails_closed ... ok
+test outbox_claim_expiry_is_exclusive ... ok
+test injected_outbox_failure_rolls_back_business_and_audit ... ok
+test outbox_expired_claims_are_fenced ... ok
+test policy_drafts_cannot_cross_tenant_or_target_foreign_keys ... ok
+test request_audit_outbox_and_original_response_are_atomic_and_replayable ... ok
+test policy_drafts_preserve_revisions_and_reject_allow_expansion ... ok
+test same_key_different_body_conflicts_without_side_effects ... ok
+test unsigned_u64_encodings_preserve_full_range_and_order ... ok
+test unenrolled_requests_commit_terminal_failure_and_replay_atomically ... ok
+test strict_identifiers_limits_and_state_transitions ... ok
+test one_hundred_concurrent_duplicates_create_one_request ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running unittests src/lib.rs (target/debug/deps/fw_telemetry-b0694a342fc9ceb6)
+
+running 9 tests
+test tests::default_off_has_no_endpoint_aggregation_or_send_permit ... ok
+test tests::endpoint_is_protected_https_and_missing_policy_cannot_enable ... ok
+test tests::categories_are_independent_and_payload_is_an_allowlist ... ok
+test tests::disable_invalidates_acquired_permits_purges_queue_and_reconsent_rotates_identity ... ok
+test tests::expiry_prunes_queued_reports_and_patch_versions_are_rejected ... ok
+test tests::report_retry_is_identical_and_delivered_day_cannot_be_duplicated ... ok
+test tests::reports_require_complete_recent_dates_and_no_preconsent_data ... ok
+test tests::stale_consent_and_policy_changes_do_not_expand_permission ... ok
+test tests::counts_saturate_and_months_have_independent_ids ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/main.rs (target/debug/deps/fw_testlab-4018917aceeca09a)
+
+running 2 tests
+test tests::invalid_backend_rejected ... ok
+test tests::native_report_never_claims_unexecuted_packets_passed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_audit
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_authority
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_backend_linux
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_contracts
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_control
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_domain
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_executor
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_planner
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fw_telemetry
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+> fw-web@0.1.0 check
+> tsc --noEmit && python ../scripts/check_locales.py
+
+PASS: 6 locales, 119 keys, placeholder parity and escaped React rendering. Human language review remains unverified.
+
+> fw-web@0.1.0 test
+> vitest --run
+
+
+ RUN  v4.1.12 /workspace/Nox_Warden/web
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  05:11:59
+   Duration  1.53s (transform 146ms, setup 112ms, import 178ms, tests 767ms, environment 368ms)
+
+
+> fw-web@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v7.3.7 building client environment for production...
+transforming...
+✓ 32 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.41 kB │ gzip:  0.28 kB
+dist/assets/index-D5wi7ShS.css   15.34 kB │ gzip:  4.34 kB
+dist/assets/index-LS7wt4hH.js   257.97 kB │ gzip: 82.76 kB
+✓ built in 944ms

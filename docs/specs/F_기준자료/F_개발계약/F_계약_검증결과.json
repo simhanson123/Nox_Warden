@@ -1,0 +1,298 @@
+{
+  "schema_version": "f.contract-test-report/v1",
+  "status": "passed",
+  "test_count": 52,
+  "passed": 52,
+  "failed": 0,
+  "schema_definitions": 25,
+  "mcp_tools": 6,
+  "fixture_time": "2026-10-30T09:00:02Z",
+  "executed_checks": [
+    "JSON Schema meta-validation",
+    "closed schema and tagged outputs",
+    "CIDR/ports/family/interfaces/time semantics",
+    "cross-object hashes and identifiers",
+    "authority scope and projected quota arithmetic",
+    "negative-state mutation fixtures"
+  ],
+  "not_executed": [
+    "cryptographic signature authenticity",
+    "trusted identity and service-to-port resolution",
+    "real approval verification",
+    "atomic shared quota accounting",
+    "baseline plus access-patch composition and full candidate semantics",
+    "kernel packet enforcement and expiry",
+    "vendor/device interoperability",
+    "live MCP protocol conformance"
+  ],
+  "signature_authenticity_verified": false,
+  "results": [
+    {
+      "name": "valid_linked_fixture",
+      "passed": true,
+      "detail": "[]"
+    },
+    {
+      "name": "reversed_ports",
+      "passed": true,
+      "detail": "PORT_RANGE_REVERSED"
+    },
+    {
+      "name": "invalid_cidr",
+      "passed": true,
+      "detail": "INVALID_CIDR"
+    },
+    {
+      "name": "host_bits_in_cidr",
+      "passed": true,
+      "detail": "INVALID_CIDR"
+    },
+    {
+      "name": "family_mismatch",
+      "passed": true,
+      "detail": "FAMILY_MISMATCH"
+    },
+    {
+      "name": "icmp_family_mismatch",
+      "passed": true,
+      "detail": "FAMILY_MISMATCH"
+    },
+    {
+      "name": "expiry_before_start",
+      "passed": true,
+      "detail": "INVALID_LIFETIME"
+    },
+    {
+      "name": "lease_over_24h",
+      "passed": true,
+      "detail": "LIFETIME_LIMIT"
+    },
+    {
+      "name": "forward_missing_interface",
+      "passed": true,
+      "detail": "INTERFACE_DIRECTION"
+    },
+    {
+      "name": "unknown_policy_property",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "non_nfc_domain_value",
+      "passed": true,
+      "detail": "NON_NFC_VALUE"
+    },
+    {
+      "name": "ipv4_mapped_ipv6",
+      "passed": true,
+      "detail": "IPV4_MAPPED_IPV6"
+    },
+    {
+      "name": "deny_review_valid",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "deny_cannot_have_enforcement_expiry",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "outside_envelope",
+      "passed": true,
+      "detail": "POLICY_HASH,REQUESTED_POLICIES_MISMATCH,REQUEST_PATCH_HASH,SCOPE_OUTSIDE_ENVELOPE"
+    },
+    {
+      "name": "unauthorized_principal",
+      "passed": true,
+      "detail": "GRANT_REFERENCE,MCP_PLAN_REFERENCE,PLAN_HASH,PRINCIPAL_UNAUTHORIZED,RECEIPT_HASH"
+    },
+    {
+      "name": "wrong_workload",
+      "passed": true,
+      "detail": "REQUEST_HASH,WORKLOAD_UNBOUND"
+    },
+    {
+      "name": "delegation_quota_exceeded",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,QUOTA_EXCEEDED,RECEIPT_HASH"
+    },
+    {
+      "name": "quota_undercount",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,QUOTA_UNDERCOUNT,RECEIPT_HASH"
+    },
+    {
+      "name": "concurrent_deployment_quota",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,QUOTA_EXCEEDED,RECEIPT_HASH"
+    },
+    {
+      "name": "wrong_quota_window",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,QUOTA_WINDOW,RECEIPT_HASH"
+    },
+    {
+      "name": "lease_beyond_workload_lifetime",
+      "passed": true,
+      "detail": "LIFETIME_OUTSIDE_WORKLOAD,MCP_PLAN_REFERENCE,PLAN_HASH,RECEIPT_HASH"
+    },
+    {
+      "name": "signed_bytes_payload_mismatch",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,GRANT_REFERENCE,RECEIPT_HASH"
+    },
+    {
+      "name": "confirmation_deadline_exceeded",
+      "passed": true,
+      "detail": "CONFIRM_DEADLINE,CONFIRM_SEQUENCE"
+    },
+    {
+      "name": "tampered_plan_hash",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,PLAN_HASH,RECEIPT_HASH"
+    },
+    {
+      "name": "stale_policy_revision",
+      "passed": true,
+      "detail": "POLICY_HASH,REQUESTED_POLICIES_MISMATCH,REQUEST_PATCH_HASH"
+    },
+    {
+      "name": "wrong_generation",
+      "passed": true,
+      "detail": "DSSE_PAYLOAD_MISMATCH,GRANT_REFERENCE,RECEIPT_HASH,RECEIPT_REFERENCE"
+    },
+    {
+      "name": "required_gate_unknown",
+      "passed": true,
+      "detail": "MCP_PLAN_REFERENCE,PLAN_HASH,RECEIPT_HASH,REQUIRED_GATE_NOT_PASS"
+    },
+    {
+      "name": "missing_required_gate",
+      "passed": true,
+      "detail": "GATE_SET,MCP_PLAN_REFERENCE,PLAN_HASH,RECEIPT_HASH"
+    },
+    {
+      "name": "grant_over_5min",
+      "passed": true,
+      "detail": "CONFIRM_WINDOW,DSSE_PAYLOAD_MISMATCH,GRANT_TTL,GRANT_WINDOW,RECEIPT_HASH,RESERVATION_EXPIRED"
+    },
+    {
+      "name": "expired_grant",
+      "passed": true,
+      "detail": "CONFIRM_WINDOW,DSSE_PAYLOAD_MISMATCH,GRANT_EXPIRED,RECEIPT_HASH"
+    },
+    {
+      "name": "observed_state_wrong",
+      "passed": true,
+      "detail": "OBSERVED_STATE_MISMATCH"
+    },
+    {
+      "name": "active_with_unknown_receipt",
+      "passed": true,
+      "detail": "ACTIVE_WITHOUT_RECEIPT"
+    },
+    {
+      "name": "active_with_unknown_target",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "deploy_succeeded_not_active",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "active_null_data",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "missing_lease_id",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "child_delegation_forbidden",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "access_patch_cannot_be_ruleset_replace",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "duplicate_policy_id",
+      "passed": true,
+      "detail": "DUPLICATE_POLICY_ID,POLICY_HASH,REQUESTED_POLICIES_MISMATCH,REQUEST_PATCH_HASH"
+    },
+    {
+      "name": "request_injected_principal",
+      "passed": true,
+      "detail": "SCHEMA"
+    },
+    {
+      "name": "get_capabilities_rejects_active_null",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "request_access_rejects_active_null",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "get_plan_rejects_active_null",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "get_operation_rejects_active_null",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "request_deployment_rejects_active_null",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "release_access_rejects_active_null",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "output_above_256kib_rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "duplicate_json_keys_rejected",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "canonical_key_order",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "unicode_not_silently_normalized",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "reference_clock_cannot_use_expired_fixture",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "input_hashes": {
+    "F_계약_스키마.json": "sha256:d5d16b87c56097c64a236eec3cdb99cbbf91d933da5b4f1ba2817495c338a7e8",
+    "F_계약_예제.json": "sha256:2c0f20c6e58833cebd69ea462837f1ac73a2bd90939463820f55381b23a3de1a",
+    "F_MCP_도구_카탈로그.json": "sha256:b9208d8ea23edb87a20481bee30f4517d2a80f8a658c4f03ae7a3bbfd85abb8f",
+    "F_참조검증기.py": "sha256:523cba55e152e212e626d8a8e0c14c8c2b0f41c344b8894cefe6aa4310fbe3d8",
+    "F_차단정책_예제.json": "sha256:994cbc1d39f0e433142f230ae1670eef05eb4e9db0731214f0ff6c3fa257a0db"
+  }
+}

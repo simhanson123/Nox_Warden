@@ -1,0 +1,30 @@
+{
+  "schema_version": "fw.audit-run/v1",
+  "tool": "cargo-audit",
+  "tool_version": "0.22.2",
+  "executed_at": "2026-10-30T05:08:14.328442+00:00",
+  "command": [
+    "/workspace/toolchains/cargo-audit/bin/cargo-audit",
+    "audit",
+    "--file",
+    "Cargo.lock",
+    "--db",
+    "/workspace/toolchains/rustsec-advisory-db",
+    "--no-fetch",
+    "--json"
+  ],
+  "exit_code": 0,
+  "cargo_lock_sha256": "c4186a0209a4c2639dacdda6757b0dfc59b9d9c37a27354eeb503a03821b6909",
+  "advisory_database_source": "https://github.com/RustSec/advisory-db.git",
+  "advisory_database_commit": "ee1a49a2769a24a596afc1c20cb33748d2769586",
+  "advisory_database_commit_time": "2026-10-29T15:05:38+01:00",
+  "advisory_fetch": "Official database freshly cloned over verified HTTPS immediately before this run; --no-fetch reuses that recorded snapshot. Registry yanked-package checks remained enabled.",
+  "scope": "Known RustSec advisories and registry yanks for Cargo.lock; not a code audit, license review, or guarantee of vulnerability absence.",
+  "report_parseable": true,
+  "vulnerabilities": {
+    "found": false,
+    "count": 0,
+    "list": []
+  },
+  "warnings": {}
+}

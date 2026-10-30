@@ -1,0 +1,23 @@
+{
+  "status": "PASS",
+  "checks": [
+    "HTTP health",
+    "unauthenticated rejected",
+    "one-use session bootstrap",
+    "observe without enforcement or telemetry",
+    "request stored",
+    "idempotent resource",
+    "request needs enrollment",
+    "validation explicitly failed",
+    "operation list",
+    "idempotency conflict",
+    "duplicate JSON rejected",
+    "native deployment blocked",
+    "audit evidence exists",
+    "MCP no approval or native write tools",
+    "static application served"
+  ],
+  "count": 15,
+  "native_enforcement_tested": false,
+  "credentials_in_report": false
+}
