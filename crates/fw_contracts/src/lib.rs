@@ -13,6 +13,9 @@ use std::fmt;
 mod float_guard;
 
 pub const MAX_BODY_BYTES: usize = 65_536;
+/// Upper bound for explicit internal artifact/evidence admission. Public APIs
+/// continue to use `MAX_BODY_BYTES` through `parse_value` / `parse_strict`.
+pub const MAX_INTERNAL_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_DEPTH: usize = 32;
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -101,7 +104,13 @@ impl<'de> Visitor<'de> for StrictVisitor {
 /// Strict syntax admission. Unknown-field rejection belongs to the destination
 /// closed type; use `parse_strict::<YourDenyUnknownFieldsType>` for API objects.
 pub fn parse_value(bytes: &[u8]) -> Result<Value, ContractError> {
-    if bytes.len() > MAX_BODY_BYTES {
+    parse_value_with_limit(bytes, MAX_BODY_BYTES)
+}
+
+/// Internal callers must choose an explicit bounded budget; all strict syntax
+/// checks remain identical to the public parser. A budget above 16 MiB is invalid.
+pub fn parse_value_with_limit(bytes: &[u8], max_bytes: usize) -> Result<Value, ContractError> {
+    if max_bytes == 0 || max_bytes > MAX_INTERNAL_BYTES || bytes.len() > max_bytes {
         return Err(ContractError::BodyTooLarge);
     }
     let mut d = serde_json::Deserializer::from_slice(bytes);
@@ -112,6 +121,15 @@ pub fn parse_value(bytes: &[u8]) -> Result<Value, ContractError> {
 
 pub fn parse_strict<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, ContractError> {
     Ok(serde_json::from_value(parse_value(bytes)?)?)
+}
+
+pub fn parse_strict_with_limit<T: DeserializeOwned>(
+    bytes: &[u8],
+    max_bytes: usize,
+) -> Result<T, ContractError> {
+    Ok(serde_json::from_value(parse_value_with_limit(
+        bytes, max_bytes,
+    )?)?)
 }
 
 fn canonical_value(value: &Value, depth: usize, out: &mut Vec<u8>) -> Result<(), ContractError> {

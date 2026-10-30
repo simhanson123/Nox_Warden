@@ -12,19 +12,22 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
 
 ## Current functionality
 
+- Linux device registration with a fingerprint-bound invitation, pinned TLS trust,
+  Ed25519 client certificates and authenticated capability reports. A real target
+  appears after its first report; every enforcement capability remains unverified.
 - Authenticated local asset and service catalogues with immutable revisions,
-  ETags, tenant isolation and transactional audit records. Service creation
-  requires an existing target; manual records do not establish trusted identity.
+  ETags, tenant isolation and transactional audit records. Services can reference
+  registered targets with current credentials and reports.
 - Access requests with strict JSON validation, normalization, idempotent storage
-  and operation/audit queries. Requests without enrollment and authority remain
-  `needs_info`; they are not presented as active network permissions.
+  and operation/audit queries. Requests without workload binding and authority
+  remain `needs_info`; they are not presented as active network permissions.
 - Policy and security libraries for deny precedence, current allow union, bounded
   leases, policy comparison, approval requirements, Ed25519 DSSE, atomic quotas,
   durable executor journals, audit verification and opt-in telemetry state.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.
-- A real isolated Linux nftables packet smoke suite, separate from the application
-  and from full platform qualification.
+- An isolated Linux nftables packet suite and bounded semantic readback verifier
+  that detects rule, scope and expiry changes in the experimental compiler output.
 
 See [implementation boundaries](docs/implementation.md), [platform status](docs/platform-support.md)
 and the concise [task ledger](reports/task-ledger.json) for remaining work.
@@ -32,7 +35,9 @@ and the concise [task ledger](reports/task-ledger.json) for remaining work.
 ## Run locally
 
 Required tools: Rust **1.99.1**, Node **24.19.0**, npm **11.9.0**, and Python 3 with
-`scripts/requirements.txt`. Cargo and npm dependencies use committed lockfiles.
+`scripts/requirements.txt`, plus OpenSSL development headers and `pkg-config`
+(on Debian/Ubuntu: `libssl-dev pkg-config`). Cargo and npm dependencies use
+committed lockfiles.
 For the managed Linux x86_64 workspace, `bash scripts/install-rust.sh` installs
 the pinned toolchain when needed. Other hosts can use rustup with
 `rust-toolchain.toml`.
@@ -53,10 +58,10 @@ Sessions end when the server restarts. The browser stores only the selected
 language, never credentials or API data.
 
 This local development profile uses loopback HTTP, HttpOnly/SameSite cookies,
-Origin checks and CSRF protection. Remote TLS, OIDC and WebAuthn integration are
-not available. Configure the state directory with `FW_STATE_DIR`, port with
-`FW_PORT`, and static asset directory with `FW_WEB_DIR`; remote binding is not
-supported.
+Origin checks and CSRF protection. The separate device enrollment listener uses
+TLS 1.3 on loopback when explicitly configured. Remote management, OIDC and
+WebAuthn are unavailable. Configure the state directory with `FW_STATE_DIR`,
+HTTP port with `FW_PORT`, and static asset directory with `FW_WEB_DIR`.
 
 ```sh
 cargo run -p fw_cli -- health
@@ -72,13 +77,20 @@ Tokens and cookies are not command-line arguments or log output. Secure credenti
 file handling currently supports Unix; Windows ACL support remains incomplete.
 See the [CLI guide](crates/fw_cli/README.md).
 
+To register a Linux device, follow the [device enrollment guide](docs/device-enrollment.md):
+create the controller PKI once, initialize the device identity, issue a protected
+invitation, enroll with a verified CA pin, and submit a capability report. This
+unlocks real target selection in the service catalogue. Registration remains
+observe-only; it does not approve a policy or install firewall rules.
+
 ## Validation and release status
 
 ```sh
 bash scripts/check.sh
-cargo build -p fw_control -p fw_cli --locked
+cargo build -p fw_control -p fw_cli -p fw_agent --locked
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
+python scripts/smoke_enrollment.py
 ```
 
 The [verification summary](reports/README.md) records scope, reproducible commands
@@ -86,11 +98,11 @@ and CI links. Detailed logs, screenshots and generated reports are local outputs
 or short-lived CI artifacts, rather than recurring source commits.
 
 The [Linux lab](native/linux/README.md) exercises actual IPv4/IPv6 TCP/UDP allow,
-deny and connection expiry in an isolated network namespace. Full Linux
-qualification, Windows WFP/callout and macOS Network Extension implementations,
+deny, connection expiry and actual rule-tamper detection in an isolated network
+namespace. Full Linux qualification, Windows WFP/callout and macOS Network Extension implementations,
 independent authority/watchdog integration, signed installers and production
-identity/enrollment remain unfinished. Unit, HTTP and browser tests do not replace
-native platform qualification.
+identity lifecycle, certificate renewal and remote enrollment remain unfinished.
+Unit, HTTP and browser tests do not replace native platform qualification.
 
 Telemetry and donations are not enabled. No package release, paid cloud resource
 or production firewall deployment has been performed.

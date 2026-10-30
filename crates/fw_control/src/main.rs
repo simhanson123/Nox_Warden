@@ -69,20 +69,66 @@ fn write_bootstrap_token(state_dir: &Path, token: &str) -> io::Result<PathBuf> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_dir = PathBuf::from(std::env::var("FW_STATE_DIR").unwrap_or_else(|_| "state".into()));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--help"] {
+        println!(
+            "fw_control [init-enrollment-ca]\nFW_STATE_DIR: private controller state (default state)\nFW_ENROLLMENT_DIR: optional private enrollment PKI directory\nFW_ENROLLMENT_PORT: separate loopback TLS port (default 8791)\ninit-enrollment-ca creates fresh keys once; it never replaces existing keys.\nDevice enrollment does not enable host firewall enforcement."
+        );
+        return Ok(());
+    }
+    if args == ["init-enrollment-ca"] {
+        let directory = if let Some(directory) = std::env::var_os("FW_ENROLLMENT_DIR") {
+            PathBuf::from(directory)
+        } else {
+            prepare_state_dir(&state_dir)?;
+            state_dir.join("enrollment")
+        };
+        let pki = fw_enrollment::init_controller_pki(&directory, chrono::Utc::now().timestamp())?;
+        println!(
+            "{}",
+            serde_json::json!({
+                "pki_directory": directory,
+                "ca_file": directory.join("ca.pem"),
+                "trust_bundle_hash": pki.authority.trust_bundle_hash(),
+                "mode": "observe"
+            })
+        );
+        return Ok(());
+    }
+    if !args.is_empty() {
+        return Err("unknown command; see --help".into());
+    }
     prepare_state_dir(&state_dir)?;
     let port: u16 = std::env::var("FW_PORT")
         .unwrap_or_else(|_| "8787".into())
         .parse()?;
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(address).await?;
+    // Validate and bind enrollment before serving the public API. Missing/bad TLS
+    // configuration must fail startup instead of leaving a usable token issuer.
+    let enrollment = if let Some(directory) = std::env::var_os("FW_ENROLLMENT_DIR") {
+        let pki = fw_enrollment::load_controller_pki(
+            Path::new(&directory),
+            chrono::Utc::now().timestamp(),
+        )?;
+        let enrollment_port: u16 = std::env::var("FW_ENROLLMENT_PORT")
+            .unwrap_or_else(|_| "8791".into())
+            .parse()?;
+        let enrollment_address = std::net::SocketAddr::from(([127, 0, 0, 1], enrollment_port));
+        let listener = fw_control::tls::EnrollmentListener::bind(enrollment_address, &pki).await?;
+        Some((listener, pki.authority))
+    } else {
+        None
+    };
     let token = fw_control::generate_token();
     let token_path = write_bootstrap_token(&state_dir, &token)?;
     let store = fw_store::Store::open(state_dir.join("controller.sqlite3"))?;
-    let state = Arc::new(fw_control::AppState::new(
-        store,
-        format!("http://{address}"),
-        &token,
-    )?);
+    let state = fw_control::AppState::new(store, format!("http://{address}"), &token)?;
+    let (state, enrollment_listener) = match enrollment {
+        Some((listener, authority)) => (state.with_enrollment(authority), Some(listener)),
+        None => (state, None),
+    };
+    let state = Arc::new(state);
     let web = PathBuf::from(std::env::var("FW_WEB_DIR").unwrap_or_else(|_| "web/dist".into()));
     eprintln!(
         "fw_control listening on {address}; observe-only development profile; no native enforcement"
@@ -91,11 +137,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "One-use local login token (10-minute lifetime) stored at {}",
         token_path.display()
     );
-    axum::serve(listener, fw_control::router(state, web))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    async fn shutdown() {
+        let _ = tokio::signal::ctrl_c().await;
+    }
+    let public = async {
+        axum::serve(listener, fw_control::router(state.clone(), web))
+            .with_graceful_shutdown(shutdown())
+            .await
+    };
+    if let Some(listener) = enrollment_listener {
+        eprintln!(
+            "Device enrollment listening on https://{}; transport registration only",
+            listener.local_socket_addr()?
+        );
+        let internal = async {
+            axum::serve(
+                listener,
+                fw_control::enrollment_router(state.clone())
+                    .into_make_service_with_connect_info::<fw_control::tls::TlsPeer>(),
+            )
+            .with_graceful_shutdown(shutdown())
+            .await
+        };
+        tokio::try_join!(public, internal)?;
+    } else {
+        public.await?;
+    }
     Ok(())
 }
 

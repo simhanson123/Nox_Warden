@@ -34,9 +34,9 @@ English is the default on a first visit, regardless of browser language. Users
 can choose Korean, Japanese, Spanish, German, French, Simplified Chinese or
 Traditional Chinese; an explicitly selected language is remembered locally.
 An invalid or inaccessible stored preference falls back to English. Eight locale
-catalogs contain 169 keys with automated key and placeholder parity.
+catalogs have automated key and placeholder parity.
 Security translation review by native speakers remains incomplete. The UI does
-not yet implement the full F-2.0 plan approval, topology graph, enrollment,
+not yet implement the full F-2.0 plan approval, topology graph, enrollment management,
 telemetry consent management or complete route set. Native enforcement and
 platform qualification cannot be inferred from this client or component tests.
 
@@ -49,7 +49,7 @@ The live browser check requires Python Playwright and Chromium. From the
 repository root, start a fresh development controller and run:
 
 ```sh
-python scripts/smoke_browser.py --token-file state/live/bootstrap-token --output reports/browser
+python scripts/smoke_browser.py --token-file state/bootstrap-token --output reports/browser
 ```
 
 The token must be fresh and is never copied into logs or screenshots. The test
@@ -62,9 +62,30 @@ language certification.
 Asset writes use the exact `AssetWrite` DTO with `manual` provenance and null
 source evidence. Registry revisions require the precise ETag from the current
 resource; stale responses block resubmission until a fresh review. Service forms
-use registered destinations and targets and cannot invent an enrollment. In the
-current local controller there are no genuinely enrolled targets, so service
-creation remains visibly blocked. Access requests select only registry assets and
-services; neither manual registration nor a selected asset attests workload
-identity. Component tests use isolated target fixtures to verify service payloads;
-these do not establish a live service-creation or native-enforcement capability.
+use registered destinations and targets and cannot invent an enrollment. In a
+fresh controller, service creation remains blocked until the device workflow
+provides a registered target and its first authenticated capability report.
+Follow the [device enrollment guide](../docs/device-enrollment.md) to initialize
+the Linux client, issue an invitation and report over mTLS. The Targets page then
+shows the actual target, and service forms can select it alongside a stored
+destination asset. Stale reports and revoked or expired credentials cannot
+establish an available target. The CLI handles invitations and revocation; a
+dedicated enrollment-management screen is not implemented.
+
+The agent report lasts five minutes; run `fw_agent report` again when needed.
+Registration and a real capability hash do not mean enforcement is qualified.
+Desired/observed policy hashes remain null and all enforcement capabilities are
+unverified. Access requests select only registry assets and services; neither
+manual registration nor a selected target attests workload identity or activates
+network access.
+
+A separate integration check starts real controller, CLI and agent processes,
+enrolls a device over pinned TLS, reports over mTLS, and verifies live browser
+target selection and persisted service creation:
+
+```sh
+python scripts/smoke_enrollment.py --browser
+```
+
+This check uses temporary private state and does not alter the host firewall.
+Browser and component tests remain distinct from native platform qualification.

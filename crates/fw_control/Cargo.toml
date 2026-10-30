@@ -15,6 +15,8 @@ chrono.workspace = true
 fw_contracts = { path = "../fw_contracts" }
 fw_store = { path = "../fw_store" }
 fw_mcp = { path = "../fw_mcp" }
+fw_enrollment = { path = "../fw_enrollment" }
+tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring"] }
 tower-http = { version = "0.6.6", features = ["fs", "limit", "set-header"] }
 subtle = "2.6.1"
 unicode-normalization = "0.1.26"

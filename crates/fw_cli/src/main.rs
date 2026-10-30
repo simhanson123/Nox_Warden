@@ -1,4 +1,5 @@
-//! Local development login and read-only controller client.
+//! Local development login, device invitations and controller queries.
+mod enrollment;
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -31,14 +32,9 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] {
         println!(
-            "fw_cli <login|health|status|requests|operations|audit|capabilities|assets|services>\nEnvironment:\n  FW_API_URL: controller origin (default http://127.0.0.1:8787)\n  FW_BOOTSTRAP_FILE: protected token file (default state/bootstrap-token)\n  FW_SESSION_FILE: private local session file (default state/cli-session.json)\nRun login once after starting the controller, then use authenticated read commands.\nLogin currently requires Unix private-file protections. No command changes the host firewall."
+            "fw_cli <login|health|status|requests|operations|audit|capabilities|assets|services|targets|enrollments>\n  fw_cli enroll-token --name NAME --platform linux --fingerprint SHA256 --output FILE\n  fw_cli revoke-target TARGET_UUID\nEnvironment:\n  FW_API_URL: controller origin (default http://127.0.0.1:8787)\n  FW_BOOTSTRAP_FILE: protected token file (default state/bootstrap-token)\n  FW_SESSION_FILE: private local session file (default state/cli-session.json)\nRun login once after starting the controller, then use authenticated read commands.\nLogin currently requires Unix private-file protections. No command changes the host firewall."
         );
         return Ok(());
-    }
-    if args.len() != 1 {
-        return Err(
-            "one command is required; token values are never command-line arguments".into(),
-        );
     }
     let base = std::env::var("FW_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".into());
     validate_base(&base)?;
@@ -46,6 +42,17 @@ fn run() -> Result<()> {
     let session_path = PathBuf::from(
         std::env::var("FW_SESSION_FILE").unwrap_or_else(|_| "state/cli-session.json".into()),
     );
+    if args[0] == "enroll-token" {
+        return enrollment::issue(&args[1..], base, &session_path);
+    }
+    if args[0] == "revoke-target" {
+        return enrollment::revoke(&args[1..], base, &session_path);
+    }
+    if args.len() != 1 {
+        return Err(
+            "one command is required; credential values are never command-line arguments".into(),
+        );
+    }
     if args[0] == "login" {
         let token_path = PathBuf::from(
             std::env::var("FW_BOOTSTRAP_FILE").unwrap_or_else(|_| "state/bootstrap-token".into()),
@@ -66,6 +73,8 @@ fn run() -> Result<()> {
         "capabilities" => "/api/v1/capabilities",
         "assets" => "/api/v1/assets",
         "services" => "/api/v1/services",
+        "targets" => "/api/v1/targets",
+        "enrollments" => "/api/v1/enrollments",
         _ => return Err("unknown command; see --help".into()),
     };
     let client = agent();
@@ -190,6 +199,11 @@ fn load_session(path: &Path, base: &str) -> Result<Value> {
     Ok(session)
 }
 fn validate_base(base: &str) -> Result<()> {
+    if base.contains(['#', '\\']) || base.chars().any(char::is_whitespace) {
+        return Err(
+            "controller origin must not contain fragments, backslashes or whitespace".into(),
+        );
+    }
     let uri: ureq::http::Uri = base.parse().map_err(|_| "invalid controller origin")?;
     let authority = uri.authority().ok_or("API authority missing")?;
     let local = uri.scheme_str() == Some("http") && uri.host() == Some("127.0.0.1");
@@ -275,7 +289,7 @@ fn read_private_file(path: &Path) -> Result<Vec<u8>> {
     let path = absolute_without_symlinks(path)?;
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
         .open(path)?;
     let metadata = file.metadata()?;
     private_metadata(&metadata)?;
@@ -352,6 +366,9 @@ mod tests {
             "https://user:pass@example.com",
             "https://example.com/path",
             "https://example.com/?query=yes",
+            "https://example.com#fragment",
+            "https://example.com\\hidden",
+            "https://example.com ",
         ] {
             assert!(validate_base(bad).is_err());
         }

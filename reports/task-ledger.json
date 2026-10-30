@@ -25,8 +25,8 @@
       "dependencies": [
         "M01"
       ],
-      "implemented": "Transactional SQLite, tenant isolation, idempotency, audit/outbox, CAS/fencing, backup, local development session. Immutable asset/service registry, normalized projections, migration2, strong ETag/CAS and server-owned metadata.",
-      "blocker": "PostgreSQL/RLS, OIDC, trusted enrollment/binding, complete worker queue and authenticated snapshot pagination remain."
+      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports.",
+      "blocker": "PostgreSQL/RLS, OIDC, workload binding, certificate renewal/rotation, complete worker queue and authenticated snapshot pagination remain."
     },
     {
       "id": "M03",
@@ -44,8 +44,8 @@
         "M01",
         "M03"
       ],
-      "implemented": "Experimental nft compiler, durable executor journal, real isolated Linux loopback smoke53 checks/40 packet probes. Actual nft timeout-unit defect fixed.",
-      "blocker": "Full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC and crash/reboot/installer fixtures, native execution adapter and independent watchdog remain. Docker NET_ADMIN lab is available."
+      "implemented": "Experimental nft compiler, durable executor journal and bounded semantic readback verifier. Isolated Linux suite passes 66 checks including 40 actual packet probes, kernel rule-tamper detection and restoration.",
+      "blocker": "Native apply/readback integration and authenticated policy dispatch, independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC and crash/reboot/installer fixtures remain."
     },
     {
       "id": "M04W",
@@ -74,8 +74,8 @@
         "M02",
         "M03"
       ],
-      "implemented": "Loopback request/operation/audit API, CLI, read-only MCP, strict admission and actual HTTP/OpenAPI smoke. Asset/service APIs and secure CLI file-based local login with11 real-controller checks.",
-      "blocker": "Remaining OpenAPI routes, production auth, enrollment/IPC, full MCP suite and snapshot pagination."
+      "implemented": "Loopback request/operation/audit/catalogue APIs, secure CLI login and read-only MCP. Separate TLS enrollment, Ed25519 device certificates, Linux agent, mTLS capability/status reporting, operator invitations/revocation and actual TargetView inventory.",
+      "blocker": "Policy authority bootstrap, remaining OpenAPI routes, remote production auth/enrollment, certificate renewal, privileged IPC, full MCP suite and snapshot pagination remain."
     },
     {
       "id": "M06",
@@ -83,8 +83,8 @@
       "dependencies": [
         "M05"
       ],
-      "implemented": "React integrated UI, English default and 8 selectable locales (en, ko, ja, es, de, fr, zh-Hans, zh-Hant), request/audit/targets/policies, component and real browser checks. Asset create/revise/deep-link workflow, catalogue selectors and service enrollment prerequisite;14 browser checks.",
-      "blocker": "Approval/evidence/topology workflows, full keyboard/accessibility/translation acceptance remain."
+      "implemented": "React UI with English default and eight locales (en, ko, ja, es, de, fr, zh-Hans, zh-Hant). Request/audit/targets/policies, immutable asset revisions and service catalogue selectors. Real browser checks cover a registered target and persisted service creation.",
+      "blocker": "Approval/evidence/topology and enrollment-management screens, full keyboard/accessibility/translation acceptance remain."
     },
     {
       "id": "M07",

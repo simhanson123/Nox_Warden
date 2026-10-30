@@ -344,7 +344,7 @@ impl Store {
         }
         match kind {
             Kind::Asset => {}
-            Kind::Service => validate_service_refs(&tx, t, definition, state)?,
+            Kind::Service => validate_service_refs(&tx, t, definition, state, now)?,
         }
         let mut revision_value = json!({"schema_version":format!("f.{}/v1",kind.name()),"org_id":t.org_id,"project_id":t.project_id,"revision":revision,"definition":definition,"created_at":timestamp(now)?,"created_by":principal,"previous_revision_hash":previous_hash,"state":state});
         revision_value[kind.id()] = Value::String(resource_id.clone());
@@ -710,6 +710,7 @@ fn validate_service_refs(
     t: &Tenant,
     definition: &Value,
     state: &str,
+    now: i64,
 ) -> Result<()> {
     for id in strings(&definition["destination_asset_ids"])? {
         let asset = read_registry(c, t, Kind::Asset, id, None)?;
@@ -730,7 +731,7 @@ fn validate_service_refs(
         }
     }
     for id in strings(&definition["target_ids"])? {
-        let exists:bool=c.query_row("SELECT EXISTS(SELECT 1 FROM targets WHERE org_id=?1 AND project_id=?2 AND target_id=?3)",params![t.org_id,t.project_id,id],|r|r.get(0))?;
+        let exists:bool=c.query_row("SELECT EXISTS(SELECT 1 FROM targets t LEFT JOIN target_enrollments e USING(org_id,project_id,target_id) WHERE t.org_id=?1 AND t.project_id=?2 AND t.target_id=?3 AND (?4 != 'active' OR e.target_id IS NULL OR (e.revoked_at IS NULL AND e.enrolled_at<=?5 AND e.certificate_expires_at>?5)))",params![t.org_id,t.project_id,id,state,now],|r|r.get(0))?;
         if !exists {
             return Err(StoreError::NotFound);
         }

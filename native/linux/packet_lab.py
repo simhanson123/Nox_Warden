@@ -5,6 +5,7 @@ Called only by scripts/linux-lab.py after Docker namespace/capability isolation.
 No host paths, networking, privileged container, or production policies are used.
 """
 import datetime
+import copy
 import hashlib
 import json
 import os
@@ -77,6 +78,82 @@ def allow_set(expiry, start=1):
     return policies
 
 
+def verify_snapshot(artifact, readback, name, expected='match'):
+    payload = {'artifact': artifact, 'readback': readback, 'observed_at_unix': int(time.time())}
+    execution = subprocess.run([COMPILER, 'verify-readback'], input=json.dumps(payload, separators=(',', ':')),
+                               capture_output=True, text=True, timeout=15)
+    result = json.loads(execution.stdout)
+    expected_code = {'match': 0, 'mismatch': 1, 'unknown': 2}[expected]
+    valid = execution.returncode == expected_code and result['comparison'] == expected
+    valid = valid and result['production_qualified'] is False
+    valid = valid and result['observed_semantic_hash'] == (artifact['desired_state_hash'] if expected == 'match' else None)
+    check(name, valid, kind='readback', comparison=result['comparison'], reason_code=result['reason_code'])
+    return result
+
+
+def readback_adversaries(artifact, readback, installation):
+    # These mutations are negative evidence-parser fixtures, not packet probes.
+    if installation == 1:
+        def changed():
+            snapshot = copy.deepcopy(readback)
+            rule = next(item['rule'] for item in snapshot['nftables']
+                        if item.get('rule', {}).get('comment', '').startswith('allow:'))
+            return snapshot, rule
+
+        snapshot, rule = changed()
+        rule['expr'].insert(0, {'counter': {'packets': 0, 'bytes': 0}})
+        verify_snapshot(artifact, snapshot, 'unknown_expression_never_attests_state', 'unknown')
+
+        snapshot, rule = changed()
+        snapshot['nftables'].append({'rule': copy.deepcopy(rule)})
+        verify_snapshot(artifact, snapshot, 'extra_rule_never_attests_state', 'mismatch')
+
+        snapshot, rule = changed()
+        interface = next(expr['match'] for expr in rule['expr']
+                         if expr.get('match', {}).get('left', {}).get('meta', {}).get('key') == 'iifname')
+        interface['right'] = 'other0'
+        verify_snapshot(artifact, snapshot, 'changed_interface_scope_never_attests_state', 'mismatch')
+
+        snapshot, _ = changed()
+        token = next(item['set'] for item in snapshot['nftables'] if 'set' in item)
+        token['elem'][0]['elem']['timeout'] += 1
+        verify_snapshot(artifact, snapshot, 'extended_token_timeout_never_attests_state', 'mismatch')
+
+        snapshot, rule = changed()
+        guard = next(expr['match'] for expr in rule['expr']
+                     if expr.get('match', {}).get('left', {}).get('meta', {}).get('key') == 'time')
+        guard['right'] = int(time.time()) + 3600
+        verify_snapshot(artifact, snapshot, 'extended_absolute_cutoff_never_attests_state', 'mismatch')
+
+        # A real kernel mutation changes one destination-port expression without
+        # changing rule count. Restore that fixture rule without touching timeout
+        # sets, then prove exact managed-table correspondence again.
+        installed = next(item['rule'] for item in readback['nftables']
+                         if item.get('rule', {}).get('comment', '').startswith('allow:'))
+        # nft list JSON may omit redundant family/protocol selectors that its
+        # input parser still needs. Replace using the compiler's complete rule
+        # and the installed handle, without adding or refreshing timeout sets.
+        original = copy.deepcopy(next(item['add']['rule'] for item in artifact['nft_json']['nftables']
+                                      if item.get('add', {}).get('rule', {}).get('comment') == installed['comment']
+                                      and item['add']['rule']['chain'] == installed['chain']))
+        original['handle'] = installed['handle']
+        modified = copy.deepcopy(original)
+        port = next(expr['match'] for expr in modified['expr']
+                    if expr.get('match', {}).get('left', {}).get('ct', {}).get('key') == 'proto-dst')
+        port['right'] = 19000
+        nft([{'replace': {'rule': modified}}])
+        actual = json.loads(run(['nft', '-j', 'list', 'table', 'inet', artifact['table']]))
+        verify_snapshot(artifact, actual, 'actual_kernel_expression_change_detected', 'mismatch')
+        nft([{'replace': {'rule': original}}])
+        actual = json.loads(run(['nft', '-j', 'list', 'table', 'inet', artifact['table']]))
+        verify_snapshot(artifact, actual, 'actual_kernel_fixture_restored_without_token_refresh')
+    elif installation == 2:
+        snapshot = copy.deepcopy(readback)
+        snapshot['nftables'] = [item for item in snapshot['nftables']
+                               if not item.get('rule', {}).get('comment', '').startswith('deny:')]
+        verify_snapshot(artifact, snapshot, 'missing_deny_never_attests_state', 'mismatch')
+
+
 def apply(policies, previous_table=None):
     request = {'context': {'org_id': ORG, 'project_id': PROJECT, 'target_id': TARGET,
                           'now_unix': int(time.time()), 'clock_uncertainty_seconds': 0,
@@ -104,7 +181,10 @@ def apply(policies, previous_table=None):
     actual_rules = sum('rule' in item for item in readback['nftables'])
     check(f'native_apply_readback_{len(artifacts)+1}', len(chains) == 2 and all(c['policy'] == 'drop' for c in chains) and expected_rules == actual_rules,
           rule_count=actual_rules, table=artifact['table'])
-    artifacts.append({'input': request, 'artifact': artifact, 'artifact_sha256': hashlib.sha256(raw.encode()).hexdigest(), 'readback': readback})
+    verification = verify_snapshot(artifact, readback, f'native_semantic_readback_{len(artifacts)+1}')
+    readback_adversaries(artifact, readback, len(artifacts)+1)
+    artifacts.append({'input': request, 'artifact': artifact, 'artifact_sha256': hashlib.sha256(raw.encode()).hexdigest(),
+                      'readback': readback, 'semantic_verification': verification})
     return artifact['table']
 
 
@@ -219,6 +299,7 @@ def main():
             check(f'before_expiry_{family}_{protocol}', exchange(sock), kind='packet', expected_delivery=True)
         wait_until(first_expiry+0.2)
         partial = json.loads(run(['nft', '-j', 'list', 'table', 'inet', table]))
+        verify_snapshot(artifacts[-1]['artifact'], partial, 'semantic_readback_after_partial_expiry')
         temporal_readbacks.append({'stage':'first_lease_expired','observed_at_unix_ms':int(time.time()*1000),'readback':partial})
         partial_sets = [entry['set'] for entry in partial['nftables'] if 'set' in entry]
         check('first_lease_tokens_expired_second_lease_tokens_live', len(partial_sets)==16 and sum(bool(entry.get('elem')) for entry in partial_sets)==8, set_count=len(partial_sets))
@@ -228,6 +309,7 @@ def main():
         for family, protocol, sock in persistent:
             check(f'existing_expired_{family}_{protocol}', not exchange(sock), kind='packet', expected_delivery=False)
         expired_readback = json.loads(run(['nft', '-j', 'list', 'table', 'inet', table]))
+        verify_snapshot(artifacts[-1]['artifact'], expired_readback, 'semantic_readback_after_full_expiry')
         temporal_readbacks.append({'stage':'all_leases_expired','observed_at_unix_ms':int(time.time()*1000),'readback':expired_readback})
         sets = [entry['set'] for entry in expired_readback['nftables'] if 'set' in entry]
         check('kernel_timeout_tokens_expired_without_refresh', bool(sets) and all(not entry.get('elem') for entry in sets), set_count=len(sets))
@@ -266,6 +348,7 @@ if __name__ == '__main__':
               'packages':Path('/lab-package-versions.txt').read_text().splitlines(),
               'limitations':['No physical NIC or routed topology','No ICMP/PMTU/fragment qualification',
                              'No production signing, enrollment, native service/watchdog or installer qualification',
-                             'Readback records structure and packet behavior; complete semantic attestation remains unimplemented']}
+                             'Readback covers only the bounded experimental compiler profile; no production attestation or authenticated transport',
+                             'A readback snapshot cannot prove absence of prior token refreshes or inspect unrelated managers']}
     print(json.dumps(result,indent=2))
     raise SystemExit(0 if error is None else 1)

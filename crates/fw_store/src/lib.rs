@@ -14,9 +14,11 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod enrollment;
 pub mod registry;
 pub use registry::RegistryMutation;
 
+const ENROLLMENT_MIGRATION: &str = include_str!("../migrations/0003_enrollment.sql");
 const REGISTRY_MIGRATION: &str = include_str!("../migrations/0002_registry.sql");
 const MIGRATION: &str = include_str!("../migrations/0001_lite.sql");
 const MAX_TIME: i64 = 253_402_300_799;
@@ -144,7 +146,7 @@ impl Store {
         }
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, app_compat_min INTEGER NOT NULL, app_compat_max INTEGER NOT NULL) STRICT;")?;
-        let migrations = [MIGRATION, REGISTRY_MIGRATION];
+        let migrations = [MIGRATION, REGISTRY_MIGRATION, ENROLLMENT_MIGRATION];
         let installed = {
             let mut query = transaction
                 .prepare("SELECT version,checksum FROM schema_migrations ORDER BY version")?;
