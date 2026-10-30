@@ -15,12 +15,14 @@ flowchart LR
   D[fw_domain + fw_contracts] --> P[fw_planner: immutable candidate / bounded exact diff]
   P --> A[fw_authority: proof adapters / DSSE / quota]
   A --> E[fw_executor: verified-grant journal]
-  E -. unconnected native adapter .-> N[fw_backend_linux: experimental nft JSON compiler]
+  E --> L[fw_linux_executor: isolated lab driver]
+  L --> N[fw_backend_linux: portable compiler / semantic readback]
+  L --> K[Disposable Linux namespace: nftables / packet probes]
   DB -. integration pending .-> AUD[fw_audit: signed PBOM verification]
   T[fw_telemetry: opt-in aggregate state machine]
 ```
 
-The controller holds a separate enrollment CA key for transport certificates. It does not hold a policy-signing key, import a privileged backend, or dispatch a native firewall write. Library-level authority, executor, audit and telemetry code is tested independently. Distinct crate boundaries do not establish independent OS-process security; deployment of separate accounts, authenticated IPC, signer service and native watchdog remains required. New access requests are atomically stored as `needs_info` with a failed validation operation because workload binding and policy authority remain unavailable. There is no timer that promotes a request into an active lease.
+The controller holds a separate enrollment CA key for transport certificates. It does not hold a policy-signing key, import a privileged backend, or dispatch a native firewall write. The isolated execution driver connects authority verification and the executor journal to real nftables inside a disposable lab. Its synthetic fixture authority is separate from the controller and does not implement human approval or production authority bootstrap. Audit and telemetry libraries remain separate integrations. Distinct crate boundaries do not establish independent OS-process security; deployment of separate accounts, authenticated IPC, signer service and native watchdog remains required. New access requests are atomically stored as `needs_info` with a failed validation operation because workload binding and policy authority remain unavailable. There is no timer that promotes a request into an active lease.
 
 ## Runtime profile
 
@@ -65,13 +67,17 @@ Planner preserves the complete baseline, revision/hash preconditions and tombsto
 
 Authority validates Ed25519 DSSE domain separation, tenant/target/epoch/generation/content/expiry and immutable human approval requirements. Fixed Lab/Team/high-risk role profiles are enforced; production WebAuthn proof adapters are required and no permissive adapter is supplied. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
 
-Executor journals own a process lock and durable SQLite generation/time bounds. Submission rechecks signed validity and confirmation ends at the earlier of submission+60 seconds or signed absolute deadline. Restart/unknown observation never creates active-state evidence. The experimental confirmation domain is explicitly not the original F production protocol. Native enforcement, independent clock/watchdog guarantees and authenticated policy-dispatch integration remain missing.
+Executor journals own a process lock and durable SQLite generation/time bounds. Native material acceptance atomically persists the signed grant, full baseline/candidate/recovery states and artifacts, installation binding and recovery scope before submission. Submission rechecks signed validity and confirmation ends at the earlier of submission+60 seconds or the signed absolute deadline. Recovery completion uses the same generation fence and retains the high-water mark. Restart and uncertain observations never create active-state evidence. The experimental confirmation domain is explicitly not the original F production protocol.
+
+The separate `fw_linux_executor` command is restricted to the disposable loopback lab. It verifies a portable artifact reconstructed from normalized full `StateIr` and resolved lab references, computes shrinking token lifetimes only at initial submission, performs one atomic owned-table update, and records actual semantic readback. Probe reports contain real TCP/UDP nonce observations selected by the signed lab plan. Confirmation requires the exact locally collected report and a separate trusted signature. Retries and same-boot observations use the persisted installation instead of installing fresh timeout tokens.
+
+A separate recovery child acknowledges readiness before submission. Once the command releases its journal lock, or dies, recovery can acquire the same fence and apply the exact signed no-business-allow artifact within its validity. Candidate and previous deny restrictions are preserved; expired recovery authority has no unsigned fallback. A permanently paused or hung lock owner can block this child, so this is not a qualified independent watchdog. Full clock/boot recovery, authenticated production policy dispatch and protected management-path probes remain unimplemented. See the [signed execution profile](signed-linux-execution.md).
 
 ## Assurance and remaining work
 
 Tests cover malformed inputs, canonicalization, expiry, denial precedence, immutable approval, quota races/replay, isolation/idempotency, transaction rollback, outbox fencing, journal replay/deadlines, graph tamper, privacy consent and HTTP/browser behavior. These are tests, not a comprehensive formal proof or external security audit. Dependency inventories record declarations and checksums; they are not legal clearance.
 
-Release remains blocked on native adapters and real packet/lifecycle tests, Windows WDK/callout builds/signing, macOS entitlement/system-extension builds/notarization and actual devices, independent signer/watchdog/IPC, full approval and workload registry flows, certificate renewal/rotation and remote enrollment, PostgreSQL/OIDC, backup/restore epochs, bounded cursor/evidence integration, notification isolation, full UI/locale accessibility acceptance, signed installers and provider-specific deployment evidence. Development source is published on GitHub. No cloud resources, package release or production deployment have been performed. See the [task ledger](../reports/task-ledger.json) and per-crate READMEs for remaining engineering tasks.
+Release remains blocked on production native integration and complete platform/lifecycle qualification, Windows WDK/callout builds/signing, macOS entitlement/system-extension builds/notarization and actual devices, independent signer/watchdog/IPC, full approval and workload registry flows, certificate renewal/rotation and remote enrollment, PostgreSQL/OIDC, backup/restore epochs, bounded cursor/evidence integration, notification isolation, full UI/locale accessibility acceptance, signed installers and provider-specific deployment evidence. Development source is published on GitHub. No cloud resources, package release or production deployment have been performed. See the [task ledger](../reports/task-ledger.json) and per-crate READMEs for remaining engineering tasks.
 
 ## Verification and evidence retention
 
@@ -91,7 +97,7 @@ expressions or a mismatch produce no observed semantic hash. The verifier
 requires a trusted original compiler artifact, trusted observation time and UTC nft capture; it does not authenticate the artifact or
 independently recompute its expected policy hash. A single snapshot does not prove
 historical token refreshes, unrelated tables or authenticated policy dispatch.
-Full `common-host-v1` qualification and installed host protection remain incomplete. GitHub CI executes the same isolated regression suite.
+The additional signed execution suite binds that readback to persisted full-state artifacts, native application and actual probe reports; it also checks replay, absolute expiry and authorized restrictive recovery. Its synthetic approval fixture does not satisfy the production approval/capability gates. Full `common-host-v1` qualification and installed host protection remain incomplete. GitHub CI executes both isolated suites.
 
 Generated reports, screenshots and full logs remain ignored local outputs. CI
 retains explicitly selected reports as artifacts for seven days. Routine source

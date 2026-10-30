@@ -58,6 +58,23 @@ pub struct SignedGrant {
     pub dsse: DsseEnvelope,
 }
 
+/// The exact recovery restriction carried inside the signed grant. This value
+/// identifies immutable objects; it does not authorize a caller-supplied ruleset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RollbackAuthority {
+    pub profile: String,
+    pub scope_bound_hash: String,
+    pub baseline_hash: String,
+    pub artifact_hash: String,
+    pub valid_until: String,
+}
+impl RollbackAuthority {
+    pub fn valid_until_unix(&self) -> Result<i64> {
+        timestamp(&self.valid_until)
+    }
+}
+
 /// A registry-resolved public key. `key_id` is a lookup hint, never authority.
 #[derive(Debug, Clone)]
 pub struct TrustKey {
@@ -90,6 +107,7 @@ pub struct GrantContext {
 pub struct VerifiedGrant {
     grant_id: String,
     org_id: String,
+    project_id: String,
     target_id: String,
     authority_epoch: u64,
     generation: u64,
@@ -101,6 +119,9 @@ pub struct VerifiedGrant {
     artifact_hash: String,
     baseline_hash: String,
     desired_state_hash: String,
+    approval_set_hash: String,
+    rollback_authority: RollbackAuthority,
+    signed_grant: SignedGrant,
 }
 impl VerifiedGrant {
     pub fn grant_id(&self) -> &str {
@@ -108,6 +129,9 @@ impl VerifiedGrant {
     }
     pub fn org_id(&self) -> &str {
         &self.org_id
+    }
+    pub fn project_id(&self) -> &str {
+        &self.project_id
     }
     pub fn target_id(&self) -> &str {
         &self.target_id
@@ -141,6 +165,17 @@ impl VerifiedGrant {
     }
     pub fn desired_state_hash(&self) -> &str {
         &self.desired_state_hash
+    }
+    pub fn approval_set_hash(&self) -> &str {
+        &self.approval_set_hash
+    }
+    pub fn rollback_authority(&self) -> &RollbackAuthority {
+        &self.rollback_authority
+    }
+    /// Retains the already verified exact canonical envelope for durable replay
+    /// and recovery checks. Trust must still be resolved independently on reuse.
+    pub fn signed_grant(&self) -> &SignedGrant {
+        &self.signed_grant
     }
 }
 
@@ -435,6 +470,7 @@ pub fn verify_grant(
     Ok(VerifiedGrant {
         grant_id: string(p, "grant_id")?.into(),
         org_id: context.org_id.clone(),
+        project_id: context.project_id.clone(),
         target_id: context.target_id.clone(),
         authority_epoch: epoch,
         generation: counter(string(p, "target_generation")?)?,
@@ -447,7 +483,36 @@ pub fn verify_grant(
         artifact_hash: context.artifact_hash.clone(),
         baseline_hash: context.baseline_hash.clone(),
         desired_state_hash: context.desired_state_hash.clone(),
+        approval_set_hash: context.approval_set_hash.clone(),
+        rollback_authority: serde_json::from_value(p["rollback_authority"].clone())
+            .map_err(|_| AuthorityError::Invalid("rollback authority"))?,
+        signed_grant: grant.clone(),
     })
+}
+
+/// Reverify a persisted grant for its separately bounded recovery authority.
+/// Dispatch expiry is not recovery expiry, but current key validity/revocation,
+/// exact original signature and all independently resolved bindings still apply.
+/// The returned grant retains its original dispatch window; executor acceptance
+/// or submission after that window remains forbidden.
+pub fn verify_recovery_grant(
+    grant: &SignedGrant,
+    trust: &TrustKey,
+    context: &GrantContext,
+) -> Result<VerifiedGrant> {
+    validate_payload(&grant.payload)?;
+    let now = context.now_unix;
+    let issued = timestamp(string(&grant.payload, "issued_at")?)?;
+    let recovery_until = timestamp(string(&grant.payload["rollback_authority"], "valid_until")?)?;
+    if trust.revoked || now < trust.not_before || now >= trust.not_after {
+        return Err(AuthorityError::Time);
+    }
+    if now < issued || now >= recovery_until {
+        return Err(AuthorityError::Time);
+    }
+    let mut original = context.clone();
+    original.now_unix = issued;
+    verify_grant(grant, trust, &original)
 }
 
 /// Independent approval verifier interface. Implementations MUST resolve immutable

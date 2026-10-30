@@ -11,6 +11,8 @@ use std::collections::BTreeSet;
 
 mod readback;
 pub use readback::{verify_readback, Comparison, ReadbackVerification};
+mod portable;
+pub use portable::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {
@@ -83,6 +85,16 @@ fn address_set(value: &Value) -> Result<Value, CompileError> {
 /// already resolved asset IDs to the CIDR snapshot represented in each Policy.
 /// This does not grant permission to execute the artifact.
 pub fn compile(policies: &[Policy], context: &CompileContext) -> Result<Artifact, CompileError> {
+    compile_inner(policies, context, false)
+}
+
+// A portable template records every immutable branch and absolute deadline.
+// Only runtime binding materializes token elements with relative timeouts.
+fn compile_inner(
+    policies: &[Policy],
+    context: &CompileContext,
+    portable_template: bool,
+) -> Result<Artifact, CompileError> {
     if policies.len() > 1000 {
         return Err(CompileError::Budget);
     }
@@ -120,7 +132,7 @@ pub fn compile(policies: &[Policy], context: &CompileContext) -> Result<Artifact
                 "ICMP requires qualified parent-flow and baseline lowering",
             ));
         }
-        if timestamp(&value["lifetime"], "not_before")? > context.now_unix {
+        if !portable_template && timestamp(&value["lifetime"], "not_before")? > context.now_unix {
             return Err(CompileError::Unsupported("future activation"));
         }
         normalized.push(value);
@@ -161,23 +173,29 @@ pub fn compile(policies: &[Policy], context: &CompileContext) -> Result<Artifact
             let mut time_guards = Vec::new();
             if action == "allow" {
                 let expiry = timestamp(&policy["lifetime"], "expires_at")?;
-                let budget = context
-                    .clock_uncertainty_seconds
-                    .checked_add(context.elapsed_seconds)
-                    .and_then(|v| v.checked_add(context.commit_budget_seconds))
-                    .ok_or(CompileError::Clock)?;
-                let upper = context
-                    .now_unix
-                    .checked_add(i64::try_from(budget).map_err(|_| CompileError::Clock)?)
-                    .ok_or(CompileError::Clock)?;
-                if expiry <= upper {
-                    continue;
+                if portable_template {
+                    commands.push(json!({"add":{"set":{"family":"inet","table":table,"name":token,"type":"inet_proto","flags":["timeout"]}}}));
+                    time_guards.push(matching(ct("protocol"), "in", json!(format!("@{token}"))));
+                    time_guards.push(matching(json!({"meta":{"key":"time"}}), "<", json!(expiry)));
+                } else {
+                    let budget = context
+                        .clock_uncertainty_seconds
+                        .checked_add(context.elapsed_seconds)
+                        .and_then(|v| v.checked_add(context.commit_budget_seconds))
+                        .ok_or(CompileError::Clock)?;
+                    let upper = context
+                        .now_unix
+                        .checked_add(i64::try_from(budget).map_err(|_| CompileError::Clock)?)
+                        .ok_or(CompileError::Clock)?;
+                    if expiry <= upper {
+                        continue;
+                    }
+                    let ttl = u64::try_from(expiry - upper).map_err(|_| CompileError::Clock)?;
+                    let cutoff = expiry - context.clock_uncertainty_seconds as i64;
+                    commands.push(json!({"add":{"set":{"family":"inet","table":table,"name":token,"type":"inet_proto","flags":["timeout"],"elem":[{"elem":{"val":protocol_number,"timeout":ttl}}]}}}));
+                    time_guards.push(matching(ct("protocol"), "in", json!(format!("@{token}"))));
+                    time_guards.push(matching(json!({"meta":{"key":"time"}}), "<", json!(cutoff)));
                 }
-                let ttl = u64::try_from(expiry - upper).map_err(|_| CompileError::Clock)?;
-                let cutoff = expiry - context.clock_uncertainty_seconds as i64;
-                commands.push(json!({"add":{"set":{"family":"inet","table":table,"name":token,"type":"inet_proto","flags":["timeout"],"elem":[{"elem":{"val":protocol_number,"timeout":ttl}}]}}}));
-                time_guards.push(matching(ct("protocol"), "in", json!(format!("@{token}"))));
-                time_guards.push(matching(json!({"meta":{"key":"time"}}), "<", json!(cutoff)));
             }
             let input = scope["direction"] == "input";
             for reply in [false, true] {

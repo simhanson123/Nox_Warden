@@ -1,5 +1,6 @@
 [package]
 name = "fw_testlab"
+default-run = "fw_testlab"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -7,3 +8,14 @@ license = "Apache-2.0"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+fw_authority = { path = "../fw_authority" }
+fw_backend_linux = { path = "../fw_backend_linux" }
+fw_contracts = { path = "../fw_contracts" }
+fw_domain = { path = "../fw_domain" }
+fw_executor = { path = "../fw_executor" }
+fw_planner = { path = "../fw_planner" }
+ed25519-dalek = "2.2.0"
+base64 = "0.22.1"
+chrono = { version = "0.4.42", default-features = false, features = ["std"] }
+fw_linux_executor = { path = "../fw_linux_executor" }
+libc = "0.2"
