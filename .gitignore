@@ -1,0 +1,17 @@
+/state/
+/target/
+/web/node_modules/
+/web/dist/
+.env
+.env.*
+!.env.example
+*.key
+*.pfx
+*.p12
+__pycache__/
+
+# Generated validation outputs stay local or in short-lived CI artifacts.
+/reports/*
+!/reports/README.md
+!/reports/task-ledger.json
+!/reports/spec-import.json

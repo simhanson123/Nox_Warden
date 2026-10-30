@@ -1,0 +1,12 @@
+{
+  "archive": "F_Codex_최종개발명세패키지.zip",
+  "sha256": "5af71db69b180433b04cc1c2d4768586218410e2f0d523a01ffcc142cc031b85",
+  "spec_version": "F-2.0",
+  "source_files": 53,
+  "source_preserved": true,
+  "design_checks": {
+    "passed": 27,
+    "failed": 0
+  },
+  "product_certified": false
+}

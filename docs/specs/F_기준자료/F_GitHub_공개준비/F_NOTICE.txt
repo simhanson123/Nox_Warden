@@ -1,0 +1,23 @@
+Controlled Open Source Firewall Project
+Design baseline 1.0 - 2026-10-30
+
+Original project contributions are attributed to the project contributors.
+Copyright remains with the respective rights holders.
+
+The project's original code and documentation are made available under the
+Apache License, Version 2.0, as described in LICENSE and the project's
+licensing policy. This notice does not claim ownership of pre-existing
+materials or third-party works.
+
+Third-party components retain their respective copyright notices and
+licenses. References to Linux, nftables, Suricata, Grafana, other products,
+or their documentation do not imply endorsement or affiliation.
+
+This distribution is a design and publication-preparation package. It does
+not include an implemented firewall runtime, bundled third-party binaries,
+model weights, commercial rule feeds, or a completed dependency audit.
+
+Any later binary, container, appliance, model, or rule distribution must
+include the notices required by its actual contents. This NOTICE file does
+not replace those component-specific notices and does not modify LICENSE.
+

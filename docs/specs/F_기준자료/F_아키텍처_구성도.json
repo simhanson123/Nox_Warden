@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "검증된 변경과 독립된 패킷 집행",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1390,
+      760
+    ]
+  },
+  "components": [
+    {
+      "id": "request",
+      "type": "frontend",
+      "label": "Web · CLI · MCP",
+      "sublabel": "사람 · 업무 에이전트",
+      "pos": [
+        30,
+        320
+      ],
+      "size": [
+        200,
+        90
+      ]
+    },
+    {
+      "id": "control",
+      "type": "backend",
+      "label": "제어 서비스",
+      "sublabel": "요청 · 자산 해석 · 상태",
+      "pos": [
+        310,
+        320
+      ],
+      "size": [
+        200,
+        90
+      ]
+    },
+    {
+      "id": "validate",
+      "type": "security",
+      "label": "결정적 검증",
+      "sublabel": "정책 의미 · 차분 · 컴파일",
+      "pos": [
+        590,
+        320
+      ],
+      "size": [
+        200,
+        90
+      ]
+    },
+    {
+      "id": "authority",
+      "type": "security",
+      "label": "승인 · 배포 서명",
+      "sublabel": "사람 승인 또는 제한 위임",
+      "pos": [
+        870,
+        320
+      ],
+      "size": [
+        200,
+        90
+      ]
+    },
+    {
+      "id": "execute",
+      "type": "backend",
+      "label": "로컬 실행기",
+      "sublabel": "서명 확인 · 저널 · 복구",
+      "pos": [
+        1150,
+        320
+      ],
+      "size": [
+        200,
+        90
+      ]
+    },
+    {
+      "id": "identity",
+      "type": "security",
+      "label": "기계 신원 · 접근 범위",
+      "sublabel": "봉투 × 위임 × 실제 워크로드",
+      "pos": [
+        10,
+        60
+      ],
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "ai",
+      "type": "external",
+      "label": "선택적 추론 AI",
+      "sublabel": "초안 · 원문 근거 · 설명",
+      "pos": [
+        290,
+        60
+      ],
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "inventory",
+      "type": "database",
+      "label": "고정 자산 스냅샷",
+      "sublabel": "주소 · 소유자 · 경로 · 버전",
+      "pos": [
+        570,
+        60
+      ],
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "evidence",
+      "type": "database",
+      "label": "상태 DB · PBOM",
+      "sublabel": "승인 · 관측 · 서명 영수증",
+      "pos": [
+        290,
+        610
+      ],
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "source",
+      "type": "external",
+      "label": "송신 워크로드",
+      "sublabel": "격리된 호스트 · VM · 실습망",
+      "pos": [
+        570,
+        610
+      ],
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "kernel",
+      "type": "security",
+      "label": "Linux nftables",
+      "sublabel": "deny 우선 · 커널 TTL",
+      "pos": [
+        850,
+        610
+      ],
+      "size": [
+        240,
+        90
+      ]
+    },
+    {
+      "id": "destination",
+      "type": "external",
+      "label": "목적지 서비스",
+      "sublabel": "현재 허용 범위의 통신만",
+      "pos": [
+        1130,
+        610
+      ],
+      "size": [
+        240,
+        90
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "request",
+      "to": "control",
+      "label": "인증 요청",
+      "variant": "emphasis"
+    },
+    {
+      "from": "control",
+      "to": "validate",
+      "label": "정책 IR",
+      "variant": "emphasis"
+    },
+    {
+      "from": "validate",
+      "to": "authority",
+      "label": "불변 계획",
+      "variant": "emphasis"
+    },
+    {
+      "from": "authority",
+      "to": "execute",
+      "label": "서명 허가",
+      "variant": "security"
+    },
+    {
+      "from": "identity",
+      "to": "request",
+      "label": "범위 검사",
+      "variant": "security",
+      "labelAt": [
+        130,
+        235
+      ]
+    },
+    {
+      "from": "ai",
+      "to": "control",
+      "label": "초안만 전달",
+      "variant": "dashed",
+      "labelAt": [
+        410,
+        235
+      ]
+    },
+    {
+      "from": "inventory",
+      "to": "validate",
+      "label": "해석 근거",
+      "labelAt": [
+        690,
+        235
+      ]
+    },
+    {
+      "from": "control",
+      "to": "evidence",
+      "label": "증적 저장",
+      "labelAt": [
+        410,
+        510
+      ]
+    },
+    {
+      "from": "execute",
+      "to": "kernel",
+      "label": "로컬 적용",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          1250,
+          510
+        ],
+        [
+          970,
+          510
+        ]
+      ],
+      "labelAt": [
+        1110,
+        510
+      ]
+    },
+    {
+      "from": "source",
+      "to": "kernel",
+      "label": "실제 패킷",
+      "variant": "emphasis",
+      "labelAt": [
+        830,
+        720
+      ]
+    },
+    {
+      "from": "kernel",
+      "to": "destination",
+      "label": "허용 흐름",
+      "variant": "emphasis",
+      "labelAt": [
+        1110,
+        720
+      ]
+    }
+  ]
+}

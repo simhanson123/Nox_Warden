@@ -1,0 +1,634 @@
+{
+  "fixture": true,
+  "fixture_time": "2026-10-30T09:00:02Z",
+  "signature_fixture_public_key_base64url": "VqW14_HkCahU09aXwiOrQmjx1pKygp0qoccFJYAh8G0",
+  "requested_policies": [
+    {
+      "schema_version": "f.policy/v1",
+      "policy_id": "00000000-0000-4000-8000-000000000020",
+      "policy_revision": 1,
+      "org_id": "00000000-0000-4000-8000-000000000001",
+      "project_id": "00000000-0000-4000-8000-000000000002",
+      "target_id": "00000000-0000-4000-8000-000000000003",
+      "owner_id": "00000000-0000-4000-8000-000000000004",
+      "reason": "합성 실습망에서 테스트 데이터베이스 접근",
+      "scope": {
+        "family": "ipv4",
+        "direction": "forward",
+        "source_asset_ids": [
+          "00000000-0000-4000-8000-000000000010"
+        ],
+        "destination_asset_ids": [
+          "00000000-0000-4000-8000-000000000011"
+        ],
+        "source_cidrs": [
+          "10.20.1.10/32"
+        ],
+        "destination_cidrs": [
+          "10.20.2.20/32"
+        ],
+        "transport": {
+          "protocol": "tcp",
+          "destination_ports": [
+            {
+              "start": 5432,
+              "end": 5432
+            }
+          ]
+        },
+        "ingress_interfaces": [
+          "lan0"
+        ],
+        "egress_interfaces": [
+          "lan1"
+        ]
+      },
+      "log_mode": "new-flow",
+      "action": "allow",
+      "lifetime": {
+        "kind": "lease",
+        "not_before": "2026-10-30T09:00:00Z",
+        "expires_at": "2026-10-30T09:30:00Z"
+      }
+    }
+  ],
+  "access_request": {
+    "schema_version": "f.access-request/v1",
+    "idempotency_key": "00000000-0000-4000-8000-000000000030",
+    "workflow_id": "synthetic-ci/run-1042",
+    "workload_binding_id": "00000000-0000-4000-8000-000000000005",
+    "source_asset_ids": [
+      "00000000-0000-4000-8000-000000000010"
+    ],
+    "destination_asset_ids": [
+      "00000000-0000-4000-8000-000000000011"
+    ],
+    "service_id": "postgres-test",
+    "lease_seconds": 1800,
+    "purpose": "격리된 CI 환경의 합성 데이터베이스 통합시험"
+  },
+  "envelope": {
+    "schema_version": "f.access-envelope/v1",
+    "envelope_id": "00000000-0000-4000-8000-000000000040",
+    "revision": 1,
+    "org_id": "00000000-0000-4000-8000-000000000001",
+    "project_id": "00000000-0000-4000-8000-000000000002",
+    "target_id": "00000000-0000-4000-8000-000000000003",
+    "scope": {
+      "family": "ipv4",
+      "direction": "forward",
+      "source_asset_ids": [
+        "00000000-0000-4000-8000-000000000010"
+      ],
+      "destination_asset_ids": [
+        "00000000-0000-4000-8000-000000000011"
+      ],
+      "source_cidrs": [
+        "10.20.1.0/24"
+      ],
+      "destination_cidrs": [
+        "10.20.2.0/24"
+      ],
+      "transport": {
+        "protocol": "tcp",
+        "destination_ports": [
+          {
+            "start": 5432,
+            "end": 5432
+          }
+        ]
+      },
+      "ingress_interfaces": [
+        "lan0"
+      ],
+      "egress_interfaces": [
+        "lan1"
+      ]
+    },
+    "excluded_destination_cidrs": [
+      "10.255.0.0/16"
+    ],
+    "valid_from": "2026-10-30T00:00:00Z",
+    "valid_until": "2026-10-31T00:00:00Z",
+    "max_lease_seconds": 3600,
+    "approval_hash": "sha256:e35e2f7da57706a3a26c6052c97e9426de6fce938cf9f105e5c626856e5f37e7"
+  },
+  "delegation": {
+    "schema_version": "f.delegation/v1",
+    "root_id": "00000000-0000-4000-8000-000000000041",
+    "revision": 1,
+    "org_id": "00000000-0000-4000-8000-000000000001",
+    "project_id": "00000000-0000-4000-8000-000000000002",
+    "target_id": "00000000-0000-4000-8000-000000000003",
+    "envelope_id": "00000000-0000-4000-8000-000000000040",
+    "envelope_hash": "sha256:1ecfeb5ed6622c537f6c27487ddd1346da7bf696ac411b93dd0bc9ff12b91594",
+    "allowed_principal_ids": [
+      "00000000-0000-4000-8000-000000000006"
+    ],
+    "workload_binding_ids": [
+      "00000000-0000-4000-8000-000000000005"
+    ],
+    "source_asset_ids": [
+      "00000000-0000-4000-8000-000000000010"
+    ],
+    "destination_asset_ids": [
+      "00000000-0000-4000-8000-000000000011"
+    ],
+    "service_ids": [
+      "postgres-test"
+    ],
+    "allowed_tools": [
+      "get_capabilities",
+      "get_operation",
+      "get_plan",
+      "release_access",
+      "request_access",
+      "request_deployment"
+    ],
+    "valid_from": "2026-10-30T00:00:00Z",
+    "valid_until": "2026-10-31T00:00:00Z",
+    "max_lease_seconds": 3600,
+    "max_active_leases": 5,
+    "max_new_leases_per_day": 50,
+    "max_unique_destinations_per_day": 10,
+    "max_cumulative_lease_seconds_per_day": 18000,
+    "approval_hash": "sha256:9d7938f5fc19209720caaf7f0e27ba7660290ceaae87e6ee56912a6415071a60",
+    "can_delegate": false,
+    "max_concurrent_deployments": 1,
+    "budget_window": {
+      "kind": "rolling",
+      "seconds": 86400,
+      "interval": "(as_of-86400s,as_of]",
+      "lease_seconds_measure": "approved-duration-per-lease",
+      "rounding": "integer-seconds-no-rounding"
+    }
+  },
+  "plan": {
+    "schema_version": "f.plan/v1",
+    "plan_id": "00000000-0000-4000-8000-000000000050",
+    "request_id": "00000000-0000-4000-8000-000000000031",
+    "request_revision": 1,
+    "request_hash": "sha256:3ad1ce71309a479e1a76d8ac1fd50b5a8babde537950256c8ad4de527a648576",
+    "org_id": "00000000-0000-4000-8000-000000000001",
+    "project_id": "00000000-0000-4000-8000-000000000002",
+    "target_id": "00000000-0000-4000-8000-000000000003",
+    "principal_id": "00000000-0000-4000-8000-000000000006",
+    "workload_binding_id": "00000000-0000-4000-8000-000000000005",
+    "requested_policy_hashes": [
+      "sha256:2d3828f6914ade6db12d777c0c276fa72afd7eb925ed5792eed4f102875a4a70"
+    ],
+    "desired_state_hash": "sha256:0c0a447bfa34be515c1a690116dce68abd30552c66f1cf93d901ddec2768e409",
+    "baseline_hash": "sha256:1b7939097224c8548a58f43d8896384d2256d1db1f1f17b510d99cfa0713576d",
+    "source_snapshot_hash": "sha256:06fdbaaff0f56abebd8b87753ea0df289b1ad7fb128f882e8bb1b9b0b6a04cdb",
+    "guardrail_hash": "sha256:2d25af4da434f3ad7c6c23b2cac15930b104a7f1462bd012564a7a6bfc77ef10",
+    "compiler_hash": "sha256:293b68ca7f8021944031c0398c14b589ad99dcfa94ab69af94db5495dc94a729",
+    "envelope_hash": "sha256:1ecfeb5ed6622c537f6c27487ddd1346da7bf696ac411b93dd0bc9ff12b91594",
+    "delegation_hash": "sha256:77d0a00997fab182464ac9dbb16c925a2cef2e8be68ba3a7b3dea38414072c07",
+    "authority_epoch": "1",
+    "target_generation": "7",
+    "created_at": "2026-10-30T08:59:00Z",
+    "valid_until": "2026-10-30T09:04:00Z",
+    "gates": [
+      {
+        "gate_id": "schema",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:6882c4f69058161f772e69110a826b67d8b590b979391829f9249f7a4a1eb93b"
+      },
+      {
+        "gate_id": "identity",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:d0826338bcbd3bec21bc17e52f26cbec74becc59c8ab344bd652a17a2040e32d"
+      },
+      {
+        "gate_id": "scope",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:0fb26fad13b1841e2c733f7c7727f8ba305880abb12f08f9d99729d5992f4169"
+      },
+      {
+        "gate_id": "quota",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:302e57bfcbda56927538adf014e64af7bd1eccd110b5eadd93a08396593c06cf"
+      },
+      {
+        "gate_id": "semantic",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:4d90d7ae802aeaaef4ce7867c962cfe1cdc168053b44ae1a580d752cd447773c"
+      },
+      {
+        "gate_id": "expiry",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:d74625c1d20191f7951a3317572e0f952435c6ce293a7ef6ced658b678d0a8e4"
+      },
+      {
+        "gate_id": "capability",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:ebea8fa868294ca4dc82c704b64aeea71ca6bcf19cc76e0ca220a6fc5d8f065f"
+      },
+      {
+        "gate_id": "baseline",
+        "required": true,
+        "result": "PASS",
+        "evidence_hash": "sha256:a9f29585a573f84ad5d0edaa4f04a6f61559199e32872f42da95f86296e088c5"
+      }
+    ],
+    "normalization_version": "f.normalize/nfc-v1",
+    "requested_policies": [
+      {
+        "schema_version": "f.policy/v1",
+        "policy_id": "00000000-0000-4000-8000-000000000020",
+        "policy_revision": 1,
+        "org_id": "00000000-0000-4000-8000-000000000001",
+        "project_id": "00000000-0000-4000-8000-000000000002",
+        "target_id": "00000000-0000-4000-8000-000000000003",
+        "owner_id": "00000000-0000-4000-8000-000000000004",
+        "reason": "합성 실습망에서 테스트 데이터베이스 접근",
+        "scope": {
+          "family": "ipv4",
+          "direction": "forward",
+          "source_asset_ids": [
+            "00000000-0000-4000-8000-000000000010"
+          ],
+          "destination_asset_ids": [
+            "00000000-0000-4000-8000-000000000011"
+          ],
+          "source_cidrs": [
+            "10.20.1.10/32"
+          ],
+          "destination_cidrs": [
+            "10.20.2.20/32"
+          ],
+          "transport": {
+            "protocol": "tcp",
+            "destination_ports": [
+              {
+                "start": 5432,
+                "end": 5432
+              }
+            ]
+          },
+          "ingress_interfaces": [
+            "lan0"
+          ],
+          "egress_interfaces": [
+            "lan1"
+          ]
+        },
+        "log_mode": "new-flow",
+        "action": "allow",
+        "lifetime": {
+          "kind": "lease",
+          "not_before": "2026-10-30T09:00:00Z",
+          "expires_at": "2026-10-30T09:30:00Z"
+        }
+      }
+    ],
+    "target_capability_hash": "sha256:1ec55b1bcdbff091edcc21db3601155852b889ab755468a47352343314953130",
+    "validator_hash": "sha256:d1a935875907b33b65716653807bc1dc09624a1688aabc1a3ddd507cefc2c94e",
+    "artifact_hash": "sha256:ead6d35babe949bd6ebb01fcb0b82fd99f27abde51f3806064252f397a59a563",
+    "validation_report_hash": "sha256:18db25e34660f7a8db4cad2d3baadf48d12a074ed2fad418d8d7d2e3f1aec72e",
+    "effect_summary": {
+      "newly_allowed_flow_count": 1,
+      "removed_flow_count": 0,
+      "effect_hash": "sha256:0697e15fb10effecaaf764292e9a57131e526d15172072986f3ddb955e80256e"
+    },
+    "probe_spec_hash": "sha256:ac6844c4ac34d5faf7358885fdb913fc064c4a04f3ed1c1c14ad59004b12c2ff",
+    "approval_requirements_hash": "sha256:d9e3f039f0544f89ba3793193ceab4f0766e977a0ddf79371725f4337013b187",
+    "workload_binding_hash": "sha256:e4240a8e4c9835895f984e864bfaab4ece42c95944209064cda6a22c61d83ace",
+    "workload_binding_valid_until": "2026-10-30T10:00:00Z",
+    "confirm_timeout_seconds": 60,
+    "rollback_authority": {
+      "profile": "preserve-current-restrictions",
+      "scope_bound_hash": "sha256:b909c8acea19875352cf3af586761b997a83046e71ab6d020ba04cef38daf58d",
+      "baseline_hash": "sha256:1b7939097224c8548a58f43d8896384d2256d1db1f1f17b510d99cfa0713576d",
+      "artifact_hash": "sha256:70b210b2350cc5a42f2528e181f98cca7308c03e80cd7474a120d2d0054883da",
+      "valid_until": "2026-10-30T09:05:00Z"
+    },
+    "change_kind": "add_access_lease",
+    "request_patch_hash": "sha256:15aac133a41bdb45311e684caee97c018442d8b182e80667def6821bb4ad0cb2"
+  },
+  "grant": {
+    "payload": {
+      "schema_version": "f.grant/v1",
+      "grant_id": "00000000-0000-4000-8000-000000000060",
+      "lease_id": "00000000-0000-4000-8000-000000000061",
+      "plan_id": "00000000-0000-4000-8000-000000000050",
+      "plan_hash": "sha256:b603caf7b894a3d5835d7a887c16c038e1635022cdea471a1419b18980e59765",
+      "request_id": "00000000-0000-4000-8000-000000000031",
+      "org_id": "00000000-0000-4000-8000-000000000001",
+      "project_id": "00000000-0000-4000-8000-000000000002",
+      "target_id": "00000000-0000-4000-8000-000000000003",
+      "principal_id": "00000000-0000-4000-8000-000000000006",
+      "workload_binding_id": "00000000-0000-4000-8000-000000000005",
+      "requested_policy_hashes": [
+        "sha256:2d3828f6914ade6db12d777c0c276fa72afd7eb925ed5792eed4f102875a4a70"
+      ],
+      "envelope_hash": "sha256:1ecfeb5ed6622c537f6c27487ddd1346da7bf696ac411b93dd0bc9ff12b91594",
+      "delegation_hash": "sha256:77d0a00997fab182464ac9dbb16c925a2cef2e8be68ba3a7b3dea38414072c07",
+      "approval_set_hash": "sha256:fbcd647ddd9d2fbf58892ba6189160a4172e452f37b5956fd791f231c1ea84fb",
+      "authority_epoch": "1",
+      "target_generation": "7",
+      "issued_at": "2026-10-30T09:00:00Z",
+      "not_after": "2026-10-30T09:04:00Z",
+      "reservation": {
+        "reservation_id": "00000000-0000-4000-8000-000000000062",
+        "root_id": "00000000-0000-4000-8000-000000000041",
+        "status": "reserved",
+        "reserved_until": "2026-10-30T09:04:00Z",
+        "projected_active_leases": 1,
+        "projected_new_leases_per_day": 1,
+        "projected_unique_destinations_per_day": 1,
+        "projected_cumulative_lease_seconds_per_day": 1800,
+        "projected_concurrent_deployments": 1,
+        "window_start": "2026-10-29T09:00:00Z",
+        "window_end": "2026-10-30T09:00:00Z"
+      },
+      "artifact_hash": "sha256:ead6d35babe949bd6ebb01fcb0b82fd99f27abde51f3806064252f397a59a563",
+      "baseline_hash": "sha256:1b7939097224c8548a58f43d8896384d2256d1db1f1f17b510d99cfa0713576d",
+      "confirm_timeout_seconds": 60,
+      "confirm_not_after": "2026-10-30T09:05:00Z",
+      "rollback_authority": {
+        "profile": "preserve-current-restrictions",
+        "scope_bound_hash": "sha256:b909c8acea19875352cf3af586761b997a83046e71ab6d020ba04cef38daf58d",
+        "baseline_hash": "sha256:1b7939097224c8548a58f43d8896384d2256d1db1f1f17b510d99cfa0713576d",
+        "artifact_hash": "sha256:70b210b2350cc5a42f2528e181f98cca7308c03e80cd7474a120d2d0054883da",
+        "valid_until": "2026-10-30T09:05:00Z"
+      },
+      "change_kind": "add_access_lease",
+      "request_patch_hash": "sha256:15aac133a41bdb45311e684caee97c018442d8b182e80667def6821bb4ad0cb2",
+      "desired_state_hash": "sha256:0c0a447bfa34be515c1a690116dce68abd30552c66f1cf93d901ddec2768e409"
+    },
+    "dsse": {
+      "payloadType": "application/vnd.f.grant.v1+json",
+      "payload": "eyJhcHByb3ZhbF9zZXRfaGFzaCI6InNoYTI1NjpmYmNkNjQ3ZGRkOWQyZmJmNTg4OTJiYTYxODkxNjBhNDE3MmU0NTJmMzdiNTk1NmZkNzkxZjIzMWMxZWE4NGZiIiwiYXJ0aWZhY3RfaGFzaCI6InNoYTI1NjplYWQ2ZDM1YmFiZTk0OWJkNmViYjAxZmNiMGI4MmZkOTlmMjdhYmRlNTFmMzgwNjA2NDI1MmYzOTdhNTlhNTYzIiwiYXV0aG9yaXR5X2Vwb2NoIjoiMSIsImJhc2VsaW5lX2hhc2giOiJzaGEyNTY6MWI3OTM5MDk3MjI0Yzg1NDhhNThmNDNkODg5NjM4NGQyMjU2ZDFkYjFmMWYxN2I1MTBkOTljZmEwNzEzNTc2ZCIsImNoYW5nZV9raW5kIjoiYWRkX2FjY2Vzc19sZWFzZSIsImNvbmZpcm1fbm90X2FmdGVyIjoiMjAyNi0xMC0zMFQwOTowNTowMFoiLCJjb25maXJtX3RpbWVvdXRfc2Vjb25kcyI6NjAsImRlbGVnYXRpb25faGFzaCI6InNoYTI1Njo3N2QwYTAwOTk3ZmFiMTgyNDY0YWM5ZGJiMTZjOTI1YTJjZWYyZThiZTY4YmEzYTdiM2RlYTM4NDE0MDcyYzA3IiwiZGVzaXJlZF9zdGF0ZV9oYXNoIjoic2hhMjU2OjBjMGE0NDdiZmEzNGJlNTE1YzFhNjkwMTE2ZGNlNjhhYmQzMDU1MmM2NmYxY2Y5M2Q5MDFkZGVjMjc2OGU0MDkiLCJlbnZlbG9wZV9oYXNoIjoic2hhMjU2OjFlY2ZlYjVlZDY2MjJjNTM3ZjZjMjc0ODdkZGQxMzQ2ZGE3YmY2OTZhYzQxMWI5M2RkMGJjOWZmMTJiOTE1OTQiLCJncmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDA2MCIsImlzc3VlZF9hdCI6IjIwMjYtMTAtMzBUMDk6MDA6MDBaIiwibGVhc2VfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwNjEiLCJub3RfYWZ0ZXIiOiIyMDI2LTEwLTMwVDA5OjA0OjAwWiIsIm9yZ19pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInBsYW5faGFzaCI6InNoYTI1NjpiNjAzY2FmN2I4OTRhM2Q1ODM1ZDdhODg3YzE2YzAzOGUxNjM1MDIyY2RlYTQ3MWExNDE5YjE4OTgwZTU5NzY1IiwicGxhbl9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDA1MCIsInByaW5jaXBhbF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwNiIsInByb2plY3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDMxIiwicmVxdWVzdF9wYXRjaF9oYXNoIjoic2hhMjU2OjE1YWFjMTMzYTQxYmRiNDUzMTFlNjg0Y2FlZTk3YzAxODQ0MmQ4YjE4MmU4MDY2N2RlZjY4MjFiYjRhZDBjYjIiLCJyZXF1ZXN0ZWRfcG9saWN5X2hhc2hlcyI6WyJzaGEyNTY6MmQzODI4ZjY5MTRhZGU2ZGIxMmQ3NzdjMGMyNzZmYTcyYWZkN2ViOTI1ZWQ1NzkyZWVkNGYxMDI4NzVhNGE3MCJdLCJyZXNlcnZhdGlvbiI6eyJwcm9qZWN0ZWRfYWN0aXZlX2xlYXNlcyI6MSwicHJvamVjdGVkX2NvbmN1cnJlbnRfZGVwbG95bWVudHMiOjEsInByb2plY3RlZF9jdW11bGF0aXZlX2xlYXNlX3NlY29uZHNfcGVyX2RheSI6MTgwMCwicHJvamVjdGVkX25ld19sZWFzZXNfcGVyX2RheSI6MSwicHJvamVjdGVkX3VuaXF1ZV9kZXN0aW5hdGlvbnNfcGVyX2RheSI6MSwicmVzZXJ2YXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwNjIiLCJyZXNlcnZlZF91bnRpbCI6IjIwMjYtMTAtMzBUMDk6MDQ6MDBaIiwicm9vdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDA0MSIsInN0YXR1cyI6InJlc2VydmVkIiwid2luZG93X2VuZCI6IjIwMjYtMTAtMzBUMDk6MDA6MDBaIiwid2luZG93X3N0YXJ0IjoiMjAyNi0xMC0yOVQwOTowMDowMFoifSwicm9sbGJhY2tfYXV0aG9yaXR5Ijp7ImFydGlmYWN0X2hhc2giOiJzaGEyNTY6NzBiMjEwYjIzNTBjYzVhNDJmMjUyOGUxODFmOThjY2E3MzA4YzAzZTgwY2Q3NDc0YTEyMGQyZDAwNTQ4ODNkYSIsImJhc2VsaW5lX2hhc2giOiJzaGEyNTY6MWI3OTM5MDk3MjI0Yzg1NDhhNThmNDNkODg5NjM4NGQyMjU2ZDFkYjFmMWYxN2I1MTBkOTljZmEwNzEzNTc2ZCIsInByb2ZpbGUiOiJwcmVzZXJ2ZS1jdXJyZW50LXJlc3RyaWN0aW9ucyIsInNjb3BlX2JvdW5kX2hhc2giOiJzaGEyNTY6YjkwOWM4YWNlYTE5ODc1MzUyY2YzYWY1ODY3NjFiOTk3YTgzMDQ2ZTcxYWI2ZDAyMGJhMDRjZWYzOGRhZjU4ZCIsInZhbGlkX3VudGlsIjoiMjAyNi0xMC0zMFQwOTowNTowMFoifSwic2NoZW1hX3ZlcnNpb24iOiJmLmdyYW50L3YxIiwidGFyZ2V0X2dlbmVyYXRpb24iOiI3IiwidGFyZ2V0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAzIiwid29ya2xvYWRfYmluZGluZ19pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwNSJ9",
+      "signatures": [
+        {
+          "keyid": "public-synthetic-fixture-only",
+          "sig": "NHfwrWSk0MFURAE2RcAE73GFxjdek7QaHMthCWT0D2olWXz8tTKJRFyxg4qbwLLGfn/a3upRRe3E3CCzaezvAQ=="
+        }
+      ]
+    }
+  },
+  "receipts": [
+    {
+      "schema_version": "f.receipt/v1",
+      "receipt_id": "00000000-0000-4000-8000-000000000070",
+      "grant_id": "00000000-0000-4000-8000-000000000060",
+      "grant_hash": "sha256:8c5ed88c8553f286b4048cc33d50e01f75df0a6e7e59eed53d5f81b91a4e1c7f",
+      "plan_hash": "sha256:b603caf7b894a3d5835d7a887c16c038e1635022cdea471a1419b18980e59765",
+      "target_id": "00000000-0000-4000-8000-000000000003",
+      "authority_epoch": "1",
+      "target_generation": "7",
+      "recorded_at": "2026-10-30T09:00:01Z",
+      "state": "active",
+      "observed_state_hash": "sha256:0c0a447bfa34be515c1a690116dce68abd30552c66f1cf93d901ddec2768e409",
+      "verified_at": "2026-10-30T09:00:01Z",
+      "new_management_probe_hash": "sha256:f204189ffa25b594b152b6eec9cca9eef0b86cddd4cf5790a43b9e62e0069235",
+      "applied_at": "2026-10-30T09:00:00Z",
+      "confirmed_at": "2026-10-30T09:00:01Z",
+      "confirm_hash": "sha256:bab01d63e9ac89195a2ff16c9d5510b1c9b7aa04440ff03156f05305f465c440"
+    }
+  ],
+  "mcp_results": [
+    {
+      "tool": "get_capabilities",
+      "status": "ok",
+      "data": {
+        "contract_version": "f.contract/v1",
+        "profile": "core-v1",
+        "tools": [
+          "request_access",
+          "get_plan",
+          "get_operation",
+          "request_deployment",
+          "release_access",
+          "get_capabilities"
+        ],
+        "max_targets": 1,
+        "max_lease_seconds": 3600,
+        "supports_child_delegation": false,
+        "supports_automatic_deny_removal": false,
+        "implementation_status": "design-only"
+      }
+    },
+    {
+      "tool": "request_access",
+      "status": "accepted",
+      "data": {
+        "request_id": "00000000-0000-4000-8000-000000000031",
+        "request_revision": 1,
+        "operation_id": "00000000-0000-4000-8000-000000000080"
+      }
+    },
+    {
+      "tool": "get_operation",
+      "operation_id": "00000000-0000-4000-8000-000000000080",
+      "kind": "validate",
+      "state": "succeeded",
+      "data": {
+        "plan_id": "00000000-0000-4000-8000-000000000050",
+        "plan_hash": "sha256:b603caf7b894a3d5835d7a887c16c038e1635022cdea471a1419b18980e59765"
+      }
+    },
+    {
+      "tool": "get_plan",
+      "status": "ready",
+      "data": {
+        "plan_hash": "sha256:b603caf7b894a3d5835d7a887c16c038e1635022cdea471a1419b18980e59765",
+        "plan": {
+          "schema_version": "f.plan/v1",
+          "plan_id": "00000000-0000-4000-8000-000000000050",
+          "request_id": "00000000-0000-4000-8000-000000000031",
+          "request_revision": 1,
+          "request_hash": "sha256:3ad1ce71309a479e1a76d8ac1fd50b5a8babde537950256c8ad4de527a648576",
+          "org_id": "00000000-0000-4000-8000-000000000001",
+          "project_id": "00000000-0000-4000-8000-000000000002",
+          "target_id": "00000000-0000-4000-8000-000000000003",
+          "principal_id": "00000000-0000-4000-8000-000000000006",
+          "workload_binding_id": "00000000-0000-4000-8000-000000000005",
+          "requested_policy_hashes": [
+            "sha256:2d3828f6914ade6db12d777c0c276fa72afd7eb925ed5792eed4f102875a4a70"
+          ],
+          "desired_state_hash": "sha256:0c0a447bfa34be515c1a690116dce68abd30552c66f1cf93d901ddec2768e409",
+          "baseline_hash": "sha256:1b7939097224c8548a58f43d8896384d2256d1db1f1f17b510d99cfa0713576d",
+          "source_snapshot_hash": "sha256:06fdbaaff0f56abebd8b87753ea0df289b1ad7fb128f882e8bb1b9b0b6a04cdb",
+          "guardrail_hash": "sha256:2d25af4da434f3ad7c6c23b2cac15930b104a7f1462bd012564a7a6bfc77ef10",
+          "compiler_hash": "sha256:293b68ca7f8021944031c0398c14b589ad99dcfa94ab69af94db5495dc94a729",
+          "envelope_hash": "sha256:1ecfeb5ed6622c537f6c27487ddd1346da7bf696ac411b93dd0bc9ff12b91594",
+          "delegation_hash": "sha256:77d0a00997fab182464ac9dbb16c925a2cef2e8be68ba3a7b3dea38414072c07",
+          "authority_epoch": "1",
+          "target_generation": "7",
+          "created_at": "2026-10-30T08:59:00Z",
+          "valid_until": "2026-10-30T09:04:00Z",
+          "gates": [
+            {
+              "gate_id": "schema",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:6882c4f69058161f772e69110a826b67d8b590b979391829f9249f7a4a1eb93b"
+            },
+            {
+              "gate_id": "identity",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:d0826338bcbd3bec21bc17e52f26cbec74becc59c8ab344bd652a17a2040e32d"
+            },
+            {
+              "gate_id": "scope",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:0fb26fad13b1841e2c733f7c7727f8ba305880abb12f08f9d99729d5992f4169"
+            },
+            {
+              "gate_id": "quota",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:302e57bfcbda56927538adf014e64af7bd1eccd110b5eadd93a08396593c06cf"
+            },
+            {
+              "gate_id": "semantic",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:4d90d7ae802aeaaef4ce7867c962cfe1cdc168053b44ae1a580d752cd447773c"
+            },
+            {
+              "gate_id": "expiry",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:d74625c1d20191f7951a3317572e0f952435c6ce293a7ef6ced658b678d0a8e4"
+            },
+            {
+              "gate_id": "capability",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:ebea8fa868294ca4dc82c704b64aeea71ca6bcf19cc76e0ca220a6fc5d8f065f"
+            },
+            {
+              "gate_id": "baseline",
+              "required": true,
+              "result": "PASS",
+              "evidence_hash": "sha256:a9f29585a573f84ad5d0edaa4f04a6f61559199e32872f42da95f86296e088c5"
+            }
+          ],
+          "normalization_version": "f.normalize/nfc-v1",
+          "requested_policies": [
+            {
+              "schema_version": "f.policy/v1",
+              "policy_id": "00000000-0000-4000-8000-000000000020",
+              "policy_revision": 1,
+              "org_id": "00000000-0000-4000-8000-000000000001",
+              "project_id": "00000000-0000-4000-8000-000000000002",
+              "target_id": "00000000-0000-4000-8000-000000000003",
+              "owner_id": "00000000-0000-4000-8000-000000000004",
+              "reason": "합성 실습망에서 테스트 데이터베이스 접근",
+              "scope": {
+                "family": "ipv4",
+                "direction": "forward",
+                "source_asset_ids": [
+                  "00000000-0000-4000-8000-000000000010"
+                ],
+                "destination_asset_ids": [
+                  "00000000-0000-4000-8000-000000000011"
+                ],
+                "source_cidrs": [
+                  "10.20.1.10/32"
+                ],
+                "destination_cidrs": [
+                  "10.20.2.20/32"
+                ],
+                "transport": {
+                  "protocol": "tcp",
+                  "destination_ports": [
+                    {
+                      "start": 5432,
+                      "end": 5432
+                    }
+                  ]
+                },
+                "ingress_interfaces": [
+                  "lan0"
+                ],
+                "egress_interfaces": [
+                  "lan1"
+                ]
+              },
+              "log_mode": "new-flow",
+              "action": "allow",
+              "lifetime": {
+                "kind": "lease",
+                "not_before": "2026-10-30T09:00:00Z",
+                "expires_at": "2026-10-30T09:30:00Z"
+              }
+            }
+          ],
+          "target_capability_hash": "sha256:1ec55b1bcdbff091edcc21db3601155852b889ab755468a47352343314953130",
+          "validator_hash": "sha256:d1a935875907b33b65716653807bc1dc09624a1688aabc1a3ddd507cefc2c94e",
+          "artifact_hash": "sha256:ead6d35babe949bd6ebb01fcb0b82fd99f27abde51f3806064252f397a59a563",
+          "validation_report_hash": "sha256:18db25e34660f7a8db4cad2d3baadf48d12a074ed2fad418d8d7d2e3f1aec72e",
+          "effect_summary": {
+            "newly_allowed_flow_count": 1,
+            "removed_flow_count": 0,
+            "effect_hash": "sha256:0697e15fb10effecaaf764292e9a57131e526d15172072986f3ddb955e80256e"
+          },
+          "probe_spec_hash": "sha256:ac6844c4ac34d5faf7358885fdb913fc064c4a04f3ed1c1c14ad59004b12c2ff",
+          "approval_requirements_hash": "sha256:d9e3f039f0544f89ba3793193ceab4f0766e977a0ddf79371725f4337013b187",
+          "workload_binding_hash": "sha256:e4240a8e4c9835895f984e864bfaab4ece42c95944209064cda6a22c61d83ace",
+          "workload_binding_valid_until": "2026-10-30T10:00:00Z",
+          "confirm_timeout_seconds": 60,
+          "rollback_authority": {
+            "profile": "preserve-current-restrictions",
+            "scope_bound_hash": "sha256:b909c8acea19875352cf3af586761b997a83046e71ab6d020ba04cef38daf58d",
+            "baseline_hash": "sha256:1b7939097224c8548a58f43d8896384d2256d1db1f1f17b510d99cfa0713576d",
+            "artifact_hash": "sha256:70b210b2350cc5a42f2528e181f98cca7308c03e80cd7474a120d2d0054883da",
+            "valid_until": "2026-10-30T09:05:00Z"
+          },
+          "change_kind": "add_access_lease",
+          "request_patch_hash": "sha256:15aac133a41bdb45311e684caee97c018442d8b182e80667def6821bb4ad0cb2"
+        },
+        "approval_state": "delegated",
+        "approval_set_hash": "sha256:fbcd647ddd9d2fbf58892ba6189160a4172e452f37b5956fd791f231c1ea84fb"
+      }
+    },
+    {
+      "tool": "request_deployment",
+      "status": "accepted",
+      "data": {
+        "operation_id": "00000000-0000-4000-8000-000000000081",
+        "plan_id": "00000000-0000-4000-8000-000000000050",
+        "plan_hash": "sha256:b603caf7b894a3d5835d7a887c16c038e1635022cdea471a1419b18980e59765"
+      }
+    },
+    {
+      "tool": "get_operation",
+      "operation_id": "00000000-0000-4000-8000-000000000081",
+      "kind": "deploy",
+      "state": "active",
+      "data": {
+        "grant_id": "00000000-0000-4000-8000-000000000060",
+        "lease_id": "00000000-0000-4000-8000-000000000061",
+        "expires_at": "2026-10-30T09:30:00Z",
+        "target_results": [
+          {
+            "target_id": "00000000-0000-4000-8000-000000000003",
+            "state": "active",
+            "receipt_id": "00000000-0000-4000-8000-000000000070"
+          }
+        ]
+      }
+    },
+    {
+      "tool": "release_access",
+      "status": "accepted",
+      "data": {
+        "operation_id": "00000000-0000-4000-8000-000000000082",
+        "lease_id": "00000000-0000-4000-8000-000000000061"
+      }
+    }
+  ]
+}

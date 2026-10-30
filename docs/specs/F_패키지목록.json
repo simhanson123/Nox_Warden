@@ -1,0 +1,267 @@
+{
+  "spec_version": "F-2.0",
+  "scope": "development specifications; no implemented firewall runtime",
+  "manifest_excludes_itself": true,
+  "files": [
+    {
+      "path": "F_00_시작안내.md",
+      "bytes": 5597,
+      "sha256": "f303e9124dae2a9db27b8164c03c0c89a6e32f5365a14a38697a8e32473cbbcb"
+    },
+    {
+      "path": "F_01_제품_구현_기준.md",
+      "bytes": 14303,
+      "sha256": "ff95c1d60da7bd184b54836adc337429c308c2f2ef0d0b09942d410dfbe1c918"
+    },
+    {
+      "path": "F_02_API_및_도메인_명세.md",
+      "bytes": 34686,
+      "sha256": "94791747446869444f247dfcc2ae826eaa623e04387bc74862e30cc485cda169"
+    },
+    {
+      "path": "F_03_데이터베이스_및_동시성_명세.md",
+      "bytes": 39083,
+      "sha256": "0ba7616fb8ecde8ab804695fb3e8ee8c558cb782ce353f3ff63066ec75413b84"
+    },
+    {
+      "path": "F_04_정책컴파일러_집행_복구_명세.md",
+      "bytes": 39484,
+      "sha256": "23918686d6ce7b78d02add0f4b48d4ccc1f99522e5fcaca14761b53cadb4cdb7"
+    },
+    {
+      "path": "F_05_UI_다국어_접근성_명세.md",
+      "bytes": 38619,
+      "sha256": "af3ec637ce0a0f53c3e2876b76f0e4a7050fd50673111335ceaa6f1c3db24914"
+    },
+    {
+      "path": "F_06_통계_후원_공개운영_명세.md",
+      "bytes": 32529,
+      "sha256": "a5fcd4ca8d3b155ee3cf41b6b56e29fc4d14a8afb13993deca69ab559b754ee4"
+    },
+    {
+      "path": "F_07_시험_인수_명세.md",
+      "bytes": 33097,
+      "sha256": "3bcf6abcebd4fa72642060a6d28ef8ac6f4e3275e7a6a56409102759f8dd4be8"
+    },
+    {
+      "path": "F_08_Codex_Cloud_작업계획.md",
+      "bytes": 9472,
+      "sha256": "4ed92d26f7500fa72456850d660ef62392b4d15624f20df978cab29c20ebad8c"
+    },
+    {
+      "path": "F_09_멀티플랫폼_설치_집행_명세.md",
+      "bytes": 13287,
+      "sha256": "99e82ef7a5a29e764bf21026b21f1bb7ba8d6e39219e3c3d20b18e48d717b53d"
+    },
+    {
+      "path": "F_10_관측_경로_보안감사_명세.md",
+      "bytes": 9856,
+      "sha256": "0c0aff6fd65b57a9cc7dc697851fce779b29128be5ed0e7c4096cd4a4c1e9574"
+    },
+    {
+      "path": "F_11_클라우드_호스팅_설치채널_명세.md",
+      "bytes": 24669,
+      "sha256": "01abd5770dcbd476756e69056e002f82475fb4b46de467bf92304567a0d79fb9"
+    },
+    {
+      "path": "F_12_등록_내부통신_부트스트랩_명세.md",
+      "bytes": 10076,
+      "sha256": "f83330322f39e5f53afb8d36aadd2cb7bbf3a8eb103ff358915736261f41b52a"
+    },
+    {
+      "path": "F_AGENTS.md",
+      "bytes": 3531,
+      "sha256": "4aaf9843abc47ed29fe5ac287356efa138721d5576d36f72dac1eee8b2c3208b"
+    },
+    {
+      "path": "F_Codex_시작프롬프트.txt",
+      "bytes": 1964,
+      "sha256": "d106610d9821276bfcf7459159a2434e2faa95adcda59c3debb71fc20981aa69"
+    },
+    {
+      "path": "F_OpenAPI.json",
+      "bytes": 412188,
+      "sha256": "db4bed79e731abb50d3d65b3531684e912ecb8fb273656ce55992f1fa4eff1b3"
+    },
+    {
+      "path": "F_README.md",
+      "bytes": 1608,
+      "sha256": "a3ff6dfb2796f322f9f0ce119756059e44804a3f21252ebd1f08ae6e0d2f1b14"
+    },
+    {
+      "path": "F_SKILL.md",
+      "bytes": 3470,
+      "sha256": "4707042f8e72e32f3f36e7ed2763d246c1826a3d512281044a32b828e666d79c"
+    },
+    {
+      "path": "F_개발명세_검증결과.json",
+      "bytes": 5434,
+      "sha256": "e8d02e6992415373cc5bafab39eb3f50196ae18dd34dc84e19a87edbcd3be0da"
+    },
+    {
+      "path": "F_기본문구.json",
+      "bytes": 22716,
+      "sha256": "8fcdfc3832ae02157865fdb445880897f14a8394c038d91d7510c9f552b2d5b3"
+    },
+    {
+      "path": "F_기본설정_스키마.json",
+      "bytes": 14946,
+      "sha256": "755340d7a8b5ae036357fc66365066107909ac09b74a2ef6081c341e97b6b78f"
+    },
+    {
+      "path": "F_기본설정_예제.json",
+      "bytes": 1548,
+      "sha256": "2526f0ccee028a8120af113c8d55616b19dd452165e0eddc02cabd25eccfb1da"
+    },
+    {
+      "path": "F_기준자료/F_FUNDING.yml",
+      "bytes": 317,
+      "sha256": "64ad2b0c9b0d5839fda06a2325ed4f3f7fde6129ba2342bca216544bfd3feb93"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_CONTRIBUTING.md",
+      "bytes": 4822,
+      "sha256": "312c977eca5b9c59e36c0da384a365c5c3f365fd151b93d8a7f6154b6c6239cd"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_GOVERNANCE.md",
+      "bytes": 5271,
+      "sha256": "1f09cb581681acf5bee3d1deddcb476a51c2450c8cda2747d750033f50c6c959"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_LICENSE.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_NOTICE.txt",
+      "bytes": 1109,
+      "sha256": "4cca0bfa1d2fd2b504515c85c379e00f357f2771dde9cb1b33d0f01c4acd1840"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_README.md",
+      "bytes": 2253,
+      "sha256": "5f8a0268ed20db80319ce97d980913aade47a831037c6b41f747afd29fa55e3b"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_SECURITY.md",
+      "bytes": 3370,
+      "sha256": "3967ac3eddabd40e19bb1c6457467db3d57cd34d97283b5f732c9b9a6ae5e94b"
+    },
+    {
+      "path": "F_기준자료/F_GitHub_공개준비/F_배포파일명_매핑.md",
+      "bytes": 3949,
+      "sha256": "2c4f30e38d11a3367f251afe500bdfa3093ad8f6ed792ba3f72164ca66e82940"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_MCP_도구_카탈로그.json",
+      "bytes": 57725,
+      "sha256": "b9208d8ea23edb87a20481bee30f4517d2a80f8a658c4f03ae7a3bbfd85abb8f"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_계약_검증결과.json",
+      "bytes": 8065,
+      "sha256": "a9de93b4a24e442900aefe36206de3dd4b611f619f74dca310c060a71947da4a"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_계약_사용안내.md",
+      "bytes": 18321,
+      "sha256": "32c6e9ee1527825767db8efb650185347dcd134e276df987091bffbe74ef1f13"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_계약_스키마.json",
+      "bytes": 64382,
+      "sha256": "d5d16b87c56097c64a236eec3cdb99cbbf91d933da5b4f1ba2817495c338a7e8"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_계약_예제.json",
+      "bytes": 28949,
+      "sha256": "2c0f20c6e58833cebd69ea462837f1ac73a2bd90939463820f55381b23a3de1a"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_차단정책_예제.json",
+      "bytes": 1201,
+      "sha256": "994cbc1d39f0e433142f230ae1670eef05eb4e9db0731214f0ff6c3fa257a0db"
+    },
+    {
+      "path": "F_기준자료/F_개발계약/F_참조검증기.py",
+      "bytes": 31244,
+      "sha256": "523cba55e152e212e626d8a8e0c14c8c2b0f41c344b8894cefe6aa4310fbe3d8"
+    },
+    {
+      "path": "F_기준자료/F_라이선스_및_GitHub_공개지침.md",
+      "bytes": 16792,
+      "sha256": "8c3615eb613fbaca2384d0e0556b3ba3219d19075a5a3f3b41dcfcc381472dc2"
+    },
+    {
+      "path": "F_기준자료/F_설계결정_및_통합근거.md",
+      "bytes": 30439,
+      "sha256": "bba8c99ec58060fc8e6cd6b55e6bf32fd3f24d4ed167c92250c4928a35635686"
+    },
+    {
+      "path": "F_기준자료/F_아키텍처_구성도.html",
+      "bytes": 813794,
+      "sha256": "5f60adde663e64ea0553cc6a0ef6bec27f433c04bed3e9733a9d1029f8b0b504"
+    },
+    {
+      "path": "F_기준자료/F_아키텍처_구성도.json",
+      "bytes": 5410,
+      "sha256": "0f8f17a64e22c0ff1f567b9f459b043aedd199978f047281dcad1f601085409a"
+    },
+    {
+      "path": "F_기준자료/F_오픈소스_방화벽_최종설계서.md",
+      "bytes": 75232,
+      "sha256": "e0d15551b04425f973c9ab9159a1f784030b7690074a669b393a7c4044ceb51d"
+    },
+    {
+      "path": "F_기준자료/F_오픈소스_방화벽_최종설계서.pdf",
+      "bytes": 287721,
+      "sha256": "e6d265560c55b4b34d4c8a5fb7f34a3d63bfcb33d16bccfa570c75d29b506170"
+    },
+    {
+      "path": "F_기준자료/F_제3자_고지.md",
+      "bytes": 14342,
+      "sha256": "07d862658306219207360094386b33537cf40010fc862722997a09631e4c2870"
+    },
+    {
+      "path": "F_내부통신_스키마.json",
+      "bytes": 33952,
+      "sha256": "ac1ee1791d3bd5ec8889e80cd4f870ee3461c64ec4c88f8e5f26d95facf28b2b"
+    },
+    {
+      "path": "F_내부통신_예제.json",
+      "bytes": 459,
+      "sha256": "0c92b45e075c1076e7587687221ecd508cec6d87a44150d21d77d9f60a1890ff"
+    },
+    {
+      "path": "F_도구_검증결과.json",
+      "bytes": 1118,
+      "sha256": "1fa789b4167988ecea9f35b684d096a0bbbf19f6ad75f4e7e89754de930042bf"
+    },
+    {
+      "path": "F_명세_검증기.py",
+      "bytes": 12160,
+      "sha256": "fa11a009212e8a6c6e08f32e0e28c7d3302921a3fa885aed44559361e16ceb73"
+    },
+    {
+      "path": "F_저장소_내보내기.py",
+      "bytes": 3402,
+      "sha256": "9173c5c8258e53684a89be12dca5c8708fb62a6acfdf9b8804c65982e1a4be4e"
+    },
+    {
+      "path": "F_확장계약_검증결과.json",
+      "bytes": 3484,
+      "sha256": "40b2c5887d7891ac48d3837f27f1851675f853c860411760c311d807c80ca31e"
+    },
+    {
+      "path": "F_확장계약_검증기.py",
+      "bytes": 10553,
+      "sha256": "d1584e149a8d99df00bffba7ccabdcb6a4b3be75eecdf8828a085840861b5f12"
+    },
+    {
+      "path": "F_확장계약_스키마.json",
+      "bytes": 246739,
+      "sha256": "af4ca8ba52060c59116d519486a0ec76d8790f2b02a1e81a89f2bf46de35f89c"
+    }
+  ]
+}

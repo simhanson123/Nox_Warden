@@ -1,0 +1,48 @@
+{
+  "schema_version": "f.policy/v1",
+  "policy_id": "00000000-0000-4000-8000-000000000021",
+  "policy_revision": 1,
+  "org_id": "00000000-0000-4000-8000-000000000001",
+  "project_id": "00000000-0000-4000-8000-000000000002",
+  "target_id": "00000000-0000-4000-8000-000000000003",
+  "owner_id": "00000000-0000-4000-8000-000000000004",
+  "reason": "합성 실습망의 차단 정책 정기 검토",
+  "scope": {
+    "family": "ipv4",
+    "direction": "forward",
+    "source_asset_ids": [
+      "00000000-0000-4000-8000-000000000010"
+    ],
+    "destination_asset_ids": [
+      "00000000-0000-4000-8000-000000000011"
+    ],
+    "source_cidrs": [
+      "10.20.1.10/32"
+    ],
+    "destination_cidrs": [
+      "10.20.2.20/32"
+    ],
+    "transport": {
+      "protocol": "tcp",
+      "destination_ports": [
+        {
+          "start": 5432,
+          "end": 5432
+        }
+      ]
+    },
+    "ingress_interfaces": [
+      "lan0"
+    ],
+    "egress_interfaces": [
+      "lan1"
+    ]
+  },
+  "log_mode": "new-flow",
+  "action": "deny",
+  "lifetime": {
+    "kind": "review",
+    "not_before": "2026-10-30T09:00:00Z",
+    "review_at": "2026-11-29T09:00:00Z"
+  }
+}

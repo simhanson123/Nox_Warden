@@ -1,0 +1,24 @@
+[package]
+name = "fw_control"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = "0.8.8"
+tokio = { version = "1.48.0", features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+fw_contracts = { path = "../fw_contracts" }
+fw_store = { path = "../fw_store" }
+fw_mcp = { path = "../fw_mcp" }
+tower-http = { version = "0.6.6", features = ["fs", "limit", "set-header"] }
+subtle = "2.6.1"
+unicode-normalization = "0.1.26"
+
+[dev-dependencies]
+tower = { version = "0.5.2", features = ["util"] }
+http-body-util = "0.1.3"

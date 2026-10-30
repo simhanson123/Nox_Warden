@@ -1,0 +1,1799 @@
+{
+  "schema_version": "f.mcp-catalog/v1",
+  "status": "design-contract-not-running-server",
+  "tools": [
+    {
+      "name": "get_capabilities",
+      "description": "지원 계약과 제한을 조회한다. 구현 완료나 장비 인증을 의미하지 않는다.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "$defs": {}
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/CapabilitiesResult",
+        "$defs": {
+          "CapabilitiesResult": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "const": "get_capabilities"
+              },
+              "status": {
+                "const": "ok"
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "contract_version": {
+                    "const": "f.contract/v1"
+                  },
+                  "profile": {
+                    "const": "core-v1"
+                  },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "request_access",
+                        "get_plan",
+                        "get_operation",
+                        "request_deployment",
+                        "release_access",
+                        "get_capabilities"
+                      ]
+                    },
+                    "minItems": 0,
+                    "maxItems": 6,
+                    "uniqueItems": true
+                  },
+                  "max_targets": {
+                    "const": 1
+                  },
+                  "max_lease_seconds": {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 86400
+                  },
+                  "supports_child_delegation": {
+                    "const": false
+                  },
+                  "supports_automatic_deny_removal": {
+                    "const": false
+                  },
+                  "implementation_status": {
+                    "enum": [
+                      "design-only",
+                      "experimental",
+                      "verified-profile"
+                    ]
+                  }
+                },
+                "required": [
+                  "contract_version",
+                  "profile",
+                  "tools",
+                  "max_targets",
+                  "max_lease_seconds",
+                  "supports_child_delegation",
+                  "supports_automatic_deny_removal",
+                  "implementation_status"
+                ]
+              }
+            },
+            "required": [
+              "tool",
+              "status",
+              "data"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "request_access",
+      "description": "초안 생성, 검증, 위임 평가와 계획 준비를 요청한다. 패킷 집행은 하지 않는다. needs_info이면 새 idempotency key로 새 요청을 만든다.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/AccessRequest",
+        "$defs": {
+          "AccessRequest": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schema_version": {
+                "const": "f.access-request/v1"
+              },
+              "idempotency_key": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "workflow_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "workload_binding_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "source_asset_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 1,
+                "maxItems": 16,
+                "uniqueItems": true
+              },
+              "destination_asset_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 1,
+                "maxItems": 16,
+                "uniqueItems": true
+              },
+              "service_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "lease_seconds": {
+                "type": "integer",
+                "minimum": 60,
+                "maximum": 86400
+              },
+              "purpose": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "schema_version",
+              "idempotency_key",
+              "workflow_id",
+              "workload_binding_id",
+              "source_asset_ids",
+              "destination_asset_ids",
+              "service_id",
+              "lease_seconds",
+              "purpose"
+            ]
+          }
+        }
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/RequestResult",
+        "$defs": {
+          "RequestResult": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "request_access"
+                  },
+                  "status": {
+                    "const": "accepted"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "request_revision": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647
+                      },
+                      "operation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "required": [
+                      "request_id",
+                      "request_revision",
+                      "operation_id"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "request_access"
+                  },
+                  "status": {
+                    "const": "needs_info"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "missing_fields": {
+                        "type": "array",
+                        "items": {
+                          "enum": [
+                            "workload_binding_id",
+                            "source_asset_ids",
+                            "destination_asset_ids",
+                            "service_id",
+                            "lease_seconds",
+                            "purpose"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "request_id",
+                      "missing_fields"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "request_access"
+                  },
+                  "status": {
+                    "const": "denied"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "reason_code": {
+                        "enum": [
+                          "OUT_OF_SCOPE",
+                          "IDENTITY_UNBOUND",
+                          "QUOTA_EXCEEDED",
+                          "INVALID_REQUEST",
+                          "DEPENDENCY_UNAVAILABLE"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "reason_code"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_plan",
+      "description": "단일 대상의 불변 계획을 조회한다. 최대 256개 정책이며 잘라 반환하지 않는다.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "plan_id"
+        ],
+        "$defs": {}
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/PlanResult",
+        "$defs": {
+          "Gate": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "gate_id": {
+                "enum": [
+                  "schema",
+                  "identity",
+                  "scope",
+                  "quota",
+                  "semantic",
+                  "expiry",
+                  "capability",
+                  "baseline"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "result": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "UNKNOWN",
+                  "NOT_APPLICABLE"
+                ]
+              },
+              "evidence_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "gate_id",
+              "required",
+              "result",
+              "evidence_hash"
+            ]
+          },
+          "Plan": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schema_version": {
+                "const": "f.plan/v1"
+              },
+              "plan_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "request_revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "request_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "org_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "project_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "target_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "principal_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "workload_binding_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "requested_policy_hashes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "minItems": 1,
+                "maxItems": 256,
+                "uniqueItems": true
+              },
+              "desired_state_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "baseline_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "source_snapshot_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "guardrail_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "compiler_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "envelope_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "delegation_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "authority_epoch": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,19})$"
+              },
+              "target_generation": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,19})$"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+              },
+              "valid_until": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+              },
+              "gates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Gate"
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              },
+              "normalization_version": {
+                "const": "f.normalize/nfc-v1"
+              },
+              "requested_policies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Policy"
+                },
+                "minItems": 1,
+                "maxItems": 256,
+                "uniqueItems": true
+              },
+              "target_capability_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "validator_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "artifact_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "validation_report_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "effect_summary": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "newly_allowed_flow_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "removed_flow_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "effect_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "newly_allowed_flow_count",
+                  "removed_flow_count",
+                  "effect_hash"
+                ]
+              },
+              "probe_spec_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "approval_requirements_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "workload_binding_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "workload_binding_valid_until": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+              },
+              "confirm_timeout_seconds": {
+                "const": 60
+              },
+              "rollback_authority": {
+                "$ref": "#/$defs/RollbackAuthority"
+              },
+              "change_kind": {
+                "const": "add_access_lease"
+              },
+              "request_patch_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "schema_version",
+              "plan_id",
+              "request_id",
+              "request_revision",
+              "request_hash",
+              "org_id",
+              "project_id",
+              "target_id",
+              "principal_id",
+              "workload_binding_id",
+              "requested_policy_hashes",
+              "desired_state_hash",
+              "baseline_hash",
+              "source_snapshot_hash",
+              "guardrail_hash",
+              "compiler_hash",
+              "envelope_hash",
+              "delegation_hash",
+              "authority_epoch",
+              "target_generation",
+              "created_at",
+              "valid_until",
+              "gates",
+              "normalization_version",
+              "requested_policies",
+              "target_capability_hash",
+              "validator_hash",
+              "artifact_hash",
+              "validation_report_hash",
+              "effect_summary",
+              "probe_spec_hash",
+              "approval_requirements_hash",
+              "workload_binding_hash",
+              "workload_binding_valid_until",
+              "confirm_timeout_seconds",
+              "rollback_authority",
+              "change_kind",
+              "request_patch_hash"
+            ]
+          },
+          "PlanResult": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_plan"
+                  },
+                  "status": {
+                    "const": "ready"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "plan_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      },
+                      "plan": {
+                        "$ref": "#/$defs/Plan"
+                      },
+                      "approval_state": {
+                        "enum": [
+                          "approval_required",
+                          "approved",
+                          "delegated"
+                        ]
+                      },
+                      "approval_set_hash": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^sha256:[0-9a-f]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "plan_hash",
+                      "plan",
+                      "approval_state",
+                      "approval_set_hash"
+                    ],
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "approval_state": {
+                              "enum": [
+                                "approved",
+                                "delegated"
+                              ]
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "approval_set_hash": {
+                              "type": "string",
+                              "pattern": "^sha256:[0-9a-f]{64}$"
+                            }
+                          }
+                        },
+                        "else": {
+                          "properties": {
+                            "approval_set_hash": {
+                              "type": "null"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_plan"
+                  },
+                  "status": {
+                    "const": "not_ready"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "operation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "reason_code": {
+                        "enum": [
+                          "PENDING",
+                          "NEEDS_INFO",
+                          "VALIDATION_FAILED",
+                          "UNKNOWN"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "operation_id",
+                      "reason_code"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_plan"
+                  },
+                  "status": {
+                    "const": "unavailable"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "reason_code": {
+                        "enum": [
+                          "RESULT_TOO_LARGE",
+                          "NOT_FOUND",
+                          "FORBIDDEN"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "reason_code"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              }
+            ]
+          },
+          "Policy": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "schema_version": {
+                    "const": "f.policy/v1"
+                  },
+                  "policy_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "policy_revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "org_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "target_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "owner_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "scope": {
+                    "$ref": "#/$defs/Scope"
+                  },
+                  "log_mode": {
+                    "enum": [
+                      "none",
+                      "new-flow",
+                      "sampled"
+                    ]
+                  },
+                  "action": {
+                    "const": "allow"
+                  },
+                  "lifetime": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "lease"
+                      },
+                      "not_before": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      },
+                      "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "not_before",
+                      "expires_at"
+                    ]
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "policy_id",
+                  "policy_revision",
+                  "org_id",
+                  "project_id",
+                  "target_id",
+                  "owner_id",
+                  "reason",
+                  "scope",
+                  "log_mode",
+                  "action",
+                  "lifetime"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "schema_version": {
+                    "const": "f.policy/v1"
+                  },
+                  "policy_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "policy_revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "org_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "target_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "owner_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "scope": {
+                    "$ref": "#/$defs/Scope"
+                  },
+                  "log_mode": {
+                    "enum": [
+                      "none",
+                      "new-flow",
+                      "sampled"
+                    ]
+                  },
+                  "action": {
+                    "const": "deny"
+                  },
+                  "lifetime": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "review"
+                      },
+                      "not_before": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      },
+                      "review_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "not_before",
+                      "review_at"
+                    ]
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "policy_id",
+                  "policy_revision",
+                  "org_id",
+                  "project_id",
+                  "target_id",
+                  "owner_id",
+                  "reason",
+                  "scope",
+                  "log_mode",
+                  "action",
+                  "lifetime"
+                ]
+              }
+            ]
+          },
+          "PortRange": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ]
+          },
+          "RollbackAuthority": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "profile": {
+                "enum": [
+                  "preserve-current-restrictions",
+                  "preapproved-scope"
+                ]
+              },
+              "scope_bound_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "baseline_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "artifact_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "valid_until": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+              }
+            },
+            "required": [
+              "profile",
+              "scope_bound_hash",
+              "baseline_hash",
+              "artifact_hash",
+              "valid_until"
+            ]
+          },
+          "Scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "family": {
+                "enum": [
+                  "ipv4",
+                  "ipv6"
+                ]
+              },
+              "direction": {
+                "enum": [
+                  "input",
+                  "output",
+                  "forward"
+                ]
+              },
+              "source_asset_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 1,
+                "maxItems": 256,
+                "uniqueItems": true
+              },
+              "destination_asset_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 1,
+                "maxItems": 256,
+                "uniqueItems": true
+              },
+              "source_cidrs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "minItems": 1,
+                "maxItems": 1024,
+                "uniqueItems": true
+              },
+              "destination_cidrs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "minItems": 1,
+                "maxItems": 1024,
+                "uniqueItems": true
+              },
+              "transport": {
+                "$ref": "#/$defs/Transport"
+              },
+              "ingress_interfaces": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_.:-]{1,15}$"
+                },
+                "minItems": 0,
+                "maxItems": 32,
+                "uniqueItems": true
+              },
+              "egress_interfaces": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_.:-]{1,15}$"
+                },
+                "minItems": 0,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "family",
+              "direction",
+              "source_asset_ids",
+              "destination_asset_ids",
+              "source_cidrs",
+              "destination_cidrs",
+              "transport",
+              "ingress_interfaces",
+              "egress_interfaces"
+            ]
+          },
+          "Transport": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "protocol": {
+                    "enum": [
+                      "tcp",
+                      "udp"
+                    ]
+                  },
+                  "destination_ports": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/PortRange"
+                    },
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "protocol",
+                  "destination_ports"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "protocol": {
+                    "enum": [
+                      "icmp",
+                      "icmpv6"
+                    ]
+                  },
+                  "type": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "code": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  }
+                },
+                "required": [
+                  "protocol",
+                  "type",
+                  "code"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_operation",
+      "description": "검증, 배포, 반납 작업의 종류별 실제 결과를 조회한다.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "operation_id"
+        ],
+        "$defs": {}
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/OperationResult",
+        "$defs": {
+          "OperationResult": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_operation"
+                  },
+                  "operation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "kind": {
+                    "const": "validate"
+                  },
+                  "state": {
+                    "const": "succeeded"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "plan_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "plan_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "plan_id",
+                      "plan_hash"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation_id",
+                  "kind",
+                  "state",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_operation"
+                  },
+                  "operation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "kind": {
+                    "const": "deploy"
+                  },
+                  "state": {
+                    "const": "active"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "grant_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "lease_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+                      },
+                      "target_results": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/TargetActive"
+                        },
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "grant_id",
+                      "lease_id",
+                      "expires_at",
+                      "target_results"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation_id",
+                  "kind",
+                  "state",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_operation"
+                  },
+                  "operation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "kind": {
+                    "const": "release"
+                  },
+                  "state": {
+                    "const": "revoked"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "lease_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "receipt_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "uniqueItems": true
+                      },
+                      "other_authorizations_remain": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "lease_id",
+                      "receipt_ids",
+                      "other_authorizations_remain"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation_id",
+                  "kind",
+                  "state",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_operation"
+                  },
+                  "operation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "kind": {
+                    "enum": [
+                      "validate",
+                      "deploy",
+                      "release"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "queued",
+                      "running",
+                      "unknown",
+                      "partial"
+                    ]
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "retry_after_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3600
+                      },
+                      "reason_code": {
+                        "enum": [
+                          "PENDING",
+                          "RESULT_UNKNOWN",
+                          "PARTIAL_APPLY"
+                        ]
+                      },
+                      "target_results": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/TargetPending"
+                        },
+                        "minItems": 0,
+                        "maxItems": 1,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "retry_after_seconds",
+                      "reason_code",
+                      "target_results"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation_id",
+                  "kind",
+                  "state",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "get_operation"
+                  },
+                  "operation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "kind": {
+                    "enum": [
+                      "validate",
+                      "deploy",
+                      "release"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "reason_code": {
+                        "enum": [
+                          "VALIDATION_FAILED",
+                          "APPLY_FAILED",
+                          "OUT_OF_SCOPE",
+                          "CANCELLED",
+                          "CAPABILITY_UNSUPPORTED",
+                          "PLAN_STALE"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "reason_code"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation_id",
+                  "kind",
+                  "state",
+                  "data"
+                ]
+              }
+            ]
+          },
+          "TargetActive": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "target_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "const": "active"
+              },
+              "receipt_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "target_id",
+              "state",
+              "receipt_id"
+            ]
+          },
+          "TargetPending": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "target_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "state": {
+                "enum": [
+                  "queued",
+                  "applying",
+                  "verifying",
+                  "unknown",
+                  "failed",
+                  "active",
+                  "revoked"
+                ]
+              }
+            },
+            "required": [
+              "target_id",
+              "state"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "request_deployment",
+      "description": "정확한 계획의 배포를 요청한다. 승인 및 위임 검사는 서버가 다시 수행한다.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "plan_id",
+          "plan_hash",
+          "idempotency_key"
+        ],
+        "$defs": {}
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/DeploymentResult",
+        "$defs": {
+          "DeploymentResult": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "request_deployment"
+                  },
+                  "status": {
+                    "const": "accepted"
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "operation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "plan_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "plan_hash": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "operation_id",
+                      "plan_id",
+                      "plan_hash"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "tool": {
+                    "const": "request_deployment"
+                  },
+                  "status": {
+                    "enum": [
+                      "approval_required",
+                      "denied"
+                    ]
+                  },
+                  "data": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "plan_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "reason_code": {
+                        "enum": [
+                          "APPROVAL_REQUIRED",
+                          "PLAN_STALE",
+                          "QUOTA_EXCEEDED",
+                          "OUT_OF_SCOPE",
+                          "DEPENDENCY_UNAVAILABLE",
+                          "CAPABILITY_UNSUPPORTED"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "plan_id",
+                      "reason_code"
+                    ]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "status",
+                  "data"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "release_access",
+      "description": "자기 allow lease의 회수를 요청한다. accepted는 회수 완료가 아니다.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "lease_id",
+          "idempotency_key",
+          "reason"
+        ],
+        "$defs": {}
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$ref": "#/$defs/ReleaseResult",
+        "$defs": {
+          "ReleaseResult": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tool": {
+                "const": "release_access"
+              },
+              "status": {
+                "const": "accepted"
+              },
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operation_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "lease_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "operation_id",
+                  "lease_id"
+                ]
+              }
+            },
+            "required": [
+              "tool",
+              "status",
+              "data"
+            ]
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "authorization_contracts": {
+    "get_capabilities": {
+      "scope": "f:read",
+      "principal_from": "verified-authentication",
+      "annotations_are_authorization": false,
+      "max_input_bytes": 65536,
+      "max_output_bytes": 262144,
+      "timeout_ms": 2000
+    },
+    "request_access": {
+      "scope": "f:requests:create",
+      "principal_from": "verified-authentication",
+      "annotations_are_authorization": false,
+      "max_input_bytes": 65536,
+      "max_output_bytes": 262144,
+      "timeout_ms": 2000
+    },
+    "get_plan": {
+      "scope": "f:plans:read",
+      "principal_from": "verified-authentication",
+      "annotations_are_authorization": false,
+      "max_input_bytes": 65536,
+      "max_output_bytes": 262144,
+      "timeout_ms": 2000
+    },
+    "get_operation": {
+      "scope": "f:operations:read",
+      "principal_from": "verified-authentication",
+      "annotations_are_authorization": false,
+      "max_input_bytes": 65536,
+      "max_output_bytes": 262144,
+      "timeout_ms": 2000
+    },
+    "request_deployment": {
+      "scope": "f:deployments:request",
+      "principal_from": "verified-authentication",
+      "annotations_are_authorization": false,
+      "max_input_bytes": 65536,
+      "max_output_bytes": 262144,
+      "timeout_ms": 2000
+    },
+    "release_access": {
+      "scope": "f:leases:release-own",
+      "principal_from": "verified-authentication",
+      "annotations_are_authorization": false,
+      "max_input_bytes": 65536,
+      "max_output_bytes": 262144,
+      "timeout_ms": 2000
+    }
+  }
+}

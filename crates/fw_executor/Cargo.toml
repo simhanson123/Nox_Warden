@@ -1,0 +1,20 @@
+[package]
+name = "fw_executor"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+fw_authority = { path = "../fw_authority" }
+fw_contracts = { path = "../fw_contracts" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.37", features = ["bundled"] }
+thiserror = "2.0"
+fs2 = "0.4"
+ed25519-dalek = "2.1"
+base64 = "0.22"
+uuid = "1.10"
+
+[dev-dependencies]
+tempfile = "3.14"

@@ -1,0 +1,60 @@
+{
+  "schema_version": "f.runtime-config/v1",
+  "platform": "auto",
+  "mode": "observe",
+  "state_root": "./state",
+  "controller": {
+    "bind_address": "127.0.0.1",
+    "port": 8787,
+    "tls": {
+      "enabled": false,
+      "certificate_path": null,
+      "private_key_path": null
+    },
+    "allowed_origins": [
+      "http://127.0.0.1:8787"
+    ],
+    "authentication_required": true,
+    "bootstrap_token_ttl_seconds": 600
+  },
+  "database": {
+    "kind": "sqlite",
+    "path": "controller/controller.sqlite3",
+    "busy_timeout_ms": 5000
+  },
+  "telemetry": {
+    "enabled": false,
+    "endpoint": null
+  },
+  "ai": {
+    "enabled": false,
+    "providers": []
+  },
+  "limits": {
+    "api_body_bytes": 65536,
+    "mcp_response_bytes": 262144,
+    "api_concurrency": 64,
+    "queued_operations": 1000,
+    "lite_workers": 4,
+    "analysis_wall_time_ms": 5000,
+    "analysis_memory_mib": 128,
+    "max_active_policies": 1000
+  },
+  "retention": {
+    "audit_days": 90,
+    "diagnostic_log_days": 14,
+    "aggregate_metric_days": 30,
+    "packet_capture_enabled": false,
+    "disk_warning_percent": 80,
+    "disk_stop_new_expansion_percent": 90
+  },
+  "security": {
+    "require_signed_artifacts": true,
+    "require_authenticated_ipc": true,
+    "allow_shell_execution": false,
+    "trust_registry_path": "authority/trust-registry.json",
+    "authority_state_path": "authority/authority.sqlite3",
+    "executor_journal_path": "executor/journal",
+    "evidence_path": "evidence"
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "fw_domain"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+ipnet = "2.11"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+unicode-normalization = "0.1"
+uuid = "1.0"
+
+[dev-dependencies]
+serde_json = "1.0"
+fw_contracts = { path = "../fw_contracts" }

@@ -1,0 +1,151 @@
+{
+  "schema_version": "f.extended-contract-checks/v1",
+  "checked_at": "2026-10-30T04:33:47Z",
+  "passed": 28,
+  "failed": 0,
+  "definitions": 137,
+  "paths": 46,
+  "operations": 51,
+  "inputs": {
+    "extension": {
+      "name": "F_확장계약_스키마.json",
+      "sha256": "af4ca8ba52060c59116d519486a0ec76d8790f2b02a1e81a89f2bf46de35f89c"
+    },
+    "openapi": {
+      "name": "F_OpenAPI.json",
+      "sha256": "db4bed79e731abb50d3d65b3531684e912ecb8fb273656ce55992f1fa4eff1b3"
+    },
+    "core": {
+      "name": "F_계약_스키마.json",
+      "sha256": "d5d16b87c56097c64a236eec3cdb99cbbf91d933da5b4f1ba2817495c338a7e8"
+    },
+    "fixture": {
+      "name": "F_계약_예제.json",
+      "sha256": "2c0f20c6e58833cebd69ea462837f1ac73a2bd90939463820f55381b23a3de1a"
+    }
+  },
+  "checks": [
+    {
+      "name": "json_schema_2020_12_metaschema",
+      "passed": true
+    },
+    {
+      "name": "extension_local_refs",
+      "passed": true
+    },
+    {
+      "name": "openapi_local_refs",
+      "passed": true
+    },
+    {
+      "name": "closed_object_schemas",
+      "passed": true
+    },
+    {
+      "name": "core_25_definitions_unchanged",
+      "passed": true
+    },
+    {
+      "name": "openapi_schema_parity",
+      "passed": true
+    },
+    {
+      "name": "openapi_operation_parameters_and_idempotency",
+      "passed": true
+    },
+    {
+      "name": "deploy_active_positive",
+      "passed": true
+    },
+    {
+      "name": "active_with_unknown_receipt_rejected",
+      "passed": true
+    },
+    {
+      "name": "deploy_succeeded_rejected",
+      "passed": true
+    },
+    {
+      "name": "active_null_receipt_rejected",
+      "passed": true
+    },
+    {
+      "name": "validate_succeeded_positive",
+      "passed": true
+    },
+    {
+      "name": "validate_active_rejected",
+      "passed": true
+    },
+    {
+      "name": "approved_plan_positive",
+      "passed": true
+    },
+    {
+      "name": "approved_null_hash_rejected",
+      "passed": true
+    },
+    {
+      "name": "approval_required_positive",
+      "passed": true
+    },
+    {
+      "name": "approval_required_nonnull_hash_rejected",
+      "passed": true
+    },
+    {
+      "name": "add_deny_with_allow_rejected",
+      "passed": true
+    },
+    {
+      "name": "add_deny_positive",
+      "passed": true
+    },
+    {
+      "name": "unknown_property_rejected",
+      "passed": true
+    },
+    {
+      "name": "unsupported_feature_positive",
+      "passed": true
+    },
+    {
+      "name": "supported_null_evidence_rejected",
+      "passed": true
+    },
+    {
+      "name": "unobserved_fresh_rejected",
+      "passed": true
+    },
+    {
+      "name": "allowed_with_denial_reason_rejected",
+      "passed": true
+    },
+    {
+      "name": "worker_unprivileged_positive",
+      "passed": true
+    },
+    {
+      "name": "worker_deployment_authorized_rejected",
+      "passed": true
+    },
+    {
+      "name": "platform_backend_mismatch_rejected",
+      "passed": true
+    },
+    {
+      "name": "macos_network_extension_positive",
+      "passed": true
+    }
+  ],
+  "not_proven": [
+    "full OpenAPI conformance beyond checked structure",
+    "cryptographic authenticity",
+    "WebAuthn correctness",
+    "atomic database quota",
+    "worker runtime fencing",
+    "complete candidate composition",
+    "OS packet enforcement",
+    "product readiness"
+  ]
+}
