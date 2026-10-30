@@ -61,6 +61,54 @@ fn verifies_exact_fixture_fields() {
     assert_eq!(v.generation(), 7);
     assert_eq!(v.authority_epoch(), 1);
     assert_eq!(v.grant_hash(), canonical_hash(&g).unwrap());
+    assert_eq!(v.project_id(), c.project_id);
+    assert_eq!(v.approval_set_hash(), c.approval_set_hash);
+    assert_eq!(
+        canonical_bytes(v.signed_grant()).unwrap(),
+        canonical_bytes(&g).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(v.rollback_authority()).unwrap(),
+        g.payload["rollback_authority"]
+    );
+}
+
+#[test]
+fn recovery_rechecks_current_key_and_separate_signed_deadline() {
+    let (g, trust, mut context) = signed();
+    context.now_unix = timestamp(g.payload["not_after"].as_str().unwrap()).unwrap();
+    assert!(verify_grant(&g, &trust, &context).is_err());
+    let verified = verify_recovery_grant(&g, &trust, &context).unwrap();
+    assert_eq!(verified.not_after(), context.now_unix);
+    assert_eq!(verified.signed_grant().payload, g.payload);
+    let mut revoked = trust.clone();
+    revoked.revoked = true;
+    assert!(verify_recovery_grant(&g, &revoked, &context).is_err());
+    let mut expired = trust.clone();
+    expired.not_after = context.now_unix;
+    assert!(verify_recovery_grant(&g, &expired, &context).is_err());
+    context.now_unix = verified.rollback_authority().valid_until_unix().unwrap();
+    assert!(verify_recovery_grant(&g, &trust, &context).is_err());
+}
+
+#[test]
+fn recovery_scope_artifact_and_deadline_are_signed_not_mutable_claims() {
+    let (grant, trust, context) = signed();
+    for key in [
+        "scope_bound_hash",
+        "artifact_hash",
+        "valid_until",
+        "profile",
+    ] {
+        let mut changed = grant.clone();
+        changed.payload["rollback_authority"][key] = match key {
+            "profile" => "preapproved-scope".into(),
+            "valid_until" => "2026-10-30T09:10:00Z".into(),
+            _ => format!("sha256:{}", "a".repeat(64)).into(),
+        };
+        changed.dsse.payload = STANDARD.encode(canonical_bytes(&changed.payload).unwrap());
+        assert!(verify_recovery_grant(&changed, &trust, &context).is_err());
+    }
 }
 #[test]
 fn tampering_either_payload_or_envelope_fails() {

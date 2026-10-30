@@ -503,6 +503,7 @@ dependencies = [
  "chrono",
  "fw_contracts",
  "fw_domain",
+ "fw_planner",
  "serde",
  "serde_json",
  "thiserror",
@@ -590,15 +591,34 @@ name = "fw_executor"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "ed25519-dalek",
  "fs2",
  "fw_authority",
  "fw_contracts",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "fw_linux_executor"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "fw_authority",
+ "fw_backend_linux",
+ "fw_contracts",
+ "fw_executor",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
  "uuid",
 ]
 
@@ -659,6 +679,17 @@ dependencies = [
 name = "fw_testlab"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "ed25519-dalek",
+ "fw_authority",
+ "fw_backend_linux",
+ "fw_contracts",
+ "fw_domain",
+ "fw_executor",
+ "fw_linux_executor",
+ "fw_planner",
+ "libc",
  "serde",
  "serde_json",
 ]

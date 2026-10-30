@@ -810,6 +810,25 @@ pub fn verify_readback(
     }
 }
 
+/// Strictly parsed token lifetimes for the portable installation's independent
+/// monotonic deadline check. Callers still perform full structural verification.
+pub(crate) fn remaining_token_lifetimes(
+    readback: &Value,
+    table: &str,
+) -> std::result::Result<BTreeMap<String, Option<u64>>, ()> {
+    let observed = snapshot(readback, false, table).map_err(|_| ())?;
+    observed
+        .sets
+        .iter()
+        .map(|(name, set)| {
+            let remaining = token(set, false)
+                .map_err(|_| ())?
+                .map(|(_, _, remaining)| remaining);
+            Ok((name.clone(), remaining))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

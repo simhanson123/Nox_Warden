@@ -1,0 +1,20 @@
+[package]
+name = "fw_linux_executor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fw_authority = { path = "../fw_authority" }
+fw_backend_linux = { path = "../fw_backend_linux" }
+fw_contracts = { path = "../fw_contracts" }
+fw_executor = { path = "../fw_executor" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+base64 = "0.22.1"
+libc = "0.2.191"
+
+[dev-dependencies]
+tempfile = "3.27.0"

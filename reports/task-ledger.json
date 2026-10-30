@@ -34,7 +34,7 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas.",
+      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas, and retained typed signed rollback authority for native verification.",
       "blocker": "WebAuthn proof adapter, isolated authority/signer service and production trust lifecycle remain."
     },
     {
@@ -44,8 +44,8 @@
         "M01",
         "M03"
       ],
-      "implemented": "Experimental nft compiler, durable executor journal and bounded semantic readback verifier. Isolated Linux suite passes 66 checks including 40 actual packet probes, kernel rule-tamper detection and restoration.",
-      "blocker": "Native apply/readback integration and authenticated policy dispatch, independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC and crash/reboot/installer fixtures remain."
+      "implemented": "Experimental nft compiler and immutable full-StateIR portable artifacts with absolute deadlines, runtime installation bindings and semantic readback. Guarded signed Linux execution connects durable complete material, atomic native apply, actual packet probes, confirmation and restrictive timeout/crash recovery with preserved generation fencing.",
+      "blocker": "Real approval/bootstrap and authenticated production policy dispatch, a qualified independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC, complete clock/crash/reboot/coexistence and installer acceptance remain. Synthetic lab authority is not production approval."
     },
     {
       "id": "M04W",

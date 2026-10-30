@@ -33,6 +33,8 @@ jobs:
         run: python scripts/smoke_enrollment.py
       - name: Isolated Linux packet regression
         run: python scripts/linux-lab.py --report reports/linux-lab.json
+      - name: Signed Linux execution and crash recovery
+        run: python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
       - name: Retain smoke reports for seven days
         if: always()
         # actions/upload-artifact v7.0.2; Node 24, pinned to the release commit.
@@ -44,5 +46,6 @@ jobs:
             reports/cli-smoke.json
             reports/linux-lab.json
             reports/enrollment-smoke.json
+            reports/signed-linux-lab.json
           retention-days: 7
           if-no-files-found: ignore

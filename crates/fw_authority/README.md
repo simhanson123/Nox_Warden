@@ -4,7 +4,17 @@
 Ed25519 signature, exact canonical payload bytes, key-purpose/tenant/time trust,
 current epoch, and the independently resolved plan/artifact/baseline/candidate/
 approval hashes. It returns an opaque `VerifiedGrant` for the executor journal.
-Generation consumption and replay fencing are durable executor responsibilities.
+The verified object retains the exact signed grant and typed rollback authority,
+including its profile, scope, baseline, artifact and validity bounds. Native
+adapters must resolve those immutable objects and verify actual observations;
+a matching hash is not evidence of a kernel write. Generation consumption and
+replay fencing are durable executor responsibilities.
+
+`verify_recovery_grant` rechecks the signature, current trust and exact immutable
+bindings against the signed rollback window. An expired dispatch window does not
+become permission for a fresh apply: the native adapter still needs the persisted
+operation, current generation, recovery scope/artifact and recovery CAS. The
+ordinary acceptance/submission path retains its original dispatch deadline.
 
 `verify_human_approval_set` binds immutable approval evidence to the exact plan
 and requirement hashes, current epoch, expiry, role profile and independent human
@@ -27,4 +37,8 @@ come from the authority, not a client.
 Remaining M03 work includes real WebAuthn/role-proof adapters, durable independent
 signer jobs/trust ceremonies, signed grant/quota reconciliation, complete
 PostgreSQL authority transactions, and process/key isolation deployment. SQLite
-unit/race/reopen tests do not certify crash recovery or privileged OS enforcement.
+unit/race/reopen tests do not certify production crash recovery or privileged OS
+enforcement. The separate [signed Linux lab](../../docs/signed-linux-execution.md)
+uses clearly marked synthetic plan/approval and signing fixtures to test native
+integration. It does not supply a production `AuthorityEvidence` or WebAuthn
+adapter, and the local controller cannot dispatch those fixture grants.

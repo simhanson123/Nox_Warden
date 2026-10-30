@@ -1,63 +1,69 @@
 # Native platform implementation and qualification
 
-The F-2.0 specification requires native Linux, Windows and macOS enforcement.
-The current application runs in **observe mode** and provides no host protection.
-No supported production platform or signed installer is declared.
+The specification requires native Linux, Windows and macOS enforcement.
+The management application remains **observe-only** and provides no host
+protection. No supported production platform or signed installer is declared.
 
 | Platform | Implemented locally | Missing release gates | Qualification |
 | --- | --- | --- | --- |
-| Linux nftables | Transport enrollment and conservative mTLS metadata reports; experimental host TCP/UDP compiler and bounded semantic readback; isolated IPv4/IPv6 packet and rule-tamper tests; durable executor journal | Native apply/readback integration, authenticated policy IPC and independent watchdog, collision registry, baseline/anti-spoof/ICMP/PMTU, physical NIC/fragment/crash/boot/coexistence tests, signed packages | Unverified |
-| Windows WFP | Common pure evaluator and authority/journal model | Native service, packet-time WDK callout, persistent/boot-time guards, ACL IPC, signed MSI, Windows packet/crash/reboot fixtures | Unimplemented |
-| macOS Network Extension | Common pure evaluator and authority/journal model | Swift host app/system extension, authenticated XPC, packet callback integration, entitlements/signing/notarization, actual-device fail-closed proof | Unimplemented |
+| Linux nftables | Transport enrollment and conservative mTLS metadata; experimental host TCP/UDP compiler, immutable full-state portable artifacts, bounded semantic readback, guarded signed apply/probe/confirm and restrictive timeout/crash recovery in a disposable lab | Real approval/bootstrap and authenticated production dispatch; qualified independent watchdog; baseline/anti-spoof/ICMP/PMTU; physical NIC, full clock/crash/reboot/coexistence and installer acceptance | Unverified |
+| Windows WFP | Common pure evaluator and authority/journal model | Native service, packet-time WDK callout, persistent/boot guards, ACL IPC, signed MSI and native packet/crash/reboot fixtures | Unimplemented |
+| macOS Network Extension | Common pure evaluator and authority/journal model | Swift host app/system extension, authenticated XPC, packet callbacks, entitlements/signing/notarization and actual-device failure tests | Unimplemented |
 
-The real isolated Linux smoke and its limits are documented in
-[native/linux/README.md](../native/linux/README.md). Run
-`cargo run -p fw_testlab --locked --offline -- smoke --backend nftables --report reports/linux-lab.json`.
-This separately scoped smoke exercises actual nftables and packets; its success
-does not complete the full native qualification commands below.
+## Isolated Linux profiles
 
-The Linux artifact uses the deliberately separate experimental identifier
+The [Linux suites](../native/linux/README.md) run real nftables and packet probes
+inside disposable loopback network namespaces. The original compiler suite uses
 `fw.experimental-nft/v1`, profile `host-tcp-udp-lab`, and
-`production_qualified: false`. It is not an implementation of all
-`common-host-v1` features. The crate never runs `nft` or changes sysctls. It rejects
-routed and ICMP policies rather than expanding authority. A future native adapter
-must independently verify the deployment kernel and complete family/direction,
-conntrack, baseline, ICMP/fragment and capability coverage before production use.
-The readback verifier compares the expected owned table, chains, ordered rules,
-flow predicates, absolute expiry and token timeout bounds with nft JSON. It
-accepts only explicit known nft normalizations; unknown expressions or mismatches
-produce no observed semantic hash. It requires the trusted, unaltered compiler
-artifact, a trusted observation time and a UTC nft capture. It does not
-authenticate the artifact or independently recompute its policy state hash.
-A successful comparison propagates the trusted expected hash.
+`production_qualified: false`. The separate portable profile binds a full
+normalized `StateIr` to resolved lab references and absolute policy deadlines;
+relative token timeouts live in an installation manifest. Neither profile is a
+complete implementation of `common-host-v1`.
 
-The isolated suite passes 66 checks, including 40 real packet probes and 13
-readback checks. It detects actual kernel rule mutation and verifies restored
-state without refreshing tokens. One snapshot cannot prove historical token
-refreshes, other managers' rules, authority provenance or authenticated dispatch.
-This verifier is not yet wired into the application's native apply lifecycle.
+The pure compiler never executes an OS command. `fw_linux_executor` supplies a
+separate guarded native driver for the signed suite, with a fixed nft executable,
+bounded I/O and one atomic owned-table update. It refuses the outer namespace or
+non-loopback topology. Existing rules from unrelated tables are not flushed.
+The controller and registered device client cannot invoke this driver.
 
-`fw_executor` provides one-owner SQLite FULL durability, signed grant acceptance,
-high-water replay fencing, conservative UNKNOWN restart, exact readback hash
-matching, and signed-confirm versus recovery CAS. Signed issue/dispatch bounds
-are persisted and checked again at submission. Confirmation expires at the earlier
-of submission + 60 seconds and the signed absolute cap; restart/readback never
-extend that stored deadline. Journals without these bounds are rejected rather
-than assigned fabricated timestamps. It does not contain a native
-adapter, policy rollback projection, authenticated policy-dispatch transport, probe collector, or
-independent watchdog process. Confirm signatures currently use the explicit
-experimental type `application/vnd.fw.experimental-confirm.v1+json`, because the
-supplied public schema does not define a signed confirm envelope. Registry role
-resolution remains the caller's trust boundary. This profile must be standardized
-before production interoperability is claimed.
+The readback verifier checks chains, ordered rules, scope, absolute expiry and
+token lifetime bounds. Unknown expressions or mismatches yield no semantic state
+hash. Its portable wrapper rebuilds the artifact from the complete normalized
+state and resolved references, validates the persisted installation, and checks
+boot/monotonic context. A single snapshot still cannot prove historical absence
+of shorter token refreshes or other managers' activity.
 
-Device transport registration is separately implemented for the Linux client.
-Its certificate and capability report do not change platform qualification:
-every reported enforcement feature is unverified, and the controller remains
-observe-only. Remote enrollment, certificate renewal and Windows/macOS device
-clients remain unavailable. See the [device guide](device-enrollment.md).
+The executor journal persists exact signed and native recovery material before
+submission, consumes the generation durably, and keeps uncertain writes UNKNOWN.
+Confirmation needs matching actual readback, the locally collected packet report,
+a separate signature and a deadline/generation CAS. The confirmation payload type
+remains the explicit experimental
+`application/vnd.fw.experimental-confirm.v1+json`; production interoperability is
+not claimed. Retried and same-boot operations observe the saved installation
+without reissuing its timeout tokens.
 
-Run qualification preflight from the repository root:
+A separate recovery child is armed before submission. After normal command exit
+or a crash, it can take the same writer lock and apply only the exact signed,
+restrictive recovery artifact while its authority remains valid at submission. This projection removes business allows,
+preserves deny restrictions and does not reduce the generation high-water mark.
+There is no unsigned fallback after recovery authority expires. A hung or paused
+owner can block the process-lifetime journal lock, so this is not the independent
+watchdog required for production qualification.
+
+The [signed execution guide](signed-linux-execution.md) explains the fixture
+trust registry, synthetic approvals and remaining limitations. Real WebAuthn,
+independent signer/quota jobs, approved authority bootstrap, workload identity and
+production capability admission remain incomplete. Lab fixtures cannot promote
+an `unverified` enrollment to supported enforcement.
+
+## Device enrollment and release preflight
+
+[Device transport registration](device-enrollment.md) remains separate. Its
+certificate and authenticated metadata report do not alter OS qualification or
+enable native dispatch. Remote enrollment, certificate renewal and Windows/macOS
+device clients remain unavailable.
+
+Run the full-platform qualification preflight from the repository root:
 
 ```sh
 cargo run -p fw_testlab -- qualify --backend nftables --report reports/linux.json
@@ -65,16 +71,13 @@ cargo run -p fw_testlab -- qualify --backend windows_wfp --report reports/window
 cargo run -p fw_testlab -- qualify --backend macos_network_extension --report reports/macos.json
 ```
 
-Each currently exits **2** with **NOT_RUN**, identifies missing prerequisites, and
-records zero executed packet tests. These are genuine preflight reports, not a
-passing native test suite. Unit tests, compilation and JSON validation do not
-substitute for F_07 K/F and F_09 OS01–OS10 evidence.
+These commands return **2 / NOT_RUN**, identify missing prerequisites and record
+zero executed qualification packet tests. Passing the separate Linux suites does
+not make this full-platform gate pass. Unit, schema, HTTP and browser checks do
+not replace required native acceptance evidence.
 
-Generated reports are ignored local outputs; consult the
-[verification summary](../reports/README.md) for reproducible commands and CI links.
-
-No active host firewall, Defender Firewall, PF rules, cloud security groups or
-host network sysctls are changed by these development commands. The Linux smoke
-changes rules and sysctls only inside its disposable network namespace.
-Production protection stays unavailable until the complete platform-specific
-acceptance gate passes.
+Generated reports are ignored local outputs. The [verification summary](../reports/README.md)
+links reproducible commands and CI results. No active host firewall, Windows
+Defender Firewall, macOS PF rules, cloud security group or host network sysctl is
+changed by these development commands. Rule and sysctl changes occur only inside
+the disposable Linux namespace.

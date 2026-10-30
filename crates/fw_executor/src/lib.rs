@@ -1,19 +1,33 @@
-//! Durable executor fencing primitives. There is deliberately no native apply
-//! adapter: accepting a grant or journaling an observation never mutates a firewall.
-//! SQLite FULL commits precede any future native dispatch. A process lifetime file
-//! lock prevents concurrent local executor owners. Production IPC/watchdog and
-//! attested probe collection remain separate integration gates.
+//! Durable executor fencing and immutable execution/recovery material. This crate
+//! never mutates a firewall. A trusted native adapter must verify actual kernel
+//! evidence before recording it. FULL commits precede native writes and one file
+//! lock spans each command's lifetime. Another process can recover after owner
+//! exit/death; this is not a watchdog that can preempt a hung lock owner.
+mod material;
+#[cfg(test)]
+mod material_tests;
+mod secure_path;
+#[cfg(test)]
+fn private_test_directory() -> tempfile::TempDir {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Create private fixtures explicitly: tempfile's default directory mode
+        // follows the runner's umask and can otherwise be 0755.
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir().unwrap()
+}
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, VerifyingKey};
 use fs2::FileExt;
 use fw_authority::{pae, DsseEnvelope, TrustKey, VerifiedGrant};
 use fw_contracts::{canonical_bytes, parse_strict};
+pub use material::{ExecutionMaterial, JournalIdentity};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::{File, OpenOptions},
-    path::Path,
-};
+use std::{fs::File, path::Path};
 
 const CONFIRM_TYPE: &str = "application/vnd.fw.experimental-confirm.v1+json";
 #[derive(Debug, thiserror::Error)]
@@ -47,6 +61,7 @@ pub enum State {
     Confirmed,
     NotApplied,
     RecoveryClaimed,
+    RolledBack,
 }
 impl State {
     fn parse(s: &str) -> Result<Self> {
@@ -57,6 +72,7 @@ impl State {
             "CONFIRMED" => Ok(Self::Confirmed),
             "NOT_APPLIED" => Ok(Self::NotApplied),
             "RECOVERY_CLAIMED" => Ok(Self::RecoveryClaimed),
+            "ROLLED_BACK" => Ok(Self::RolledBack),
             _ => Err(ExecutorError::Binding),
         }
     }
@@ -94,6 +110,7 @@ pub struct Confirmation {
 pub struct ExecutorJournal {
     connection: Connection,
     _lock: File,
+    _directory: File,
 }
 struct Acceptance<'a> {
     org_id: &'a str,
@@ -110,14 +127,7 @@ struct Acceptance<'a> {
 fn lock(path: &Path) -> Result<File> {
     let mut lock_path = path.as_os_str().to_os_string();
     lock_path.push(".lock");
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let file = options.open(lock_path)?;
+    let file = secure_path::open(Path::new(&lock_path), true, false)?;
     file.try_lock_exclusive()?;
     Ok(file)
 }
@@ -158,42 +168,49 @@ impl ExecutorJournal {
             return Err(ExecutorError::Binding);
         }
         let path = path.as_ref();
+        let directory = secure_path::parent(path)?;
         let locked = lock(path)?;
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        options.open(path)?.sync_all()?;
-        let connection = Connection::open(path)?;
+        secure_path::sidecars(path)?;
+        let database = secure_path::open(path, true, true)?;
+        database.sync_all()?;
+        let connection = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        secure_path::unchanged(path, &database)?;
         configure(&connection)?;
-        connection.execute_batch("BEGIN IMMEDIATE; CREATE TABLE identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1), org_id TEXT NOT NULL,target_id TEXT NOT NULL,epoch TEXT NOT NULL,highest TEXT NOT NULL,state_hash TEXT NOT NULL); CREATE TABLE operations(operation_id TEXT PRIMARY KEY, grant_hash TEXT NOT NULL UNIQUE,generation TEXT NOT NULL UNIQUE,state TEXT NOT NULL,baseline_hash TEXT NOT NULL,desired_state_hash TEXT NOT NULL,issued_at INTEGER NOT NULL,not_after INTEGER NOT NULL,confirm_not_after INTEGER NOT NULL,submitted_at INTEGER,confirm_deadline INTEGER,observed_hash TEXT,probe_hash TEXT); PRAGMA user_version=1; COMMIT;")?;
+        connection.execute_batch("BEGIN IMMEDIATE; CREATE TABLE identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1), org_id TEXT NOT NULL,target_id TEXT NOT NULL,epoch TEXT NOT NULL,highest TEXT NOT NULL,state_hash TEXT NOT NULL); CREATE TABLE operations(operation_id TEXT PRIMARY KEY, grant_hash TEXT NOT NULL UNIQUE,generation TEXT NOT NULL UNIQUE,state TEXT NOT NULL,baseline_hash TEXT NOT NULL,desired_state_hash TEXT NOT NULL,issued_at INTEGER NOT NULL,not_after INTEGER NOT NULL,confirm_not_after INTEGER NOT NULL,submitted_at INTEGER,confirm_deadline INTEGER,observed_hash TEXT,probe_hash TEXT);")?;
+        connection.execute_batch(material::MATERIAL_SCHEMA)?;
         connection.execute(
             "INSERT INTO identity VALUES(1,?1,?2,?3,'0',?4)",
             params![org_id, target_id, epoch.to_string(), baseline_hash],
         )?;
-        if let Some(parent) = path.parent() {
-            File::open(parent)?.sync_all()?;
-        }
+        connection.execute_batch("PRAGMA user_version=2; COMMIT;")?;
+        directory.sync_all()?;
         Ok(Self {
             connection,
             _lock: locked,
+            _directory: directory,
         })
     }
     /// Existing durable state is mandatory. Any incomplete operation is UNKNOWN
     /// after restart; caller must reconcile actual device state, never reapply.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
+        let directory = secure_path::parent(path)?;
         let locked = lock(path)?;
-        let connection =
-            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        secure_path::sidecars(path)?;
+        let database = secure_path::open(path, false, false)?;
+        let connection = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        secure_path::unchanged(path, &database)?;
         configure(&connection)?;
         let version: u32 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         // Legacy journals lack dispatch-time bounds; never fabricate those
         // values or reset a high-water mark to recover them.
-        if version != 1 {
+        if ![1, 2].contains(&version) {
             return Err(ExecutorError::Binding);
         }
         let integrity: String = connection.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
@@ -207,13 +224,22 @@ impl ExecutorJournal {
         )?;
         counter(&epoch)?;
         counter(&highest)?;
-        connection.execute("UPDATE operations SET state='UNKNOWN' WHERE state IN ('PREPARED','VERIFYING','RECOVERY_CLAIMED')",[])?;
+        if version == 1 {
+            connection.execute_batch("BEGIN IMMEDIATE;")?;
+            connection.execute_batch(material::MATERIAL_SCHEMA)?;
+            connection.execute_batch("PRAGMA user_version=2; COMMIT;")?;
+        }
+        // Bound PREPARED means the durable submission boundary was never crossed.
+        // Preserve a claimed recovery across crashes so late confirm cannot win.
+        connection.execute("UPDATE operations SET state='UNKNOWN' WHERE state='VERIFYING' OR (state='PREPARED' AND operation_id NOT IN (SELECT operation_id FROM execution_material))",[])?;
         Ok(Self {
             connection,
             _lock: locked,
+            _directory: directory,
         })
     }
     pub fn operation(&self, id: &str) -> Result<Option<Operation>> {
+        material::read_material(&self.connection, id)?;
         get_operation(&self.connection, id)
     }
     pub fn highest_generation(&self) -> Result<u64> {
@@ -248,54 +274,10 @@ impl ExecutorJournal {
         )
     }
     fn accept_fields(&mut self, g: &Acceptance<'_>, id: &str, now: i64) -> Result<Operation> {
-        if !uuid(id) {
-            return Err(ExecutorError::Binding);
-        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let (org, target, epoch, highest, current): (String, String, String, String, String) = tx
-            .query_row(
-            "SELECT org_id,target_id,epoch,highest,state_hash FROM identity WHERE singleton=1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-        )?;
-        let epoch = counter(&epoch)?;
-        let highest = counter(&highest)?;
-        if epoch != g.epoch || org != g.org_id || target != g.target_id {
-            return Err(ExecutorError::Binding);
-        }
-        if g.generation < highest {
-            return Err(ExecutorError::Replay);
-        }
-        if g.generation == highest {
-            let op = get_operation(&tx, id)?.ok_or(ExecutorError::Conflict)?;
-            if op.grant_hash != g.grant_hash || counter(&op.generation)? != g.generation {
-                return Err(ExecutorError::Conflict);
-            }
-            tx.commit()?;
-            return Ok(op);
-        }
-        if now < g.issued_at || now >= g.not_after || now >= g.confirm_not_after {
-            return Err(ExecutorError::Expired);
-        }
-        if current != g.baseline_hash {
-            return Err(ExecutorError::Binding);
-        }
-        let unresolved: u64 = tx.query_row(
-            "SELECT COUNT(*) FROM operations WHERE state NOT IN ('CONFIRMED','NOT_APPLIED')",
-            [],
-            |r| r.get(0),
-        )?;
-        if unresolved > 0 {
-            return Err(ExecutorError::Unresolved);
-        }
-        tx.execute("INSERT INTO operations(operation_id,grant_hash,generation,state,baseline_hash,desired_state_hash,issued_at,not_after,confirm_not_after) VALUES(?1,?2,?3,'PREPARED',?4,?5,?6,?7,?8)",params![id,g.grant_hash,g.generation.to_string(),g.baseline_hash,g.desired_state_hash,g.issued_at,g.not_after,g.confirm_not_after])?;
-        tx.execute(
-            "UPDATE identity SET highest=?1 WHERE singleton=1",
-            [g.generation.to_string()],
-        )?;
-        let operation = get_operation(&tx, id)?.ok_or(ExecutorError::Binding)?;
+        let operation = accept_fields_tx(&tx, g, id, now)?;
         tx.commit()?;
         Ok(operation)
     }
@@ -308,6 +290,19 @@ impl ExecutorJournal {
         let op = get_operation(&tx, id)?.ok_or(ExecutorError::Binding)?;
         if op.state != State::Prepared {
             return Err(ExecutorError::Transition);
+        }
+        let material: Option<Option<String>> = tx
+            .query_row(
+                "SELECT watchdog_ack_hash FROM execution_material WHERE operation_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if material == Some(None) {
+            return Err(ExecutorError::Transition);
+        }
+        if material.is_some() {
+            material::read_material(&tx, id)?.ok_or(ExecutorError::Binding)?;
         }
         // Idempotent acceptance returns historic state even after expiry, but
         // submission requires the persisted signed dispatch window to be current.
@@ -334,6 +329,7 @@ impl ExecutorJournal {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        material::read_material(&tx, id)?;
         let op = get_operation(&tx, id)?.ok_or(ExecutorError::Binding)?;
         if op.state != State::Unknown {
             return Err(ExecutorError::Transition);
@@ -424,6 +420,7 @@ impl ExecutorJournal {
             return Err(ExecutorError::Binding);
         }
         let op = get_operation(&tx, &confirm.operation_id)?.ok_or(ExecutorError::Binding)?;
+        material::read_material(&tx, &confirm.operation_id)?;
         if op.grant_hash != confirm.grant_hash
             || op.desired_state_hash != confirm.state_hash
             || op.generation != confirm.target_generation
@@ -460,6 +457,7 @@ impl ExecutorJournal {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        material::read_material(&tx, id)?;
         let highest: String =
             tx.query_row("SELECT highest FROM identity WHERE singleton=1", [], |r| {
                 r.get(0)
@@ -475,6 +473,16 @@ impl ExecutorJournal {
         if now < deadline || !matches!(op.state, State::Verifying | State::Unknown) {
             return Err(ExecutorError::Transition);
         }
+        let recovery_limit: Option<i64> = tx
+            .query_row(
+                "SELECT recovery_valid_until FROM execution_material WHERE operation_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if recovery_limit.is_some_and(|limit| now >= limit) {
+            return Err(ExecutorError::Expired);
+        }
         tx.execute(
             "UPDATE operations SET state='RECOVERY_CLAIMED' WHERE operation_id=?1",
             [id],
@@ -483,6 +491,54 @@ impl ExecutorJournal {
         Ok(State::RecoveryClaimed)
     }
 }
+fn accept_fields_tx(tx: &Connection, g: &Acceptance<'_>, id: &str, now: i64) -> Result<Operation> {
+    if !uuid(id) {
+        return Err(ExecutorError::Binding);
+    }
+    let (org, target, epoch, highest, current): (String, String, String, String, String) = tx
+        .query_row(
+            "SELECT org_id,target_id,epoch,highest,state_hash FROM identity WHERE singleton=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )?;
+    let epoch = counter(&epoch)?;
+    let highest = counter(&highest)?;
+    if epoch != g.epoch || org != g.org_id || target != g.target_id {
+        return Err(ExecutorError::Binding);
+    }
+    if g.generation < highest {
+        return Err(ExecutorError::Replay);
+    }
+    if g.generation == highest {
+        let op = get_operation(tx, id)?.ok_or(ExecutorError::Conflict)?;
+        if op.grant_hash != g.grant_hash || counter(&op.generation)? != g.generation {
+            return Err(ExecutorError::Conflict);
+        }
+        return Ok(op);
+    }
+    if now < g.issued_at || now >= g.not_after || now >= g.confirm_not_after {
+        return Err(ExecutorError::Expired);
+    }
+    if current != g.baseline_hash {
+        return Err(ExecutorError::Binding);
+    }
+    let unresolved: u64 = tx.query_row(
+            "SELECT COUNT(*) FROM operations WHERE state NOT IN ('CONFIRMED','NOT_APPLIED','ROLLED_BACK')",
+            [],
+            |r| r.get(0),
+        )?;
+    if unresolved > 0 {
+        return Err(ExecutorError::Unresolved);
+    }
+    tx.execute("INSERT INTO operations(operation_id,grant_hash,generation,state,baseline_hash,desired_state_hash,issued_at,not_after,confirm_not_after) VALUES(?1,?2,?3,'PREPARED',?4,?5,?6,?7,?8)",params![id,g.grant_hash,g.generation.to_string(),g.baseline_hash,g.desired_state_hash,g.issued_at,g.not_after,g.confirm_not_after])?;
+    tx.execute(
+        "UPDATE identity SET highest=?1 WHERE singleton=1",
+        [g.generation.to_string()],
+    )?;
+    let operation = get_operation(tx, id)?.ok_or(ExecutorError::Binding)?;
+    Ok(operation)
+}
+
 fn get_operation(connection: &Connection, id: &str) -> Result<Option<Operation>> {
     let row = connection.query_row(
         "SELECT operation_id,grant_hash,generation,state,desired_state_hash,baseline_hash,issued_at,not_after,confirm_not_after,submitted_at,confirm_deadline FROM operations WHERE operation_id=?1",
@@ -549,7 +605,7 @@ mod tests {
     }
     #[test]
     fn restart_preserves_generation_and_unknown() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let p = d.path().join("journal.db");
         {
             let mut j = ExecutorJournal::create(&p, ORG, TARGET, 1, &h('b')).unwrap();
@@ -572,7 +628,7 @@ mod tests {
     }
     #[test]
     fn lost_journal_not_created_and_existing_not_overwritten() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let p = d.path().join("journal.db");
         assert!(ExecutorJournal::open(&p).is_err());
         assert!(!p.exists());
@@ -582,7 +638,7 @@ mod tests {
     }
     #[test]
     fn replay_conflict_and_not_applied_consumes_generation() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         let mut f = fields();
@@ -640,7 +696,7 @@ mod tests {
     }
     #[test]
     fn signed_confirm_requires_observation_and_fences_watchdog() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         let (e, k) = confirmation();
@@ -655,7 +711,7 @@ mod tests {
     }
     #[test]
     fn recovery_wins_and_unknown_is_not_active() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 170).unwrap();
@@ -672,7 +728,7 @@ mod tests {
     }
     #[test]
     fn forged_confirm_does_not_change_state() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 170).unwrap();
@@ -687,7 +743,7 @@ mod tests {
     }
     #[test]
     fn stale_watchdog_cannot_claim_new_generation() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 170).unwrap();
@@ -706,7 +762,7 @@ mod tests {
     }
     #[test]
     fn authority_epoch_transition_requires_new_enrollment() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         let mut candidate = fields();
         candidate.epoch = 2;
@@ -718,7 +774,7 @@ mod tests {
     }
     #[test]
     fn expired_prepared_replay_is_read_only_and_cannot_submit() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         let accepted = j.accept_fields(&fields(), OP, 100).unwrap();
         assert_eq!(accepted.issued_at, 90);
@@ -738,7 +794,7 @@ mod tests {
     }
     #[test]
     fn clock_rollback_cannot_accept_or_submit_before_issue() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         assert!(matches!(
             j.accept_fields(&fields(), OP, 89),
@@ -754,7 +810,7 @@ mod tests {
     }
     #[test]
     fn confirm_after_relative_timeout_rejected_before_absolute_cap() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 150).unwrap();
@@ -780,7 +836,7 @@ mod tests {
     }
     #[test]
     fn restart_and_delayed_observation_do_not_extend_confirm_deadline() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let path = d.path().join("j");
         {
             let mut j = ExecutorJournal::create(&path, ORG, TARGET, 1, &h('b')).unwrap();
@@ -813,7 +869,7 @@ mod tests {
     }
     #[test]
     fn unknown_journal_version_is_not_assigned_fabricated_time_bounds() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let path = d.path().join("j");
         let j = ExecutorJournal::create(&path, ORG, TARGET, 1, &h('b')).unwrap();
         j.connection.execute_batch("PRAGMA user_version=0").unwrap();

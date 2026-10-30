@@ -26,8 +26,10 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   durable executor journals, audit verification and opt-in telemetry state.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.
-- An isolated Linux nftables packet suite and bounded semantic readback verifier
-  that detects rule, scope and expiry changes in the experimental compiler output.
+- Isolated Linux nftables suites for packet semantics and signed execution. The
+  experimental driver verifies pinned signatures, journals complete policy and
+  recovery material, applies an atomic batch, reads actual rules and collects
+  packet probes before confirmation or authorized restrictive recovery.
 
 See [implementation boundaries](docs/implementation.md), [platform status](docs/platform-support.md)
 and the concise [task ledger](reports/task-ledger.json) for remaining work.
@@ -91,6 +93,9 @@ cargo build -p fw_control -p fw_cli -p fw_agent --locked
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
 python scripts/smoke_enrollment.py
+# Requires the isolated Docker lab; these commands do not enable host protection.
+python scripts/linux-lab.py --report reports/linux-lab.json
+python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
 The [verification summary](reports/README.md) records scope, reproducible commands
@@ -99,7 +104,11 @@ or short-lived CI artifacts, rather than recurring source commits.
 
 The [Linux lab](native/linux/README.md) exercises actual IPv4/IPv6 TCP/UDP allow,
 deny, connection expiry and actual rule-tamper detection in an isolated network
-namespace. Full Linux qualification, Windows WFP/callout and macOS Network Extension implementations,
+namespace. The [signed execution lab](docs/signed-linux-execution.md) additionally
+connects signature verification, durable preparation, native apply/readback,
+probe confirmation and restrictive timeout/crash recovery. Its authority and
+approval inputs are explicitly synthetic fixtures. Full Linux qualification,
+Windows WFP/callout and macOS Network Extension implementations,
 independent authority/watchdog integration, signed installers and production
 identity lifecycle, certificate renewal and remote enrollment remain unfinished.
 Unit, HTTP and browser tests do not replace native platform qualification.

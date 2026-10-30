@@ -1,9 +1,9 @@
-# Isolated Linux packet smoke
+# Isolated Linux packet and execution suites
 
-The real Rust compiler now has an executable nftables kernel smoke suite. It runs
-in a disposable Docker container network namespace, using loopback only. It never
-uses host networking, published ports, privileged containers, host mounts, devices,
-or an external network target. The container receives **only CAP_NET_ADMIN**, has
+The Rust compiler and signed execution driver have separate nftables kernel
+suites. Both run in disposable Docker network namespaces using loopback only.
+Neither uses host networking, published ports, privileged containers, host mounts,
+devices or an external network target. The container receives **only CAP_NET_ADMIN**, has
 a read-only root filesystem, and is removed in a `finally` cleanup path. The suite
 checks that its namespace differs from the caller's before changing any rules.
 The fixed Docker-local socket cannot be redirected by inherited Docker endpoint,
@@ -15,10 +15,11 @@ From the repository root, with the pinned Rust toolchain/Cargo active:
 cargo run -p fw_testlab --locked --offline -- smoke --backend nftables --report reports/linux-lab.json
 ```
 
-Equivalent standalone command:
+Standalone compiler and signed-execution commands:
 
 ```sh
 python scripts/linux-lab.py --report reports/linux-lab.json
+python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
 Use `--skip-image-build` with the Python entry point only to reuse an image built
@@ -40,12 +41,14 @@ reports are ignored local outputs. CI keeps its selected smoke report as an
 artifact for seven days; see the [verification summary](../../reports/README.md)
 for scope and CI links.
 
-## Actual coverage
+## Compiler packet coverage
 
 The suite starts real TCP and UDP echo listeners on IPv4 and IPv6. Baseline probes
 prove the destination listeners work before rules are applied. It then verifies:
 
-- Native nft JSON syntax check, atomic own-table replacement and structural readback.
+- Native nft JSON syntax check, atomic own-table replacement and semantic readback.
+- Actual kernel rule tampering and restoration, unknown expressions, scope changes
+  and altered timeout/cutoff bounds.
 - TCP/UDP allow and default deny on IPv4/IPv6, with actual returned random payloads.
 - Existing/new TCP blocked by a deny whose review deadline has already passed.
 - UDP unaffected by that TCP-only deny.
@@ -62,22 +65,40 @@ loopback topology on the actual reported kernel, not physical NIC, routed,
 fragment/ICMP/PMTU, installer, crash/reboot or full `common-host-v1` qualification.
 Those release gates remain incomplete, and `production_supported` stays false.
 
-## Native defect found and fixed
+## Signed execution coverage
 
-The initial compiler multiplied lease seconds by 1000 for the JSON `timeout`.
-Actual nft/libnftables 1.0.6 JSON values use **seconds**, even though lower-level
-kernel/netlink timer representations use milliseconds. Ordinary packet-expiry
-probes initially passed because the independent absolute deadline still blocked
-traffic. A stronger check found live timeout tokens after the deadline.
+The additional `signed-linux-lab.py` suite exercises the real
+`fw_linux_executor` process. It resolves full `StateIr` artifacts and independently
+pinned signature keys, persists complete candidate/recovery material, applies an
+atomic native batch, and uses actual readback and collected packet probes before
+signed confirmation. It also exercises replay without timeout refresh and
+restrictive timeout/crash recovery with generation and authority bounds.
 
-Historical failure and timing reports remain in Git history. The timing
-experiment observed a token with `timeout: 3` disappear after 4.0047 monotonic
-seconds while `timeout: 3000` remained with 2995 seconds. `timer_units.py`
-reproduces that experiment when piped to Python in
-a similarly isolated NET_ADMIN-only container with `NOX_TIMER_LAB=1`.
-The diagnostic refuses execution without that explicit marker, exactly NET_ADMIN,
-and a loopback-only namespace. The compiler now emits seconds,
-has a regression unit test, and the smoke checks both partial and full token
-expiry. Readback equality alone is not accepted as evidence of timer units.
+This suite creates ephemeral signing keys and clearly marked synthetic plan and
+approval fixtures. It does not claim that a human approved the change or that a
+registered product target has qualified capabilities. Its default-deny baseline
+has no network management path; management-channel survival is not tested.
+The separate recovery child can acquire the writer fence after normal command
+exit or a crash, but can be blocked by a permanently hung lock owner. It is not a
+qualified production watchdog. The [execution guide](../../docs/signed-linux-execution.md)
+describes the exact trust and recovery boundaries.
 
-Runner error classification has standalone regressions: `python -m unittest discover -s native/linux -p test_runner.py -v`. These tests simulate startup failures, transport timeouts, malformed reports and mismatched exit/status pairs; they do not count as native packet probes.
+## Timer units and runner regressions
+
+The compiler emits JSON timeout values in seconds for the pinned
+nft/libnftables 1.0.6, while lower-level kernel/netlink timer representations use
+milliseconds. Regression checks inspect token disappearance as well as packet
+expiry; a working absolute-time guard alone would hide an excessively long token.
+The optional `timer_units.py` diagnostic requires its explicit lab marker,
+exactly NET_ADMIN and a loopback-only namespace.
+
+Runner error classification has standalone regressions:
+
+```sh
+python -m unittest discover -s native/linux -p 'test_*runner.py' -v
+```
+
+These tests simulate startup failures, transport timeouts, malformed reports,
+exit/status mismatches and cleanup failure. They do not count as native packet
+probes. Consult the [verification summary](../../reports/README.md) for confirmed
+suite counts and CI results.
