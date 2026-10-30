@@ -1,4 +1,5 @@
 //! Loopback-only development control plane. No route can dispatch native changes.
+mod registry;
 use axum::{
     Router,
     body::Bytes,
@@ -61,7 +62,7 @@ fn random_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 fn envelope(data: Value) -> Value {
-    json!({"data":data,"server_time":timestamp(now()),"revision":1,"actions":[{"action_id":"requests.create","allowed":true,"reason_code":null}],"freshness":{"observed_at":timestamp(now()),"stale_after_seconds":30,"stale":false,"source":"controller"},"next_cursor":null})
+    json!({"data":data,"server_time":timestamp(now()),"revision":1,"actions":[{"action_id":"requests.create","allowed":true,"reason_code":null},{"action_id":"registry.assets.write","allowed":true,"reason_code":null},{"action_id":"registry.services.write","allowed":true,"reason_code":null}],"freshness":{"observed_at":timestamp(now()),"stale_after_seconds":30,"stale":false,"source":"controller"},"next_cursor":null})
 }
 #[derive(Debug)]
 struct Problem(StatusCode, &'static str);
@@ -71,6 +72,8 @@ impl IntoResponse for Problem {
             StatusCode::UNAUTHORIZED => "UNAUTHENTICATED",
             StatusCode::FORBIDDEN => "FORBIDDEN",
             StatusCode::NOT_FOUND => "NOT_FOUND",
+            StatusCode::PRECONDITION_REQUIRED => "PRECONDITION_REQUIRED",
+            StatusCode::PRECONDITION_FAILED => "REVISION_CONFLICT",
             StatusCode::SERVICE_UNAVAILABLE => "TEMPORARILY_UNAVAILABLE",
             StatusCode::TOO_MANY_REQUESTS => "RATE_LIMITED",
             StatusCode::PAYLOAD_TOO_LARGE => "RESULT_TOO_LARGE",
@@ -475,8 +478,18 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
         .route("/audit/events", get(audit))
         .route("/targets", get(empty))
         .route("/policies", get(empty))
-        .route("/assets", get(empty))
-        .route("/services", get(empty))
+        .route(
+            "/assets",
+            get(registry::list_assets).post(registry::create_asset),
+        )
+        .route("/assets/{id}", get(registry::get_asset))
+        .route("/assets/{id}/revisions", post(registry::revise_asset))
+        .route(
+            "/services",
+            get(registry::list_services).post(registry::create_service),
+        )
+        .route("/services/{id}", get(registry::get_service))
+        .route("/services/{id}/revisions", post(registry::revise_service))
         .route("/deployments", post(blocked))
         .route("/approvals/challenges", post(blocked))
         .route("/approvals/assertions", post(blocked))
@@ -489,6 +502,10 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
     .route_service("/requests/{id}",tower_http::services::ServeFile::new(index.clone()))
     .route_service("/policies",tower_http::services::ServeFile::new(index.clone()))
     .route_service("/targets",tower_http::services::ServeFile::new(index.clone()))
+    .route_service("/assets",tower_http::services::ServeFile::new(index.clone()))
+    .route_service("/assets/{id}",tower_http::services::ServeFile::new(index.clone()))
+    .route_service("/services",tower_http::services::ServeFile::new(index.clone()))
+    .route_service("/services/{id}",tower_http::services::ServeFile::new(index.clone()))
     .route_service("/audit",tower_http::services::ServeFile::new(index))
     .route("/healthz",get(health)).route("/mcp",post(mcp)).nest("/api/v1",api).fallback_service(tower_http::services::ServeDir::new(web_dir)).layer(DefaultBodyLimit::max(65536)).layer(axum::middleware::from_fn(response_boundary)).layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::CACHE_CONTROL,HeaderValue::from_static("no-store"))).layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::X_CONTENT_TYPE_OPTIONS,HeaderValue::from_static("nosniff"))).layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::CONTENT_SECURITY_POLICY,HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"))).with_state(state)
 }

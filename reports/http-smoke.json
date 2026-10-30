@@ -5,6 +5,15 @@
     "unauthenticated rejected",
     "one-use session bootstrap",
     "observe without enforcement or telemetry",
+    "asset created with server ownership",
+    "asset idempotent replay",
+    "stored asset list",
+    "asset revision requires If-Match",
+    "immutable asset revision hash link",
+    "stale asset revision rejected",
+    "manual catalogue cannot assert trusted identity",
+    "service rejects unknown target",
+    "rejected service not stored",
     "request stored",
     "idempotent resource",
     "request needs enrollment",
@@ -17,7 +26,7 @@
     "MCP no approval or native write tools",
     "static application served"
   ],
-  "count": 15,
+  "count": 24,
   "native_enforcement_tested": false,
   "credentials_in_report": false
 }

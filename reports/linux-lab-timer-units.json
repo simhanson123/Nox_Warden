@@ -1,0 +1,114 @@
+{
+  "elapsed_seconds": 4.004735740999422,
+  "initial": {
+    "nftables": [
+      {
+        "metainfo": {
+          "version": "1.0.6",
+          "release_name": "Lester Gooch #5",
+          "json_schema_version": 1
+        }
+      },
+      {
+        "table": {
+          "family": "inet",
+          "name": "nox_timer_units",
+          "handle": 1
+        }
+      },
+      {
+        "set": {
+          "family": "inet",
+          "name": "seconds",
+          "table": "nox_timer_units",
+          "type": "inet_proto",
+          "handle": 1,
+          "flags": [
+            "timeout"
+          ],
+          "elem": [
+            {
+              "elem": {
+                "val": 6,
+                "timeout": 3,
+                "expires": 3
+              }
+            }
+          ]
+        }
+      },
+      {
+        "set": {
+          "family": "inet",
+          "name": "milliseconds_assumption",
+          "table": "nox_timer_units",
+          "type": "inet_proto",
+          "handle": 2,
+          "flags": [
+            "timeout"
+          ],
+          "elem": [
+            {
+              "elem": {
+                "val": 6,
+                "timeout": 3000,
+                "expires": 3000
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "final": {
+    "nftables": [
+      {
+        "metainfo": {
+          "version": "1.0.6",
+          "release_name": "Lester Gooch #5",
+          "json_schema_version": 1
+        }
+      },
+      {
+        "table": {
+          "family": "inet",
+          "name": "nox_timer_units",
+          "handle": 1
+        }
+      },
+      {
+        "set": {
+          "family": "inet",
+          "name": "seconds",
+          "table": "nox_timer_units",
+          "type": "inet_proto",
+          "handle": 1,
+          "flags": [
+            "timeout"
+          ]
+        }
+      },
+      {
+        "set": {
+          "family": "inet",
+          "name": "milliseconds_assumption",
+          "table": "nox_timer_units",
+          "type": "inet_proto",
+          "handle": 2,
+          "flags": [
+            "timeout"
+          ],
+          "elem": [
+            {
+              "elem": {
+                "val": 6,
+                "timeout": 3000,
+                "expires": 2995
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

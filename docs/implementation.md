@@ -33,7 +33,8 @@ Exact canonicalization is the supplied closed ASCII-property/integer profile, no
 - `/api/v1/session/bootstrap`, `/session`, `/status`: explicitly documented development extensions.
 - `/api/v1/access-requests` GET/POST and `/{id}`: strict core access request; atomic persistence and immutable idempotent response.
 - `/api/v1/operations` and `/{id}`, `/audit/events`: actual SQLite evidence.
-- `/targets`, `/policies`, `/assets`, `/services`: empty enrolled/applied catalogues. Stored draft policies are not presented as enforced policies.
+- `/assets`, `/services`, object GET and `/revisions` POST: actual immutable tenant-scoped catalogues with canonical hashes, exact ETags/If-Match, idempotency, retirement and audit/outbox transactions. Only manual provenance is accepted. Service creation requires existing same-tenant assets and target inventory; a fresh controller cannot create a service until real target enrollment exists.
+- `/targets`, `/policies`: empty enrolled/applied catalogues. Stored draft policies are not presented as enforced policies.
 - `/deployments`, `/approvals/challenges`, `/approvals/assertions`: explicit unsupported-profile refusal. No permissive approval fallback.
 - `/mcp`: authenticated JSON-RPC initialize/ping/tool listing and three bounded read tools. Not full production MCP transport/session interoperability or the entire prescribed six-tool suite.
 
@@ -54,3 +55,9 @@ Executor journals own a process lock and durable SQLite generation/time bounds. 
 Tests cover malformed inputs, canonicalization, expiry, denial precedence, immutable approval, quota races/replay, isolation/idempotency, transaction rollback, outbox fencing, journal replay/deadlines, graph tamper, privacy consent and HTTP/browser behavior. These are tests, not a comprehensive formal proof or external security audit. Dependency inventories record declarations and checksums; they are not legal clearance.
 
 Release remains blocked on native adapters and real packet/lifecycle tests, Windows WDK/callout builds/signing, macOS entitlement/system-extension builds/notarization and actual devices, independent signer/watchdog/IPC, full approval and registry flows, PostgreSQL/OIDC, backup/restore epochs, bounded cursor/evidence integration, notification isolation, full UI/locale accessibility acceptance, signed installers and provider-specific deployment evidence. No cloud resources or publication were attempted. See task-ledger and per-crate READMEs for exact remaining engineering tasks.
+
+## Additional executable evidence
+
+`reports/browser-registry/result.json` records14 actual browser checks for asset lifecycle, immutable revisions, deep links and safe service prerequisites. UI request controls select stored catalogue objects instead of inventing UUIDs. `reports/cli-smoke.json` records11 real-controller CLI login/read checks.
+
+`reports/linux-lab.json` records53 successful checks including40 real packet probes in a disposable Docker network namespace with only NET_ADMIN. Independent token-expiry checks found and corrected the nft JSON seconds/milliseconds error; the pre-fix failure and monotonic timer experiment are retained. This is meaningful native loopback smoke evidence, not full common-host-v1 qualification or an installed host firewall. GitHub CI also executes this isolated regression suite.

@@ -19,7 +19,7 @@ on `127.0.0.1:8787`. The controller's Origin allowlist must permit the explicitl
 selected development origin; production has no dependency on Node.
 
 Implemented views are overview, access request create/list/detail, policies,
-targets and audit events. Request details have reloadable `/requests/:id` links.
+targets, audit events, and immutable asset/service registry management. Request details have reloadable `/requests/:id` links.
 Server action hints gate request creation; the API independently authorizes all
 operations. Requests use a stable idempotency key across retries, refreshed when
 form contents change. Creation is displayed as acceptance, never activation.
@@ -30,7 +30,7 @@ fields render as escaped text, and known credential fields are redacted from the
 record dialog as defense in depth. The server must still sanitize and authorize
 all evidence responses.
 
-Six locale catalogs contain 119 keys with automated key and placeholder parity.
+Six locale catalogs contain 169 keys with automated key and placeholder parity.
 Security translation review by native speakers remains incomplete. The UI does
 not yet implement the full F-2.0 plan approval, topology graph, enrollment,
 telemetry consent management or complete route set. Native enforcement and
@@ -49,7 +49,18 @@ python scripts/smoke_browser.py --token-file state/live/bootstrap-token --output
 ```
 
 The token must be fresh and is never copied into logs or screenshots. The test
-creates one synthetic request against the local controller; it requires the
-result to remain `needs_info`. Reports include Chromium version, viewport sizes,
+creates a manual asset and a second immutable revision, verifies the missing-target
+service prerequisite, and submits an explicitly untrusted request fixture through
+the authenticated API; the request must remain `needs_info`. Reports include Chromium version, viewport sizes,
 checks, limitations and screenshots. Automated checks are not full WCAG or native
 language certification.
+
+Asset writes use the exact `AssetWrite` DTO with `manual` provenance and null
+source evidence. Registry revisions require the precise ETag from the current
+resource; stale responses block resubmission until a fresh review. Service forms
+use registered destinations and targets and cannot invent an enrollment. In the
+current local controller there are no genuinely enrolled targets, so service
+creation remains visibly blocked. Access requests select only registry assets and
+services; neither manual registration nor a selected asset attests workload
+identity. Component tests use isolated target fixtures to verify service payloads;
+these do not establish a live service-creation or native-enforcement capability.

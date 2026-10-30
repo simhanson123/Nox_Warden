@@ -3,13 +3,16 @@
 
 Requires Python Playwright and a Chromium executable. Each run needs a fresh
 one-use bootstrap token. Run only against a development controller: this creates
-one synthetic request, which must remain needs_info with no native dispatch.
+one manual asset with two revisions and one explicitly untrusted validation-failure
+request, which must remain needs_info with no native dispatch. Service creation
+is expected to remain blocked when genuine target enrollment is unavailable.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -32,7 +35,9 @@ def main() -> int:
               'viewports': {'desktop': {'width': 1440, 'height': 1000}, 'mobile': {'width': 390, 'height': 844}},
               'screens': [], 'checks': [], 'console_errors': [], 'external_requests': [],
               'limits': ['Not a complete WCAG audit.', 'Translation requires human security review.',
-                         'No native firewall or packet-enforcement qualification is performed.']}
+                         'No native firewall or packet-enforcement qualification is performed.',
+                         'Service success is not verified: no genuine enrolled target exists.',
+                         'The request fixture intentionally lacks trusted binding/service authority.']}
     root = Path(__file__).resolve().parents[1]
     catalogs = json.loads((root / 'web/src/locales.json').read_text())
     try:
@@ -69,20 +74,74 @@ def main() -> int:
             page.keyboard.press('Enter')
             assert page.evaluate('document.activeElement.id') == 'main'
             result['checks'].append('keyboard skip link focuses main content')
+            page.get_by_role('link', name='Assets', exact=True).click()
+            page.get_by_role('button', name='Register asset', exact=True).click()
+            page.get_by_label('Display name', exact=True).fill('Browser asset <img src=x onerror="window.registryCompromised=1">')
+            page.get_by_label('Canonical CIDR 1', exact=True).fill('192.0.2.10/32')
+            page.get_by_role('button', name='Save immutable revision', exact=True).click()
+            page.get_by_text(catalogs['en']['registry.saved'], exact=True).wait_for()
+            page.locator('.registry-detail .badge').filter(has_text='r1').wait_for()
+            asset_id = page.url.rsplit('/', 1)[-1]
+            first_record = page.request.get(base + '/api/v1/assets/' + asset_id).json()['data']
+            assert first_record['definition']['provenance'] == 'manual'
+            assert first_record['definition']['source_evidence'] is None
+            assert page.evaluate('window.registryCompromised') is None
+            assert page.locator('.registry-detail img').count() == 0
+            result['checks'].append('manual asset registration persists exact address without trusted identity claim; hostile name escaped')
+            page.get_by_role('button', name='Create new revision', exact=True).click()
+            page.get_by_label('Display name', exact=True).fill('Browser asset revised')
+            page.get_by_label('Canonical CIDR 1', exact=True).fill('192.0.2.11/32')
+            page.get_by_role('button', name='Save immutable revision', exact=True).click()
+            page.locator('.registry-detail .badge').filter(has_text='r2').wait_for()
+            revised = page.request.get(base + '/api/v1/assets/' + asset_id).json()['data']
+            assert revised['revision'] == 2
+            assert revised['previous_revision_hash'] == first_record['content_hash']
+            assert revised['content_hash'] != first_record['content_hash']
+            assert revised['definition']['addresses'][0]['cidr'] == '192.0.2.11/32'
+            page.reload()
+            page.locator('.registry-detail .badge').filter(has_text='r2').wait_for()
+            result['checks'].append('asset revision uses exact ETag, preserves hash predecessor, and detail survives reload')
+            page.evaluate('document.activeElement.blur(); window.scrollTo(0, 0)')
+            page.screenshot(path=str(args.output / 'asset-revision-desktop.png'), full_page=True)
+            result['screens'].append('asset-revision-desktop.png')
+            page.get_by_role('link', name='Services', exact=True).click()
+            page.get_by_role('button', name='Register service', exact=True).click()
+            page.get_by_text(catalogs['en']['registry.noTargets'], exact=True).wait_for()
+            assert page.request.get(base + '/api/v1/targets?limit=25').json()['data'] == []
+            assert page.get_by_label('Registered targets', exact=True).is_disabled()
+            assert page.get_by_role('button', name='Save immutable revision', exact=True).is_disabled()
+            result['checks'].append('service creation is visibly blocked without a genuine registered target; no service success claimed')
+            page.evaluate('document.activeElement.blur(); window.scrollTo(0, 0)')
+            page.screenshot(path=str(args.output / 'service-prerequisite-desktop.png'), full_page=True)
+            result['screens'].append('service-prerequisite-desktop.png')
+            page.get_by_role('link', name='Access requests', exact=True).click()
             page.get_by_role('button', name='New request', exact=True).click()
+            page.get_by_label('Source asset ID', exact=True).locator('option[value="' + asset_id + '"]').wait_for(state='attached')
+            assert page.get_by_label('Service ID', exact=True).is_disabled()
+            assert page.get_by_role('button', name='Submit request', exact=True).is_disabled()
+            result['checks'].append('request form selects real registry assets and cannot invent an unavailable service')
+            # Explicit negative fixture: API ingestion is not authorization. No service,
+            # enrolled target or trusted workload binding is created for this request.
+            session = page.request.get(base + '/api/v1/session').json()['data']
+            key = str(uuid.uuid4())
             fixture_id = '11111111-1111-4111-8111-111111111111'
-            page.get_by_label('Workflow ID', exact=True).fill('browser-qualification')
-            page.get_by_label('Workload binding ID', exact=False).fill(fixture_id)
-            page.get_by_label('Source asset ID', exact=True).fill(fixture_id)
-            page.get_by_label('Destination asset ID', exact=True).fill(fixture_id)
-            page.get_by_label('Service ID', exact=True).fill('https')
-            page.get_by_label('Purpose', exact=True).fill('Browser integration check <img src=x onerror="window.compromised=1">')
-            page.get_by_role('button', name='Submit request', exact=True).click()
+            negative_request = {'schema_version': 'f.access-request/v1', 'idempotency_key': key,
+                                'workflow_id': 'browser-untrusted-validation-fixture',
+                                'workload_binding_id': fixture_id, 'source_asset_ids': [asset_id],
+                                'destination_asset_ids': [asset_id], 'service_id': 'unregistered-browser-fixture',
+                                'lease_seconds': 60,
+                                'purpose': 'Untrusted validation failure <img src=x onerror="window.compromised=1">'}
+            accepted = page.request.post(base + '/api/v1/access-requests', data=negative_request,
+                                         headers={'Origin': base, 'X-CSRF-Token': session['csrf_token'], 'Idempotency-Key': key})
+            del session
+            assert accepted.status == 202
+            request_id = accepted.json()['data']['resource_id']
+            page.goto(base + '/requests/' + request_id)
             page.get_by_role('dialog').wait_for()
             page.wait_for_function('document.querySelector("dialog")?.textContent.includes("needs_info")')
             assert page.evaluate('window.compromised') is None
             assert page.locator('dialog img').count() == 0
-            result['checks'].append('real request accepted, stored as needs_info; hostile purpose escaped')
+            result['checks'].append('explicitly untrusted API request remains needs_info; hostile purpose escaped without an enforcement claim')
             assert '/requests/' in page.url
             page.reload()
             page.get_by_role('dialog').wait_for()
@@ -115,7 +174,7 @@ def main() -> int:
             assert scroll_region.evaluate('(element) => element.scrollWidth > element.clientWidth')
             scroll_region.focus()
             assert scroll_region.evaluate('(element) => document.activeElement === element')
-            for label in ('개요', '접근 요청', '정책', '대상', '감사 기록'):
+            for label in ('개요', '접근 요청', '자산', '서비스', '정책', '대상', '감사 기록'):
                 assert page.get_by_role('link', name=label, exact=True).count() == 1
             result['checks'].append('390px viewport has no document overflow; internal table scroll and icon navigation have keyboard names')
             page.evaluate('document.activeElement.blur(); window.scrollTo(0, 0)')

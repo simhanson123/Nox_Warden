@@ -480,8 +480,11 @@ dependencies = [
 name = "fw_cli"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "serde_json",
+ "tempfile",
  "ureq",
+ "uuid",
 ]
 
 [[package]]
@@ -573,12 +576,14 @@ dependencies = [
  "chrono",
  "fw_contracts",
  "fw_domain",
+ "ipnet",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror",
+ "unicode-normalization",
  "uuid",
 ]
 

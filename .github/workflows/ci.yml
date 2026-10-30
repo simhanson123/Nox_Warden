@@ -3,7 +3,9 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  unprivileged:
+  development:
+    name: Core and isolated Linux smoke
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -21,5 +23,8 @@ jobs:
       - run: bash scripts/check.sh
       - name: Real local HTTP and OpenAPI smoke
         run: |
-          cargo build -p fw_control --locked
+          cargo build -p fw_control -p fw_cli --locked
           python scripts/smoke_control.py
+          python scripts/smoke_cli.py
+      - name: Isolated Linux packet regression
+        run: python scripts/linux-lab.py --report reports/linux-lab.json

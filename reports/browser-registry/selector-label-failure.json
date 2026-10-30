@@ -1,0 +1,41 @@
+{
+  "status": "FAIL",
+  "browser": "Chromium",
+  "browser_version": "154.0.8037.57",
+  "viewports": {
+    "desktop": {
+      "width": 1440,
+      "height": 1000
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "screens": [
+    "overview-desktop.png",
+    "asset-revision-desktop.png",
+    "service-prerequisite-desktop.png"
+  ],
+  "checks": [
+    "live cookie bootstrap and observe-only indication",
+    "only locale persisted in localStorage",
+    "keyboard skip link focuses main content",
+    "manual asset registration persists exact address without trusted identity claim; hostile name escaped",
+    "asset revision uses exact ETag, preserves hash predecessor, and detail survives reload",
+    "service creation is visibly blocked without a genuine registered target; no service success claimed"
+  ],
+  "console_errors": [],
+  "external_requests": [],
+  "limits": [
+    "Not a complete WCAG audit.",
+    "Translation requires human security review.",
+    "No native firewall or packet-enforcement qualification is performed.",
+    "Service success is not verified: no genuine enrolled target exists.",
+    "The request fixture intentionally lacks trusted binding/service authority."
+  ],
+  "failure": {
+    "type": "TimeoutError",
+    "message": "Locator.wait_for: Timeout 30000ms exceeded.\nCall log:\n  - waiting for get_by_label(\"Source asset ID\", exact=True).locator(\"option[value=\\\"40c51019-4be5-479b-b260-e7c11ad87c6e\\\"]\")\n"
+  }
+}

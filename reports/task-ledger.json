@@ -38,8 +38,8 @@
       "dependencies": [
         "M01"
       ],
-      "implemented": "Transactional SQLite, tenant isolation, idempotency, audit/outbox, CAS/fencing, backup, local development session.",
-      "blocker": "PostgreSQL/RLS, OIDC, complete registry, worker queue and authenticated snapshot pagination remain.",
+      "implemented": "Transactional SQLite, tenant isolation, idempotency, audit/outbox, CAS/fencing, backup, local development session. Immutable asset/service registry, normalized projections, migration2, strong ETag/CAS and server-owned metadata.",
+      "blocker": "PostgreSQL/RLS, OIDC, trusted enrollment/binding, complete worker queue and authenticated snapshot pagination remain.",
       "test_evidence": [
         "reports/verification.json",
         "reports/source-fingerprint.json"
@@ -61,17 +61,20 @@
     },
     {
       "id": "M04L",
-      "status": "blocked",
+      "status": "in_progress",
       "commit": null,
       "dependencies": [
         "M01",
         "M03"
       ],
-      "implemented": "Experimental nft JSON compiler and durable executor journal with replay/time guards.",
-      "blocker": "No CAP_NET_ADMIN/CAP_SYS_ADMIN/nft in this environment; real native adapter, readback, independent watchdog and packet fixture implementation remain.",
+      "implemented": "Experimental nft compiler, durable executor journal, real isolated Linux loopback smoke53 checks/40 packet probes. Actual nft timeout-unit defect fixed.",
+      "blocker": "Full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC and crash/reboot/installer fixtures, native execution adapter and independent watchdog remain. Docker NET_ADMIN lab is available.",
       "test_evidence": [
         "reports/verification.json",
-        "reports/source-fingerprint.json"
+        "reports/source-fingerprint.json",
+        "reports/linux-lab.json",
+        "reports/linux-lab-pre-fix.json",
+        "reports/linux-lab-timer-units.json"
       ]
     },
     {
@@ -112,7 +115,7 @@
         "M02",
         "M03"
       ],
-      "implemented": "Loopback request/operation/audit API, CLI, read-only MCP, strict admission and actual HTTP/OpenAPI smoke.",
+      "implemented": "Loopback request/operation/audit API, CLI, read-only MCP, strict admission and actual HTTP/OpenAPI smoke. Asset/service APIs and secure CLI file-based local login with11 real-controller checks.",
       "blocker": "Remaining OpenAPI routes, production auth, enrollment/IPC, full MCP suite and snapshot pagination.",
       "test_evidence": [
         "reports/verification.json",
@@ -126,7 +129,7 @@
       "dependencies": [
         "M05"
       ],
-      "implemented": "React integrated UI, 6 locales, request/audit/targets/policies, component and real browser checks.",
+      "implemented": "React integrated UI, 6 locales, request/audit/targets/policies, component and real browser checks. Asset create/revise/deep-link workflow, catalogue selectors and service enrollment prerequisite;14 browser checks.",
       "blocker": "Approval/evidence/topology workflows, full keyboard/accessibility/translation acceptance remain.",
       "test_evidence": [
         "reports/verification.json",
@@ -197,5 +200,10 @@
         "reports/source-fingerprint.json"
       ]
     }
-  ]
+  ],
+  "publication": {
+    "branch": "codex/f2-development-foundation",
+    "pull_request": "https://github.com/simhanson123/Nox_Warden/pull/1",
+    "main_merged": false
+  }
 }

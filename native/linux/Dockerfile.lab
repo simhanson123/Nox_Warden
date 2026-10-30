@@ -1,0 +1,10 @@
+# Test fixture image only. No production services or signing material.
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
+RUN --mount=type=secret,id=proxy_ca,required=true,mode=0444 \
+    sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::https::CaInfo=/run/secrets/proxy_ca update && \
+    DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::https::CaInfo=/run/secrets/proxy_ca install --no-install-recommends -y \
+      nftables=1.0.6-2+deb12u2 iproute2=6.1.0-3 python3=3.11.2-1+b1 && \
+    dpkg-query -W -f='${Package}=${Version}\n' > /lab-package-versions.txt && \
+    rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]

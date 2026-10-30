@@ -2,6 +2,8 @@ export type JsonRecord = Record<string, unknown>;
 export interface ActionPermission { action_id: string; allowed: boolean; reason_code: string | null }
 export interface ReadEnvelope<T> {
   data: T;
+  /** Local HTTP metadata; never sent as a wire field. */
+  httpEtag?: string;
   server_time?: string;
   revision?: number;
   actions?: ActionPermission[];
@@ -23,12 +25,13 @@ export class ApiError extends Error {
 }
 let csrfToken: string | undefined;
 export function setCsrfToken(token: string | undefined) { csrfToken = token; }
-export async function api<T>(path: string, options: { body?: unknown; key?: string; signal?: AbortSignal } = {}): Promise<ReadEnvelope<T>> {
+export async function api<T>(path: string, options: { body?: unknown; key?: string; ifMatch?: string; signal?: AbortSignal } = {}): Promise<ReadEnvelope<T>> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
     headers['Idempotency-Key'] = options.key ?? crypto.randomUUID();
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    if (options.ifMatch) headers['If-Match'] = options.ifMatch;
   }
   let response: Response;
   try {
@@ -46,7 +49,7 @@ export async function api<T>(path: string, options: { body?: unknown; key?: stri
       typeof problem.detail === 'string' ? problem.detail.slice(0, 2000) : '',
       typeof problem.request_id === 'string' ? problem.request_id : undefined);
   }
-  if (body && typeof body === 'object' && 'data' in body) return body as ReadEnvelope<T>;
+  if (body && typeof body === 'object' && 'data' in body) return { ...body as ReadEnvelope<T>, httpEtag: response.headers.get('ETag') ?? undefined };
   return { data: body as T };
 }
 export function listData(envelope: ReadEnvelope<unknown>): JsonRecord[] {

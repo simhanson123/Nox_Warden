@@ -1,5 +1,6 @@
-//! Native qualification preflight. No operation here changes firewall state.
-//! Unsupported or incomplete native fixtures return NOT_RUN (exit 2), never PASS.
+//! Native qualification preflight and explicit isolated loopback smoke runner.
+//! Full incomplete platform qualification remains NOT_RUN; smoke writes rules
+//! only inside a disposable Docker network namespace and reports its own scope.
 use serde::Serialize;
 use std::{
     env, fs, io,
@@ -87,7 +88,7 @@ fn report(backend: &str) -> Report {
         }
     }
     checks.push(Check{id:"native_suite".into(),status:"NOT_RUN".into(),reason:match backend{
-        "nftables"=>"Experimental compiler and journal exist. Disposable namespace fixtures, native adapter, readback, expiry/fragment/PMTU probes, and recovery watchdog are not yet implemented.",
+        "nftables"=>"An isolated Linux loopback smoke suite is available via the smoke subcommand. Full native service, physical NIC, fragment/PMTU, installer and recovery-watchdog qualification remain incomplete.",
         "windows_wfp"=>"WFP service/callout driver, WDK build, signed installer and isolated Windows packet/crash fixtures are not implemented.",
         _=>"Network Extension packet provider, authenticated XPC, entitlements/notarization and actual Mac packet/crash/boot fixtures are not implemented."
     }.into()});
@@ -108,16 +109,17 @@ fn report(backend: &str) -> Report {
         firewall_modified: false,
     }
 }
-fn args(args: &[String]) -> Result<(String, PathBuf), String> {
+fn args(args: &[String]) -> Result<(String, String, PathBuf), String> {
     if args.len() != 5
-        || args[0] != "qualify"
+        || !["qualify", "smoke"].contains(&args[0].as_str())
+        || (args[0] == "smoke" && args[2] != "nftables")
         || args[1] != "--backend"
         || args[3] != "--report"
         || !["nftables", "windows_wfp", "macos_network_extension"].contains(&args[2].as_str())
     {
-        return Err("Usage: fw_testlab qualify --backend nftables|windows_wfp|macos_network_extension --report PATH".into());
+        return Err("Usage: fw_testlab qualify --backend nftables|windows_wfp|macos_network_extension --report PATH; or fw_testlab smoke --backend nftables --report PATH".into());
     }
-    Ok((args[2].clone(), PathBuf::from(&args[4])))
+    Ok((args[0].clone(), args[2].clone(), PathBuf::from(&args[4])))
 }
 fn save(path: &Path, report: &Report) -> io::Result<()> {
     if let Some(p) = path.parent() {
@@ -129,13 +131,31 @@ fn save(path: &Path, report: &Report) -> io::Result<()> {
     fs::write(path, bytes)
 }
 fn main() -> ExitCode {
-    let (backend, path) = match args(&env::args().skip(1).collect::<Vec<_>>()) {
+    let (action, backend, path) = match args(&env::args().skip(1).collect::<Vec<_>>()) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(64);
         }
     };
+    if action == "smoke" {
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/linux-lab.py");
+        return match Command::new("python3")
+            .arg(script)
+            .arg("--report")
+            .arg(&path)
+            .status()
+        {
+            Ok(status) => ExitCode::from(match status.code() {
+                Some(code @ 0..=2) => code as u8,
+                _ => 1,
+            }),
+            Err(error) => {
+                eprintln!("Cannot start isolated packet lab: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
     let report = report(&backend);
     if let Err(e) = save(&path, &report) {
         eprintln!("Cannot write evidence: {e}");
@@ -167,5 +187,17 @@ mod tests {
             assert_eq!(r.packet_tests_executed, 0);
             assert!(!r.firewall_modified);
         }
+    }
+    #[test]
+    fn smoke_cannot_be_mislabeled_as_windows_qualification() {
+        assert!(args(
+            &["smoke", "--backend", "windows_wfp", "--report", "out.json"].map(String::from)
+        )
+        .is_err());
+        let (action, backend, _) =
+            args(&["smoke", "--backend", "nftables", "--report", "out.json"].map(String::from))
+                .unwrap();
+        assert_eq!(action, "smoke");
+        assert_eq!(backend, "nftables");
     }
 }

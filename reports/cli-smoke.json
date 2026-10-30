@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "checks": [
+    "real bootstrap token exchanged for CLI session",
+    "session file mode0600",
+    "authenticated status remains observe-only",
+    "authenticated assets read",
+    "authenticated services read",
+    "authenticated requests read",
+    "authenticated operations read",
+    "authenticated audit read",
+    "authenticated capabilities read",
+    "consumed bootstrap token rejected",
+    "failed login does not overwrite valid session"
+  ],
+  "count": 11,
+  "native_firewall_modified": false,
+  "credential_values_recorded": false
+}

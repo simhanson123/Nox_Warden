@@ -14,6 +14,10 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod registry;
+pub use registry::RegistryMutation;
+
+const REGISTRY_MIGRATION: &str = include_str!("../migrations/0002_registry.sql");
 const MIGRATION: &str = include_str!("../migrations/0001_lite.sql");
 const MAX_TIME: i64 = 253_402_300_799;
 
@@ -29,6 +33,10 @@ pub enum StoreError {
     IdempotencyConflict,
     #[error("PRECONDITION_FAILED")]
     PreconditionFailed,
+    #[error("registry conflict: {0}")]
+    Conflict(&'static str),
+    #[error("registry resource is retired")]
+    Retired,
     #[error("CLAIM_STALE")]
     ClaimStale,
     #[error("database integrity verification failed: {0}")]
@@ -136,29 +144,40 @@ impl Store {
         }
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, app_compat_min INTEGER NOT NULL, app_compat_max INTEGER NOT NULL) STRICT;")?;
-        let installed: Option<(i64, String)> = transaction
-            .query_row(
-                "SELECT version,checksum FROM schema_migrations ORDER BY version DESC LIMIT 1",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()?;
-        let checksum = hash_bytes(MIGRATION.as_bytes());
-        match installed {
-            None => {
-                transaction.execute_batch(MIGRATION)?;
-                transaction.execute(
-                    "INSERT INTO schema_migrations VALUES(1,?1,1,1)",
-                    [&checksum],
-                )?;
-            }
-            Some((1, saved)) if saved == checksum => (),
-            _ => {
+        let migrations = [MIGRATION, REGISTRY_MIGRATION];
+        let installed = {
+            let mut query = transaction
+                .prepare("SELECT version,checksum FROM schema_migrations ORDER BY version")?;
+            let rows = query
+                .query_map([], |row| {
+                    Ok((row.get::<_, usize>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            rows
+        };
+        let user_version: usize =
+            transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if installed.len() > migrations.len()
+            || (user_version != installed.len() && !(user_version == 0 && installed.len() <= 1))
+        {
+            return Err(StoreError::Integrity("incompatible database version"));
+        }
+        for (index, (version, checksum)) in installed.iter().enumerate() {
+            if *version != index + 1 || *checksum != hash_bytes(migrations[index].as_bytes()) {
                 return Err(StoreError::Integrity(
                     "unknown migration version or checksum",
-                ))
+                ));
             }
         }
+        for (index, migration) in migrations.iter().enumerate().skip(installed.len()) {
+            transaction.execute_batch(migration)?;
+            let version = index + 1;
+            transaction.execute(
+                "INSERT INTO schema_migrations VALUES(?1,?2,?1,?1)",
+                params![version, hash_bytes(migration.as_bytes())],
+            )?;
+        }
+        transaction.pragma_update(None, "user_version", migrations.len())?;
         transaction.commit()?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -979,6 +998,34 @@ fn append_audit(
     reason: Option<&str>,
     now: i64,
 ) -> Result<()> {
+    append_audit_with_evidence(
+        tx,
+        t,
+        actor,
+        event_type,
+        resource_kind,
+        resource_id,
+        operation_id,
+        outcome,
+        reason,
+        &[],
+        now,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn append_audit_with_evidence(
+    tx: &Transaction<'_>,
+    t: &Tenant,
+    actor: Option<&str>,
+    event_type: &str,
+    resource_kind: &str,
+    resource_id: Option<&str>,
+    operation_id: Option<&str>,
+    outcome: &str,
+    reason: Option<&str>,
+    evidence_hashes: &[String],
+    now: i64,
+) -> Result<()> {
     let (sequence, previous): (Vec<u8>, Option<Vec<u8>>) = tx.query_row(
         "SELECT sequence,last_event_hash FROM audit_heads WHERE org_id=?1 AND project_id=?2",
         params![t.org_id, t.project_id],
@@ -996,7 +1043,7 @@ fn append_audit(
         .checked_add(1)
         .ok_or(StoreError::Integrity("audit sequence exhausted"))?;
     let event_id = Uuid::new_v4().to_string();
-    let event = json!({"schema_version":"f.audit-event/v1","event_id":event_id,"org_id":t.org_id,"project_id":t.project_id,"sequence":sequence.to_string(),"recorded_at":timestamp(now)?,"event_type":event_type,"actor_id":actor,"resource_kind":resource_kind,"resource_id":resource_id,"operation_id":operation_id,"plan_hash":null,"outcome":outcome,"reason_code":reason,"evidence_hashes":[],"previous_event_hash":previous.as_ref().map(|p|hex_hash(p))});
+    let event = json!({"schema_version":"f.audit-event/v1","event_id":event_id,"org_id":t.org_id,"project_id":t.project_id,"sequence":sequence.to_string(),"recorded_at":timestamp(now)?,"event_type":event_type,"actor_id":actor,"resource_kind":resource_kind,"resource_id":resource_id,"operation_id":operation_id,"plan_hash":null,"outcome":outcome,"reason_code":reason,"evidence_hashes":evidence_hashes,"previous_event_hash":previous.as_ref().map(|p|hex_hash(p))});
     let bytes = canonical_bytes(&event)?;
     let hash = sha256(&bytes);
     tx.execute(

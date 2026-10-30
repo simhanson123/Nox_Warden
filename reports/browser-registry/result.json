@@ -1,0 +1,48 @@
+{
+  "status": "PASS",
+  "browser": "Chromium",
+  "browser_version": "154.0.8037.57",
+  "viewports": {
+    "desktop": {
+      "width": 1440,
+      "height": 1000
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "screens": [
+    "overview-desktop.png",
+    "asset-revision-desktop.png",
+    "service-prerequisite-desktop.png",
+    "audit-desktop.png",
+    "overview-mobile-ko.png",
+    "overview-desktop-ko.png"
+  ],
+  "checks": [
+    "live cookie bootstrap and observe-only indication",
+    "only locale persisted in localStorage",
+    "keyboard skip link focuses main content",
+    "manual asset registration persists exact address without trusted identity claim; hostile name escaped",
+    "asset revision uses exact ETag, preserves hash predecessor, and detail survives reload",
+    "service creation is visibly blocked without a genuine registered target; no service success claimed",
+    "request form selects real registry assets and cannot invent an unavailable service",
+    "explicitly untrusted API request remains needs_info; hostile purpose escaped without an enforcement claim",
+    "request deep link survives page reload",
+    "live request and authentication audit records rendered",
+    "server-provided qualification matrix distinguishes unverified and unsupported",
+    "six locales preserve no-enforcement meaning in live UI",
+    "390px viewport has no document overflow; internal table scroll and icon navigation have keyboard names",
+    "no page exceptions or external requests"
+  ],
+  "console_errors": [],
+  "external_requests": [],
+  "limits": [
+    "Not a complete WCAG audit.",
+    "Translation requires human security review.",
+    "No native firewall or packet-enforcement qualification is performed.",
+    "Service success is not verified: no genuine enrolled target exists.",
+    "The request fixture intentionally lacks trusted binding/service authority."
+  ]
+}

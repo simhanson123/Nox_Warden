@@ -6,17 +6,25 @@ No supported production platform or signed installer is declared.
 
 | Platform | Implemented locally | Missing release gates | Qualification |
 | --- | --- | --- | --- |
-| Linux nftables | Experimental deterministic host TCP/UDP JSON compiler; durable executor journal | Authenticated independent IPC and watchdog, native apply/readback, collision registry, baseline/anti-spoof/ICMP/PMTU, isolated packet/crash/boot/coexistence tests, signed packages | Unverified |
+| Linux nftables | Deterministic host TCP/UDP JSON compiler; actual isolated IPv4/IPv6 loopback packet smoke; durable executor journal | Authenticated independent IPC and watchdog, native apply/readback, collision registry, baseline/anti-spoof/ICMP/PMTU, physical NIC/ICMP/fragment/crash/boot/coexistence tests, signed packages | Unverified |
 | Windows WFP | Common pure evaluator and authority/journal model | Native service, packet-time WDK callout, persistent/boot-time guards, ACL IPC, signed MSI, Windows packet/crash/reboot fixtures | Unimplemented |
 | macOS Network Extension | Common pure evaluator and authority/journal model | Swift host app/system extension, authenticated XPC, packet callback integration, entitlements/signing/notarization, actual-device fail-closed proof | Unimplemented |
+
+The real isolated Linux smoke and its limits are documented in
+[native/linux/README.md](../native/linux/README.md). Run
+`cargo run -p fw_testlab --locked --offline -- smoke --backend nftables --report reports/linux-lab.json`.
+This separately scoped smoke exercises actual nftables and packets; its success
+does not complete the full native qualification commands below.
 
 The Linux artifact uses the deliberately separate experimental identifier
 `fw.experimental-nft/v1`, profile `host-tcp-udp-lab`, and
 `production_qualified: false`. It is not an implementation of all
 `common-host-v1` features. The crate never runs `nft` or changes sysctls. It rejects
 routed and ICMP policies rather than expanding authority. A future native adapter
-must independently verify actual nft JSON syntax and timer units, family/direction
-handling, conntrack assumptions and native capability fingerprints before use.
+must independently verify the deployment kernel and complete family/direction,
+conntrack, baseline, ICMP/fragment and capability coverage before production use.
+The isolated smoke verified nft 1.0.6 syntax and second-based JSON timer units and
+found/fixed an earlier 1000-fold relative-timeout conversion defect.
 
 `fw_executor` provides one-owner SQLite FULL durability, signed grant acceptance,
 high-water replay fencing, conservative UNKNOWN restart, exact readback hash

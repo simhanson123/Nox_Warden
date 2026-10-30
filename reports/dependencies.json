@@ -1,9 +1,9 @@
 {
   "schema_version": "fw.dependency-inventory/v1",
   "format": "project dependency inventory; not a certified SPDX or CycloneDX SBOM",
-  "generated_at": "2026-10-30T05:05:27.235212+00:00",
-  "command": "cargo metadata --locked --format-version 1",
-  "cargo_lock_sha256": "c4186a0209a4c2639dacdda6757b0dfc59b9d9c37a27354eeb503a03821b6909",
+  "generated_at": "2026-10-30T06:12:28.605879+00:00",
+  "command": "cargo metadata --locked --offline --format-version 1",
+  "cargo_lock_sha256": "c36a663770d1aa517f34cb164f7b425c5862f32ce30be9e24dfc0d4bfd1bc53b",
   "scope": "Resolved Cargo.lock package graph including target-specific dependencies; declarations are upstream package metadata, not legal review or proof of code provenance. Web dependencies are not included.",
   "package_count": 222,
   "workspace_packages": 13,
@@ -459,7 +459,7 @@
       "name": "fw_audit",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_audit@0.1.0"
@@ -468,7 +468,7 @@
       "name": "fw_authority",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_authority@0.1.0"
@@ -477,7 +477,7 @@
       "name": "fw_backend_linux",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_backend_linux@0.1.0"
@@ -486,7 +486,7 @@
       "name": "fw_cli",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_cli@0.1.0"
@@ -495,7 +495,7 @@
       "name": "fw_contracts",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_contracts@0.1.0"
@@ -504,7 +504,7 @@
       "name": "fw_control",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_control@0.1.0"
@@ -513,7 +513,7 @@
       "name": "fw_domain",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_domain@0.1.0"
@@ -522,7 +522,7 @@
       "name": "fw_executor",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_executor@0.1.0"
@@ -531,7 +531,7 @@
       "name": "fw_mcp",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_mcp@0.1.0"
@@ -540,7 +540,7 @@
       "name": "fw_planner",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_planner@0.1.0"
@@ -549,7 +549,7 @@
       "name": "fw_store",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_store@0.1.0"
@@ -558,7 +558,7 @@
       "name": "fw_telemetry",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_telemetry@0.1.0"
@@ -567,7 +567,7 @@
       "name": "fw_testlab",
       "version": "0.1.0",
       "license_expression": "Apache-2.0",
-      "source": "workspace",
+      "source": null,
       "registry_checksum_sha256": null,
       "workspace_member": true,
       "purl": "pkg:cargo/fw_testlab@0.1.0"

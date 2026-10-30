@@ -6,4 +6,9 @@ license.workspace = true
 
 [dependencies]
 serde_json.workspace = true
+uuid.workspace = true
+libc = "0.2.191"
 ureq = { version = "3.1.4", features = ["json"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -21,7 +21,8 @@ pub enum CompileError {
     Clock,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompileContext {
     pub org_id: String,
     pub project_id: String,
@@ -171,7 +172,7 @@ pub fn compile(policies: &[Policy], context: &CompileContext) -> Result<Artifact
                 }
                 let ttl = u64::try_from(expiry - upper).map_err(|_| CompileError::Clock)?;
                 let cutoff = expiry - context.clock_uncertainty_seconds as i64;
-                commands.push(json!({"add":{"set":{"family":"inet","table":table,"name":token,"type":"inet_proto","flags":["timeout"],"elem":[{"elem":{"val":protocol_number,"timeout":ttl * 1000}}]}}}));
+                commands.push(json!({"add":{"set":{"family":"inet","table":table,"name":token,"type":"inet_proto","flags":["timeout"],"elem":[{"elem":{"val":protocol_number,"timeout":ttl}}]}}}));
                 time_guards.push(matching(ct("protocol"), "in", json!(format!("@{token}"))));
                 time_guards.push(matching(json!({"meta":{"key":"time"}}), "<", json!(cutoff)));
             }
@@ -414,5 +415,18 @@ mod tests {
         assert!(text.contains("ip6"));
         assert!(text.contains("udp"));
         assert!(!text.contains("tcp"));
+    }
+    #[test]
+    fn libnftables_json_timeout_is_seconds_not_netlink_milliseconds() {
+        // Verified with real nft 1.0.6: timeout=3 disappears after four
+        // monotonic seconds, while timeout=3000 still has 2995s remaining.
+        let artifact = compile(&[policy("allow", 1)], &context()).unwrap();
+        let timeout = artifact.nft_json["nftables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|command| command["add"]["set"]["elem"][0]["elem"]["timeout"].as_u64())
+            .unwrap();
+        assert_eq!(timeout, 297); // expiry - now - 2s uncertainty - 1s commit budget.
     }
 }

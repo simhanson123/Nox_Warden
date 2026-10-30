@@ -11,6 +11,8 @@ function mockController(options: { noSession?: boolean; auditError?: boolean; au
     const path = String(input);
     if (path === '/api/v1/session') return options.noSession ? response({ code: 'UNAUTHENTICATED' }, 401) : response({ data: session, actions: [{ action_id: 'requests.create', allowed: true, reason_code: null }] });
     if (path === '/api/v1/session/bootstrap') return response({ data: session, actions: [{ action_id: 'requests.create', allowed: true, reason_code: null }] });
+    if (path.startsWith('/api/v1/assets?')) return response({ data: [{ asset_id: '11111111-1111-4111-8111-111111111111', state: 'active', revision: 1, definition: { name: 'Registered source' } }], next_cursor: null });
+    if (path.startsWith('/api/v1/services?')) return response({ data: [{ service_id: 'https', state: 'active', revision: 1, definition: { name: 'Registered HTTPS' } }], next_cursor: null });
     if (path === '/api/v1/status') return response({ data: { mode: 'observe', enforcement: false, version: '0.1.0' } });
     if (path.includes('/audit/events')) return options.auditError ? response({ code: 'STORE_UNAVAILABLE', detail: 'Audit store unavailable' }, 503) : response({ data: options.audit ?? [], next_cursor: null });
     return response({ data: [], next_cursor: null });
@@ -86,9 +88,10 @@ test('a failed request retry retains the same idempotency key and exact payload'
   const uuid = '11111111-1111-4111-8111-111111111111';
   fireEvent.change(screen.getByLabelText('Workflow ID'), { target: { value: 'workflow-test' } });
   fireEvent.change(screen.getByLabelText(/Workload binding ID/), { target: { value: uuid } });
-  fireEvent.change(screen.getByLabelText('Source asset ID'), { target: { value: uuid } });
-  fireEvent.change(screen.getByLabelText('Destination asset ID'), { target: { value: uuid } });
-  fireEvent.change(screen.getByLabelText('Service ID'), { target: { value: 'https' } });
+  await waitFor(() => expect(screen.getByLabelText('Source asset ID')).not.toBeDisabled());
+  await userEvent.selectOptions(screen.getByLabelText('Source asset ID'), uuid);
+  await userEvent.selectOptions(screen.getByLabelText('Destination asset ID'), uuid);
+  await userEvent.selectOptions(screen.getByLabelText('Service ID'), 'https');
   fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'A scoped test request' } });
   await userEvent.click(screen.getByRole('button', { name: 'Submit request' }));
   await screen.findByText('TEMPORARY_FAILURE');
