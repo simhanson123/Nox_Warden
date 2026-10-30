@@ -444,6 +444,9 @@ mod tests {
     fn atomic_replacement_preserves_hardlink_target() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
+        // TempDir inherits the process umask; this positive fixture needs a
+        // private parent independently of the runner's default permissions.
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let original = dir.path().join("original");
         fs::write(&original, b"original").unwrap();
         fs::set_permissions(&original, fs::Permissions::from_mode(0o600)).unwrap();

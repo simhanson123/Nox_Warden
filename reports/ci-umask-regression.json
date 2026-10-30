@@ -1,0 +1,29 @@
+{
+  "schema_version": "fw.ci-regression/v1",
+  "base_commit": "1cf1951af2db066d68091bc78a68aa434c940c5a",
+  "failed_ci_run": "https://github.com/simhanson123/Nox_Warden/actions/runs/41013382658",
+  "failure": "CLI hardlink replacement positive fixture inherited a public temporary parent under umask 022; production credential directory validation correctly rejected it.",
+  "reproduced_before_fix": true,
+  "fix": "Explicitly set the positive test fixture parent to mode 0700. Production permission checks and hardlink assertions are unchanged.",
+  "source_sha256": {
+    "crates/fw_cli/src/main.rs": "03fffa3a462442af521c27f4718ef088cbe542bf62958e34d685378dfdb349ec"
+  },
+  "checks": [
+    {
+      "command": "umask 022; source scripts/dev-env.sh; cargo test --workspace --locked --offline",
+      "status": "PASS",
+      "passed": 158,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo fmt -p fw_cli --check",
+      "status": "PASS"
+    },
+    {
+      "command": "cargo clippy -p fw_cli --all-targets --locked --offline -- -D warnings",
+      "status": "PASS"
+    }
+  ],
+  "github_rerun_status": "PENDING_AT_COMMIT"
+}
