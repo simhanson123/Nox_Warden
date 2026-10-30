@@ -1,6 +1,6 @@
 # Repository instructions
 
-This repository is the F-2.0 development specification for a native, open-source firewall. Read `docs/specs/F_00_시작안내.md` and the precedence table in `docs/specs/F_01_제품_구현_기준.md` first. The public brand is not final; use neutral `fw_*` module identifiers.
+This repository is the F-2.0 development specification for a native, open-source firewall. Read `docs/specs/F_00_시작안내.md` and the precedence table in `docs/specs/F_01_제품_구현_기준.md` first. The public brand is not final; use neutral `fw_*` module identifiers. Latest explicit user decisions take precedence over the preserved specification package; do not rewrite the original files under `docs/specs` to erase that history.
 
 ## Product requirements
 
@@ -9,7 +9,7 @@ This repository is the F-2.0 development specification for a native, open-source
 - Preserve default deny, explicit deny precedence, current valid allow union, expiry for established connections, immutable plan approval, independent signing/quota, durable epoch/generation, and conservative UNKNOWN recovery.
 - AI proposes and reads evidence; it cannot approve itself or directly run privileged firewall commands.
 - Apache-2.0 applies to original project work; keep dependency notices. Telemetry defaults OFF. Donation is optional and does not gate security features.
-- Human UI and agents must share structured evidence. UI supports en, ko, ja, es, zh-Hans, zh-Hant. Never translate wire identifiers or signature bytes.
+- Human UI and agents must share structured evidence. English (`en`) is the default interface language, including first visits from non-English browsers. Preserve an explicitly saved supported language choice. Additional locales are `ko`, `ja`, `es`, `de`, `fr`, `zh-Hans` and `zh-Hant`; this user decision extends the original six-locale specification. Never translate wire identifiers or signature bytes.
 - Cloud VM/native installation, restricted hosting, WordPress integration, npm distribution, and agent skills have different authority boundaries. Read F_11 for those tasks.
 
 ## Work procedure
@@ -30,8 +30,8 @@ From the repository root, the design-only check is:
 python scripts/validate_spec.py --root docs/specs
 ```
 
-The environment must provide `jsonschema>=4.23,<5`; pin its exact resolved version in M00. Source code checks and native runner commands are specified in F_08. Retain failing evidence and fix causes; do not weaken invariants to pass tests.
+The environment must provide `jsonschema>=4.23,<5`; pin its exact resolved version in M00. Source code checks and native runner commands are specified in F_08. Retain failing evidence locally or as a bounded CI artifact while fixing its cause; do not weaken invariants to pass tests. Raw evidence does not need a source commit.
 
 ## Completion report
 
-Report task IDs completed, changed behavior, tests run, failures/skips with cause, remaining dependencies, and exact evidence paths. Keep implementation status distinct from design intent and release certification. Persist task evidence in `reports/` and the task ledger so another cloud task can continue from committed state.
+Report changed behavior, relevant task IDs, checks and their outcomes, material limitations, and useful evidence links concisely. Keep implementation status distinct from design intent and release certification. Commit source, tests, reproducible commands, a short verification summary in `reports/README.md`, the compact task ledger and original specification provenance. Do not continuously commit development diaries, raw logs, screenshots, repeated generated reports or transient failures. Keep those outputs in ignored local paths; CI may retain explicitly selected reports as artifacts for seven days. Existing records remain in Git history without rewriting it. This user decision supersedes earlier instructions to persist every development record in the repository. Create focused branches, commit verified changes and push them within the authorized development workflow without repeatedly asking the user to perform routine Git operations.

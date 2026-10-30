@@ -1,6 +1,6 @@
 # F-2.0 implementation design and current boundaries
 
-The original specification under `docs/specs` is retained byte-for-byte. Attached prompts and installation skills were interpreted as project material; they did not authorize publication, paid resources, credential acquisition, or live firewall changes. This document describes working code, not a revision of F-2.0 acceptance criteria.
+The original specification under `docs/specs` is retained byte-for-byte. Attached prompts and installation skills were interpreted as project material; they did not authorize publication, paid resources, credential acquisition, or live firewall changes. The current user decisions extend the UI to German and French, make English the default regardless of browser language, and keep detailed development evidence outside source commits. Other F-2.0 acceptance requirements remain unchanged.
 
 ## Trust and process boundaries
 
@@ -26,6 +26,8 @@ The executable is an explicit development profile, constrained to loopback HTTP.
 API syntax is bounded at 64 KiB and depth 32, rejects duplicate/unknown fields, floats and unsafe integers. Requests normalize local NFC fields and sort set-valued IDs before hashing. Reply JSON is capped at 256 KiB. Public error details contain stable codes, never SQL or credential values. Failed authentication/CSRF checks append denial audit events with unknown actor rather than trusting request identity. Bootstrap rate limiting is per process (10 failed attempts); remote authentication is not implemented.
 
 Exact canonicalization is the supplied closed ASCII-property/integer profile, not arbitrary JSON JCS. Signed payload bytes and external identities are not Unicode-normalized. Complete serializers and semantic checks for every extended schema are not yet implemented; reference contract validators remain design-only evidence.
+
+The interface defaults to English and supports explicit selection of Korean, Japanese, Spanish, German, French, Simplified Chinese and Traditional Chinese. A saved supported selection is restored; browser language alone does not change the default. Translation key and interpolation parity are checked, while native-language review and full accessibility acceptance remain incomplete.
 
 ## Implemented HTTP surface
 
@@ -54,10 +56,23 @@ Executor journals own a process lock and durable SQLite generation/time bounds. 
 
 Tests cover malformed inputs, canonicalization, expiry, denial precedence, immutable approval, quota races/replay, isolation/idempotency, transaction rollback, outbox fencing, journal replay/deadlines, graph tamper, privacy consent and HTTP/browser behavior. These are tests, not a comprehensive formal proof or external security audit. Dependency inventories record declarations and checksums; they are not legal clearance.
 
-Release remains blocked on native adapters and real packet/lifecycle tests, Windows WDK/callout builds/signing, macOS entitlement/system-extension builds/notarization and actual devices, independent signer/watchdog/IPC, full approval and registry flows, PostgreSQL/OIDC, backup/restore epochs, bounded cursor/evidence integration, notification isolation, full UI/locale accessibility acceptance, signed installers and provider-specific deployment evidence. No cloud resources or publication were attempted. See task-ledger and per-crate READMEs for exact remaining engineering tasks.
+Release remains blocked on native adapters and real packet/lifecycle tests, Windows WDK/callout builds/signing, macOS entitlement/system-extension builds/notarization and actual devices, independent signer/watchdog/IPC, full approval and registry flows, PostgreSQL/OIDC, backup/restore epochs, bounded cursor/evidence integration, notification isolation, full UI/locale accessibility acceptance, signed installers and provider-specific deployment evidence. Development source is published on GitHub. No cloud resources, package release or production deployment have been performed. See the [task ledger](../reports/task-ledger.json) and per-crate READMEs for remaining engineering tasks.
 
-## Additional executable evidence
+## Verification and evidence retention
 
-`reports/browser-registry/result.json` records14 actual browser checks for asset lifecycle, immutable revisions, deep links and safe service prerequisites. UI request controls select stored catalogue objects instead of inventing UUIDs. `reports/cli-smoke.json` records11 real-controller CLI login/read checks.
+The [verification summary](../reports/README.md) records the checked scope,
+reproducible commands and CI links. Browser coverage includes asset lifecycle,
+immutable revisions, deep links and service prerequisites. CLI smoke checks use
+the real controller for login and authenticated reads. UI request controls select
+stored catalogue objects instead of inventing UUIDs.
 
-`reports/linux-lab.json` records53 successful checks including40 real packet probes in a disposable Docker network namespace with only NET_ADMIN. Independent token-expiry checks found and corrected the nft JSON seconds/milliseconds error; the pre-fix failure and monotonic timer experiment are retained. This is meaningful native loopback smoke evidence, not full common-host-v1 qualification or an installed host firewall. GitHub CI also executes this isolated regression suite.
+The isolated Linux smoke exercises real IPv4/IPv6 packets in a disposable Docker
+network namespace with only NET_ADMIN. Independent token-expiry checks exposed
+and corrected an nft JSON seconds/milliseconds error. This is native loopback
+smoke coverage; full `common-host-v1` qualification and installed host protection
+remain incomplete. GitHub CI executes the same isolated regression suite.
+
+Generated reports, screenshots and full logs remain ignored local outputs. CI
+retains explicitly selected reports as artifacts for seven days. Existing raw
+records remain accessible in Git history; routine source commits contain concise
+status and instructions rather than a continuing development diary.

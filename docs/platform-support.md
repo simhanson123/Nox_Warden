@@ -53,6 +53,11 @@ records zero executed packet tests. These are genuine preflight reports, not a
 passing native test suite. Unit tests, compilation and JSON validation do not
 substitute for F_07 K/F and F_09 OS01–OS10 evidence.
 
+Generated reports are ignored local outputs; consult the
+[verification summary](../reports/README.md) for reproducible commands and CI links.
+
 No active host firewall, Defender Firewall, PF rules, cloud security groups or
-network sysctls are changed by development commands. Production protection stays
-unavailable until the complete platform-specific acceptance gate passes.
+host network sysctls are changed by these development commands. The Linux smoke
+changes rules and sysctls only inside its disposable network namespace.
+Production protection stays unavailable until the complete platform-specific
+acceptance gate passes.

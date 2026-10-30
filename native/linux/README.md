@@ -35,7 +35,10 @@ source and executable hashes, current commit/dirty state, actual nft readbacks,
 Unix observation times, kernel version, conntrack settings, packet outcomes and
 container cleanup. Startup failures return 2/NOT_RUN; failed packet/assertion or
 cleanup checks return nonzero. Only completed smoke assertions return 0/PASS.
-This does **not** make `fw_testlab qualify` pass the full platform gate.
+This does **not** make `fw_testlab qualify` pass the full platform gate. Generated
+reports are ignored local outputs. CI keeps its selected smoke report as an
+artifact for seven days; see the [verification summary](../../reports/README.md)
+for scope and CI links.
 
 ## Actual coverage
 
@@ -67,10 +70,10 @@ kernel/netlink timer representations use milliseconds. Ordinary packet-expiry
 probes initially passed because the independent absolute deadline still blocked
 traffic. A stronger check found live timeout tokens after the deadline.
 
-`reports/linux-lab-pre-fix.json` preserves that failure. The separate measured
-experiment `reports/linux-lab-timer-units.json` shows a token with `timeout: 3`
-disappearing after 4.0047 monotonic seconds while `timeout: 3000` remained with
-2995 seconds. `timer_units.py` reproduces that experiment when piped to Python in
+Historical failure and timing reports remain in Git history. The timing
+experiment observed a token with `timeout: 3` disappear after 4.0047 monotonic
+seconds while `timeout: 3000` remained with 2995 seconds. `timer_units.py`
+reproduces that experiment when piped to Python in
 a similarly isolated NET_ADMIN-only container with `NOX_TIMER_LAB=1`.
 The diagnostic refuses execution without that explicit marker, exactly NET_ADMIN,
 and a loopback-only namespace. The compiler now emits seconds,

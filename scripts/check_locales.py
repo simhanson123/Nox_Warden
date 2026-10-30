@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 messages = json.loads((root / 'web/src/locales.json').read_text())
-expected = {'en', 'ko', 'ja', 'es', 'zh-Hans', 'zh-Hant'}
+expected = {'en', 'ko', 'ja', 'es', 'de', 'fr', 'zh-Hans', 'zh-Hant'}
 assert set(messages) == expected, 'Missing locale'
 keys = set(messages['en'])
 # ICU branches may differ by plural rules; interpolation variable names must match.

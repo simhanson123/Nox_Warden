@@ -75,7 +75,9 @@ with tempfile.TemporaryDirectory(prefix='nox-http-') as tmp:
         with opener.open(BASE+'/',timeout=5) as response:
             check('static application served',response.status==200 and b'<div id="root">' in response.read())
         result={'status':'PASS','checks':checks,'count':len(checks),'native_enforcement_tested':False,'credentials_in_report':False}
-        path=ROOT/'reports/http-smoke.json';path.write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
+        path=ROOT/'reports/http-smoke.json'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
     finally:
         process.terminate()
         try:process.wait(timeout=5)

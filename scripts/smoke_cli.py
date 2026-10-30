@@ -32,7 +32,9 @@ with tempfile.TemporaryDirectory(prefix='nox-cli-live-') as tmp:
         cli('status');checks.append('failed login does not overwrite valid session')
         del session
         report={'status':'PASS','checks':checks,'count':len(checks),'native_firewall_modified':False,'credential_values_recorded':False}
-        (ROOT/'reports/cli-smoke.json').write_text(json.dumps(report,indent=2)+'\n')
+        path=ROOT/'reports/cli-smoke.json'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(json.dumps(report,indent=2)+'\n')
         print(json.dumps(report,indent=2))
     finally:
         process.terminate()

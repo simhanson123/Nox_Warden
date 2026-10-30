@@ -45,7 +45,7 @@ def main() -> int:
             browser = playwright.chromium.launch(executable_path=args.browser_executable, headless=True,
                                                  args=['--no-sandbox'])
             result['browser_version'] = browser.version
-            context = browser.new_context(viewport=result['viewports']['desktop'], locale='en-US',
+            context = browser.new_context(viewport=result['viewports']['desktop'], locale='ko-KR',
                                           reduced_motion='reduce')
             page = context.new_page()
             page.on('pageerror', lambda error: result['console_errors'].append(str(error)))
@@ -56,6 +56,10 @@ def main() -> int:
                     result['external_requests'].append(f'{target.scheme}://{target.hostname}')
             page.on('request', record_destination)
             page.goto(base + '/overview')
+            page.get_by_label('Console token').wait_for()
+            assert page.locator('html').get_attribute('lang') == 'en'
+            assert page.locator('.language-label select').input_value() == 'en'
+            result['checks'].append('first visit defaults to English despite Korean browser preference')
             token = args.token_file.read_text().strip()
             page.get_by_label('Console token').fill(token)
             del token
@@ -165,7 +169,12 @@ def main() -> int:
                 page.locator('.language-label select').select_option(locale)
                 page.get_by_text(catalog['overview.noEnforcement']).wait_for()
                 assert page.locator('html').get_attribute('lang') == locale
-            result['checks'].append('six locales preserve no-enforcement meaning in live UI')
+                page.reload()
+                page.get_by_text(catalog['overview.noEnforcement']).wait_for()
+                assert page.locator('html').get_attribute('lang') == locale
+                assert page.locator('.language-label select').input_value() == locale
+                assert page.evaluate('localStorage.getItem("fw.locale")') == locale
+            result['checks'].append(f'{len(catalogs)} locales preserve observe-only meaning and explicit selection across reloads')
             page.locator('.language-label select').select_option('ko')
             page.get_by_text(catalogs['ko']['overview.noEnforcement']).wait_for()
             page.set_viewport_size(result['viewports']['mobile'])
