@@ -1,0 +1,20 @@
+[package]
+name = "fw_agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fw_enrollment = { path = "../fw_enrollment" }
+fw_contracts = { path = "../fw_contracts" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+libc = "0.2.191"
+ureq = { version = "=3.5.0", default-features = false, features = ["rustls", "json"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

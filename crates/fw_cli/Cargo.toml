@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+serde.workspace = true
+chrono.workspace = true
+fw_contracts = { path = "../fw_contracts" }
+fw_enrollment = { path = "../fw_enrollment" }
 serde_json.workspace = true
 uuid.workspace = true
 libc = "0.2.191"

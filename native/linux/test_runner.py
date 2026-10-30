@@ -29,7 +29,7 @@ class Outcomes(unittest.TestCase):
     def run_after_start(self, execution):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for name in ['crates/fw_backend_linux/src/lib.rs','crates/fw_backend_linux/src/bin/fw_compile_lab.rs','crates/fw_backend_linux/Cargo.toml','crates/fw_domain/src/lib.rs','crates/fw_contracts/src/lib.rs','native/linux/packet_lab.py','native/linux/Dockerfile.lab','Cargo.toml','Cargo.lock','rust-toolchain.toml','target/debug/fw_compile_lab','crates/fw_testlab/src/main.rs','scripts/linux-lab.py']:
+            for name in ['crates/fw_backend_linux/src/lib.rs','crates/fw_backend_linux/src/readback.rs','crates/fw_backend_linux/src/bin/fw_compile_lab.rs','crates/fw_backend_linux/Cargo.toml','crates/fw_domain/src/lib.rs','crates/fw_contracts/src/lib.rs','native/linux/packet_lab.py','native/linux/Dockerfile.lab','Cargo.toml','Cargo.lock','rust-toolchain.toml','target/debug/fw_compile_lab','crates/fw_testlab/src/main.rs','scripts/linux-lab.py']:
                 path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'fixture')
             report=root/'report.json'
             def execute(args, **_):

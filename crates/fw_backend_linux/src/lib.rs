@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
+mod readback;
+pub use readback::{verify_readback, Comparison, ReadbackVerification};
+
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {
     #[error("INVALID_POLICY: {0}")]

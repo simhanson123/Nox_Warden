@@ -26,9 +26,11 @@ jobs:
       - run: bash scripts/check.sh
       - name: Real local HTTP and OpenAPI smoke
         run: |
-          cargo build -p fw_control -p fw_cli --locked
+          cargo build -p fw_control -p fw_cli -p fw_agent --locked
           python scripts/smoke_control.py
           python scripts/smoke_cli.py
+      - name: Device enrollment and certificate revocation
+        run: python scripts/smoke_enrollment.py
       - name: Isolated Linux packet regression
         run: python scripts/linux-lab.py --report reports/linux-lab.json
       - name: Retain smoke reports for seven days
@@ -41,5 +43,6 @@ jobs:
             reports/http-smoke.json
             reports/cli-smoke.json
             reports/linux-lab.json
+            reports/enrollment-smoke.json
           retention-days: 7
           if-no-files-found: ignore

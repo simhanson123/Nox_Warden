@@ -1,5 +1,7 @@
 //! Loopback-only development control plane. No route can dispatch native changes.
+mod enrollment;
 mod registry;
+pub mod tls;
 use axum::{
     Router,
     body::Bytes,
@@ -43,6 +45,7 @@ pub struct AppState {
     tenant: Tenant,
     origin: String,
     login: Mutex<LoginState>,
+    enrollment: Option<Arc<enrollment::EnrollmentRuntime>>,
 }
 fn now() -> i64 {
     SystemTime::now()
@@ -121,7 +124,14 @@ impl AppState {
                 failures: 0,
                 sessions: HashMap::new(),
             }),
+            enrollment: None,
         })
+    }
+    /// Configure a separate enrollment listener after its TLS material is validated.
+    /// Transport registration does not enable native dispatch or create policy authority.
+    pub fn with_enrollment(mut self, authority: fw_enrollment::CertificateAuthority) -> Self {
+        self.enrollment = Some(Arc::new(enrollment::EnrollmentRuntime::new(authority)));
+        self
     }
     fn auth(&self, h: &HeaderMap, write: bool) -> Result<Session, Problem> {
         let result = self.auth_inner(h, write);
@@ -220,7 +230,7 @@ async fn status(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
 }
 async fn capabilities(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     s.auth(&h, false)?;
-    Ok(axum::Json(envelope(json!({"schema_version":"f.development-capabilities/v1","profile":"local-development","native_enforcement":"unverified","dispatch_allowed":false,"supported_api":["access-requests.create","access-requests.read","operations.read","audit.read"],"unsupported":["oidc","webauthn","native-enrollment","native-deployment","postgresql-runtime"],"telemetry_enabled":false}))).into_response())
+    Ok(axum::Json(envelope(json!({"schema_version":"f.development-capabilities/v1","profile":"local-development","native_enforcement":"unverified","dispatch_allowed":false,"supported_api":["access-requests.create","access-requests.read","operations.read","audit.read"],"transport_enrollment":if s.enrollment.is_some(){"available"}else{"disabled"},"unsupported":["oidc","webauthn","authority-bootstrap","certificate-renewal","native-deployment","postgresql-runtime"],"telemetry_enabled":false}))).into_response())
 }
 async fn empty(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     s.auth(&h, false)?;
@@ -476,7 +486,11 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
         .route("/operations", get(operations))
         .route("/operations/{id}", get(operation))
         .route("/audit/events", get(audit))
-        .route("/targets", get(empty))
+        .route("/targets", get(enrollment::list_targets))
+        .route("/targets/{id}", get(enrollment::get_target))
+        .route("/enrollment-tokens", post(enrollment::create_token))
+        .route("/enrollments", get(enrollment::list_enrollments))
+        .route("/enrollments/{id}/revoke", post(enrollment::revoke))
         .route("/policies", get(empty))
         .route(
             "/assets",
@@ -511,4 +525,8 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
 }
 pub fn generate_token() -> String {
     random_token()
+}
+/// Only serve this router with the TLS listener and its verified ConnectInfo.
+pub fn enrollment_router(state: Arc<AppState>) -> Router {
+    enrollment::internal_router(state)
 }

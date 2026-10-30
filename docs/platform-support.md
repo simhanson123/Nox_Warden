@@ -6,7 +6,7 @@ No supported production platform or signed installer is declared.
 
 | Platform | Implemented locally | Missing release gates | Qualification |
 | --- | --- | --- | --- |
-| Linux nftables | Deterministic host TCP/UDP JSON compiler; actual isolated IPv4/IPv6 loopback packet smoke; durable executor journal | Authenticated independent IPC and watchdog, native apply/readback, collision registry, baseline/anti-spoof/ICMP/PMTU, physical NIC/ICMP/fragment/crash/boot/coexistence tests, signed packages | Unverified |
+| Linux nftables | Transport enrollment and conservative mTLS metadata reports; experimental host TCP/UDP compiler and bounded semantic readback; isolated IPv4/IPv6 packet and rule-tamper tests; durable executor journal | Native apply/readback integration, authenticated policy IPC and independent watchdog, collision registry, baseline/anti-spoof/ICMP/PMTU, physical NIC/fragment/crash/boot/coexistence tests, signed packages | Unverified |
 | Windows WFP | Common pure evaluator and authority/journal model | Native service, packet-time WDK callout, persistent/boot-time guards, ACL IPC, signed MSI, Windows packet/crash/reboot fixtures | Unimplemented |
 | macOS Network Extension | Common pure evaluator and authority/journal model | Swift host app/system extension, authenticated XPC, packet callback integration, entitlements/signing/notarization, actual-device fail-closed proof | Unimplemented |
 
@@ -23,8 +23,19 @@ The Linux artifact uses the deliberately separate experimental identifier
 routed and ICMP policies rather than expanding authority. A future native adapter
 must independently verify the deployment kernel and complete family/direction,
 conntrack, baseline, ICMP/fragment and capability coverage before production use.
-The isolated smoke verified nft 1.0.6 syntax and second-based JSON timer units and
-found/fixed an earlier 1000-fold relative-timeout conversion defect.
+The readback verifier compares the expected owned table, chains, ordered rules,
+flow predicates, absolute expiry and token timeout bounds with nft JSON. It
+accepts only explicit known nft normalizations; unknown expressions or mismatches
+produce no observed semantic hash. It requires the trusted, unaltered compiler
+artifact, a trusted observation time and a UTC nft capture. It does not
+authenticate the artifact or independently recompute its policy state hash.
+A successful comparison propagates the trusted expected hash.
+
+The isolated suite passes 66 checks, including 40 real packet probes and 13
+readback checks. It detects actual kernel rule mutation and verifies restored
+state without refreshing tokens. One snapshot cannot prove historical token
+refreshes, other managers' rules, authority provenance or authenticated dispatch.
+This verifier is not yet wired into the application's native apply lifecycle.
 
 `fw_executor` provides one-owner SQLite FULL durability, signed grant acceptance,
 high-water replay fencing, conservative UNKNOWN restart, exact readback hash
@@ -33,12 +44,18 @@ are persisted and checked again at submission. Confirmation expires at the earli
 of submission + 60 seconds and the signed absolute cap; restart/readback never
 extend that stored deadline. Journals without these bounds are rejected rather
 than assigned fabricated timestamps. It does not contain a native
-adapter, policy rollback projection, authenticated transport, probe collector, or
+adapter, policy rollback projection, authenticated policy-dispatch transport, probe collector, or
 independent watchdog process. Confirm signatures currently use the explicit
 experimental type `application/vnd.fw.experimental-confirm.v1+json`, because the
 supplied public schema does not define a signed confirm envelope. Registry role
 resolution remains the caller's trust boundary. This profile must be standardized
 before production interoperability is claimed.
+
+Device transport registration is separately implemented for the Linux client.
+Its certificate and capability report do not change platform qualification:
+every reported enforcement feature is unverified, and the controller remains
+observe-only. Remote enrollment, certificate renewal and Windows/macOS device
+clients remain unavailable. See the [device guide](device-enrollment.md).
 
 Run qualification preflight from the repository root:
 

@@ -48,7 +48,7 @@ def main():
                 raise RuntimeError('The configured combined CA trust bundle is unavailable')
             execute(docker+['build','--secret',f'id=proxy_ca,src={ca}','-f',str(ROOT/'native/linux/Dockerfile.lab'),'-t',IMAGE,str(ROOT/'native/linux')],env=env)
         image_id = execute(docker+['image','inspect','--format','{{.Id}}',IMAGE],env=env).strip()
-        source_paths = [ROOT/'crates/fw_backend_linux/src/lib.rs',ROOT/'crates/fw_backend_linux/src/bin/fw_compile_lab.rs',
+        source_paths = [ROOT/'crates/fw_backend_linux/src/lib.rs',ROOT/'crates/fw_backend_linux/src/readback.rs',ROOT/'crates/fw_backend_linux/src/bin/fw_compile_lab.rs',
             ROOT/'crates/fw_backend_linux/Cargo.toml',ROOT/'crates/fw_domain/src/lib.rs',ROOT/'crates/fw_contracts/src/lib.rs',
             ROOT/'native/linux/packet_lab.py',ROOT/'native/linux/Dockerfile.lab',ROOT/'Cargo.toml',ROOT/'Cargo.lock',
             ROOT/'rust-toolchain.toml',ROOT/'target/debug/fw_compile_lab',ROOT/'crates/fw_testlab/src/main.rs',Path(__file__).resolve()]
