@@ -112,7 +112,7 @@ fn accept_and_submit(
 #[test]
 fn exact_material_is_atomic_durable_and_never_rebound_by_retry() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let path = dir.path().join("journal");
     let mut j = journal(&path, &grant);
     j.accept_execution(&grant, OP, &material, NOW).unwrap();
@@ -147,7 +147,7 @@ fn exact_material_is_atomic_durable_and_never_rebound_by_retry() {
 #[test]
 fn failed_material_write_consumes_neither_generation_nor_operation() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let mut j = journal(&dir.path().join("journal"), &grant);
     j.connection.execute_batch("CREATE TRIGGER fail_material BEFORE INSERT ON execution_material BEGIN SELECT RAISE(ABORT,'injected durable failure'); END;").unwrap();
     assert!(j.accept_execution(&grant, OP, &material, NOW).is_err());
@@ -159,7 +159,7 @@ fn failed_material_write_consumes_neither_generation_nor_operation() {
 #[test]
 fn mismatched_signed_objects_and_legacy_upgrade_fail_closed() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let mut j = journal(&dir.path().join("journal"), &grant);
     for field in 0..6 {
         let mut bad = material.clone();
@@ -184,7 +184,7 @@ fn mismatched_signed_objects_and_legacy_upgrade_fail_closed() {
 #[test]
 fn native_submission_requires_matching_immutable_acknowledgement() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let mut j = journal(&dir.path().join("journal"), &grant);
     j.accept_execution(&grant, OP, &material, NOW).unwrap();
     assert!(matches!(
@@ -211,7 +211,7 @@ fn native_submission_requires_matching_immutable_acknowledgement() {
 #[test]
 fn claimed_recovery_survives_crash_and_only_exact_observation_completes() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let path = dir.path().join("journal");
     let mut j = journal(&path, &grant);
     accept_and_submit(&mut j, &grant, &material);
@@ -292,7 +292,7 @@ fn claimed_recovery_survives_crash_and_only_exact_observation_completes() {
 #[test]
 fn expired_recovery_authority_never_becomes_new_write_permission() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let mut j = journal(&dir.path().join("journal"), &grant);
     accept_and_submit(&mut j, &grant, &material);
     assert!(matches!(
@@ -323,7 +323,7 @@ fn expired_recovery_authority_never_becomes_new_write_permission() {
 #[test]
 fn actual_drift_withdraws_confirmation_and_blocks_new_generation() {
     let (grant, material, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let mut j = journal(&dir.path().join("journal"), &grant);
     accept_and_submit(&mut j, &grant, &material);
     j.record_observation(OP, grant.desired_state_hash(), NOW + 2)
@@ -372,7 +372,7 @@ fn actual_drift_withdraws_confirmation_and_blocks_new_generation() {
 fn journal_rejects_public_parents_and_linked_database_lock_or_sidecar() {
     use std::os::unix::fs::{symlink, PermissionsExt};
     let (grant, _, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let path = dir.path().join("journal");
     std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(ExecutorJournal::create(
@@ -408,7 +408,7 @@ fn journal_rejects_public_parents_and_linked_database_lock_or_sidecar() {
 #[test]
 fn version_one_migration_preserves_fencing_without_inventing_native_material() {
     let (grant, _, _) = fixture();
-    let dir = tempfile::tempdir().unwrap();
+    let dir = private_test_directory();
     let path = dir.path().join("journal");
     let mut j = journal(&path, &grant);
     j.accept(&grant, OP, NOW).unwrap();
@@ -441,7 +441,7 @@ fn logical_metadata_corruption_cannot_extend_signed_or_derived_windows() {
         "UPDATE operations SET submitted_at=NULL",
         "UPDATE execution_material SET recovery_valid_until=recovery_valid_until+1",
     ] {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_test_directory();
         let mut j = journal(&dir.path().join("journal"), &grant);
         accept_and_submit(&mut j, &grant, &material);
         j.connection.execute_batch(mutation).unwrap();
@@ -474,7 +474,7 @@ fn logical_metadata_corruption_cannot_extend_signed_or_derived_windows() {
 fn rehashed_material_still_has_to_resolve_exact_signed_artifact_and_scope() {
     let (grant, material, _) = fixture();
     for field in 0..3 {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = private_test_directory();
         let mut j = journal(&dir.path().join("journal"), &grant);
         j.accept_execution(&grant, OP, &material, NOW).unwrap();
         let mut bad = material.clone();

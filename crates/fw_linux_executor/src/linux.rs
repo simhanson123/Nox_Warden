@@ -986,10 +986,14 @@ fn run() -> Result<Option<Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn legitimate_recovery_lock_can_outlast_one_second_without_resetting_identity() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::Builder::new()
+            .permissions(std::fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         let path = directory.path().join("journal.sqlite3");
         let owner_path = path.clone();
         let org = "11111111-1111-4111-8111-111111111111";

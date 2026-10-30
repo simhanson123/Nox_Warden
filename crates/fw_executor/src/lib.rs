@@ -7,6 +7,18 @@ mod material;
 #[cfg(test)]
 mod material_tests;
 mod secure_path;
+#[cfg(test)]
+fn private_test_directory() -> tempfile::TempDir {
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Create private fixtures explicitly: tempfile's default directory mode
+        // follows the runner's umask and can otherwise be 0755.
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir().unwrap()
+}
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ed25519_dalek::{Signature, VerifyingKey};
 use fs2::FileExt;
@@ -593,7 +605,7 @@ mod tests {
     }
     #[test]
     fn restart_preserves_generation_and_unknown() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let p = d.path().join("journal.db");
         {
             let mut j = ExecutorJournal::create(&p, ORG, TARGET, 1, &h('b')).unwrap();
@@ -616,7 +628,7 @@ mod tests {
     }
     #[test]
     fn lost_journal_not_created_and_existing_not_overwritten() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let p = d.path().join("journal.db");
         assert!(ExecutorJournal::open(&p).is_err());
         assert!(!p.exists());
@@ -626,7 +638,7 @@ mod tests {
     }
     #[test]
     fn replay_conflict_and_not_applied_consumes_generation() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         let mut f = fields();
@@ -684,7 +696,7 @@ mod tests {
     }
     #[test]
     fn signed_confirm_requires_observation_and_fences_watchdog() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         let (e, k) = confirmation();
@@ -699,7 +711,7 @@ mod tests {
     }
     #[test]
     fn recovery_wins_and_unknown_is_not_active() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 170).unwrap();
@@ -716,7 +728,7 @@ mod tests {
     }
     #[test]
     fn forged_confirm_does_not_change_state() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 170).unwrap();
@@ -731,7 +743,7 @@ mod tests {
     }
     #[test]
     fn stale_watchdog_cannot_claim_new_generation() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 170).unwrap();
@@ -750,7 +762,7 @@ mod tests {
     }
     #[test]
     fn authority_epoch_transition_requires_new_enrollment() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         let mut candidate = fields();
         candidate.epoch = 2;
@@ -762,7 +774,7 @@ mod tests {
     }
     #[test]
     fn expired_prepared_replay_is_read_only_and_cannot_submit() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         let accepted = j.accept_fields(&fields(), OP, 100).unwrap();
         assert_eq!(accepted.issued_at, 90);
@@ -782,7 +794,7 @@ mod tests {
     }
     #[test]
     fn clock_rollback_cannot_accept_or_submit_before_issue() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         assert!(matches!(
             j.accept_fields(&fields(), OP, 89),
@@ -798,7 +810,7 @@ mod tests {
     }
     #[test]
     fn confirm_after_relative_timeout_rejected_before_absolute_cap() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let mut j = ExecutorJournal::create(d.path().join("j"), ORG, TARGET, 1, &h('b')).unwrap();
         j.accept_fields(&fields(), OP, 100).unwrap();
         j.mark_submitted(OP, 150).unwrap();
@@ -824,7 +836,7 @@ mod tests {
     }
     #[test]
     fn restart_and_delayed_observation_do_not_extend_confirm_deadline() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let path = d.path().join("j");
         {
             let mut j = ExecutorJournal::create(&path, ORG, TARGET, 1, &h('b')).unwrap();
@@ -857,7 +869,7 @@ mod tests {
     }
     #[test]
     fn unknown_journal_version_is_not_assigned_fabricated_time_bounds() {
-        let d = tempfile::tempdir().unwrap();
+        let d = private_test_directory();
         let path = d.path().join("j");
         let j = ExecutorJournal::create(&path, ORG, TARGET, 1, &h('b')).unwrap();
         j.connection.execute_batch("PRAGMA user_version=0").unwrap();
