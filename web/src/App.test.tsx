@@ -63,16 +63,18 @@ test('bootstrap token stays out of storage and CSRF binds subsequent POST', asyn
   expect(last?.headers).toMatchObject({ 'X-CSRF-Token': session.csrf_token, 'Idempotency-Key': 'stable-key' });
 });
 
-test('locale selector changes security meaning with complete catalog parity', async () => {
-  mockController(); render(<App />);
+test.each(locales)('locale selector displays and remembers %s across visits', async locale => {
+  mockController(); const { unmount } = render(<App />);
   await screen.findByText('This controller is not enforcing network traffic.');
-  fireEvent.change(screen.getByLabelText('Display language'), { target: { value: 'ko' } });
-  expect(await screen.findByText('이 제어 서비스는 네트워크 트래픽을 집행하지 않습니다.')).toBeInTheDocument();
-  expect(document.documentElement.lang).toBe('ko');
-  for (const locale of locales) {
-    expect(translator(locale)('request.description')).not.toBe('request.description');
-    expect(translator(locale)('operation.accepted')).not.toBe('operation.accepted');
-  }
+  await userEvent.selectOptions(screen.getByLabelText('Display language'), locale);
+  const t = translator(locale);
+  expect(await screen.findByText(t('overview.noEnforcement'))).toBeInTheDocument();
+  expect(document.documentElement.lang).toBe(locale);
+  expect(localStorage.getItem('fw.locale')).toBe(locale);
+  unmount();
+  render(<App />);
+  expect(await screen.findByText(t('overview.noEnforcement'))).toBeInTheDocument();
+  expect(screen.getByLabelText(t('app.language'))).toHaveValue(locale);
 });
 
 test('a failed request retry retains the same idempotency key and exact payload', async () => {

@@ -30,7 +30,11 @@ fields render as escaped text, and known credential fields are redacted from the
 record dialog as defense in depth. The server must still sanitize and authorize
 all evidence responses.
 
-Six locale catalogs contain 169 keys with automated key and placeholder parity.
+English is the default on a first visit, regardless of browser language. Users
+can choose Korean, Japanese, Spanish, German, French, Simplified Chinese or
+Traditional Chinese; an explicitly selected language is remembered locally.
+An invalid or inaccessible stored preference falls back to English. Eight locale
+catalogs contain 169 keys with automated key and placeholder parity.
 Security translation review by native speakers remains incomplete. The UI does
 not yet implement the full F-2.0 plan approval, topology graph, enrollment,
 telemetry consent management or complete route set. Native enforcement and
@@ -38,8 +42,8 @@ platform qualification cannot be inferred from this client or component tests.
 
 The component suite exercises no-enforcement status, failed reads, malicious
 labels, cookie/CSRF exchange, locale selection, idempotent retries and preserved
-API denial errors. Browser integration evidence is recorded separately in the
-repository reports.
+API denial errors. Detailed browser integration output stays in ignored local
+reports or CI artifacts rather than source commits.
 
 The live browser check requires Python Playwright and Chromium. From the
 repository root, start a fresh development controller and run:
