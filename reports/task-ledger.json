@@ -34,8 +34,8 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas, and retained typed signed rollback authority for native verification. Typed immutable plan/authority-bootstrap challenge payloads use separate domain hashes and fresh random nonces; an opaque bridge verifies real WebAuthn assertions against the exact context and current supplied credential snapshot.",
-      "blocker": "Approval HTTP/UI, durable one-use authority transactions and proof retention, independent current-role/revocation checks, out-of-band credential pinning, isolated authority/signer service and production trust lifecycle remain. Cryptographic proof and local-owner login alone do not authorize policy signing."
+      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas, and retained typed signed rollback authority for native verification. Domain-separated immutable plan/bootstrap challenges bind real WebAuthn assertions. A separate SQLite AuthorityStore explicitly provisions principals, pins credentials with signed activation, records scoped roles, admits full canonical plans/requirements, persists challenges and atomically commits one-use decisions, credential updates, original proof and audit. Retained proof checks combine original cryptographic state with current key identity, revocation and role.",
+      "blocker": "Approval HTTP/UI, production out-of-band enrollment and authority bootstrap, trusted artifact/gate admission, quorum/ApprovalSet aggregation, independent authority/signer service and authenticated IPC, signer/quota reconciliation, PostgreSQL authority transactions and protected OS deployment remain. The plan-decision store does not issue grants or establish process isolation."
     },
     {
       "id": "M04L",

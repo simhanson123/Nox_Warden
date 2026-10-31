@@ -33,6 +33,20 @@ validity and use the real WebAuthn verifier. Finish returns an opaque
 It does not check role ownership, commit `HumanApproval` or consume the challenge.
 See the [approval proof guide](../../docs/policy-approval-proofs.md).
 
+`AuthorityStore` supplies the durable plan-decision transaction in a separate
+SQLite schema. Its trusted provisioning APIs record principal identities,
+pinned credentials and scoped roles. A pinned credential must complete a
+persisted signed possession ceremony before activation. Stored immutable plans
+and approval requirements use locally computed canonical hashes. Challenge
+issuance commits private state before returning options; admission rechecks
+current records and atomically verifies, consumes, updates the credential,
+retains original evidence and appends the decision and audit event. Exact retries
+return the original result. Retained proof verification uses the saved
+pre-authentication credential and admission time while separately checking
+present key identity, role and revocation. See the
+[authority store guide](../../docs/authority-store.md) for trust, transaction and
+review boundaries.
+
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
 feature. Native executor and lab consumers disable default features, keeping
 these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
@@ -50,12 +64,14 @@ come from the authority, not a client.
 
 Local-owner [WebAuthn login](../../docs/passkey-login.md) is implemented separately
 and does not authorize a plan. Remaining M03 work includes approval HTTP/UI,
-durable atomic challenge consumption and credential updates, current-role and
-revocation resolution, independently pinned credentials, durable independent
-signer jobs/trust ceremonies, signed grant/quota reconciliation, complete
-PostgreSQL authority transactions, and process/key isolation deployment. SQLite
-unit/race/reopen tests do not certify production crash recovery or privileged OS
-enforcement. The separate [signed Linux lab](../../docs/signed-linux-execution.md)
+production out-of-band enrollment and authority bootstrap, trusted plan/artifact
+admission, quorum/`ApprovalSet` aggregation, independent signer jobs/trust
+ceremonies, signed grant/quota reconciliation, complete PostgreSQL authority
+transactions, and process/key isolation deployment. The store accepts plan
+decisions only; it does not issue grants or turn its provisioning API into an
+authenticated production service. SQLite unit/race/reopen tests do not certify
+production crash recovery or privileged OS enforcement. The separate
+[signed Linux lab](../../docs/signed-linux-execution.md)
 uses clearly marked synthetic plan/approval and signing fixtures to test native
 integration. It does not supply production `AuthorityEvidence` or a human
 approval workflow, and the local controller cannot dispatch those fixture grants.

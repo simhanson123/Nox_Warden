@@ -135,6 +135,204 @@ fn registered() -> (WebAuthn, Authenticator, Credential) {
 }
 
 #[test]
+fn stable_key_fingerprint_survives_real_counter_and_backup_updates() {
+    let (verifier, key, credential) = registered();
+    let fingerprint = credential.key_fingerprint().unwrap();
+    assert_eq!(fingerprint.len(), 71);
+    assert!(fingerprint.starts_with("sha256:"));
+    let login = verifier
+        .begin_authentication(PRINCIPAL, std::slice::from_ref(&credential))
+        .unwrap();
+    let updated = verifier
+        .finish_authentication(
+            &login.state,
+            &key.assertion(&login.options, 23, 5, ORIGIN),
+            &credential,
+        )
+        .unwrap();
+    assert_ne!(
+        serde_json::to_value(&credential).unwrap(),
+        serde_json::to_value(&updated).unwrap()
+    );
+    assert_eq!(updated.key_fingerprint().unwrap(), fingerprint);
+
+    // A synchronized credential may toggle BS while keeping the same key.
+    let registration = verifier
+        .begin_registration(PRINCIPAL, "Synchronized owner", &[])
+        .unwrap();
+    let mut synchronized = verifier
+        .finish_registration(
+            &registration.state,
+            &key.registration(&registration.options, 0x4d),
+        )
+        .unwrap();
+    for flags in [0x1d, 0x0d] {
+        let login = verifier
+            .begin_authentication(PRINCIPAL, std::slice::from_ref(&synchronized))
+            .unwrap();
+        let updated = verifier
+            .finish_authentication(
+                &login.state,
+                &key.assertion(&login.options, 0, flags, ORIGIN),
+                &synchronized,
+            )
+            .unwrap();
+        assert_ne!(
+            serde_json::to_value(&synchronized).unwrap(),
+            serde_json::to_value(&updated).unwrap()
+        );
+        assert_eq!(updated.key_fingerprint().unwrap(), fingerprint);
+        synchronized = updated;
+    }
+    let restored: Credential =
+        serde_json::from_slice(&serde_json::to_vec(&synchronized).unwrap()).unwrap();
+    assert_eq!(restored.key_fingerprint().unwrap(), fingerprint);
+}
+
+#[test]
+fn stable_key_fingerprint_binds_key_algorithm_credential_and_principal() {
+    let (_, _, credential) = registered();
+    let fingerprint = credential.key_fingerprint().unwrap();
+    let (_, _, replacement) = registered();
+    let original = serde_json::to_value(&credential).unwrap();
+    let mut changed_key = original.clone();
+    changed_key["passkey"]["cred"]["cred"] =
+        serde_json::to_value(&replacement).unwrap()["passkey"]["cred"]["cred"].clone();
+    let mut changed_id = original.clone();
+    changed_id["passkey"]["cred"]["cred_id"] = json!(URL_SAFE_NO_PAD.encode([0x42; 16]));
+    let mut changed_principal = original;
+    changed_principal["principal_id"] = json!("22222222-2222-4222-8222-222222222222");
+    for value in [changed_key, changed_id, changed_principal] {
+        let substituted: Credential = serde_json::from_value(value).unwrap();
+        assert_ne!(substituted.key_fingerprint().unwrap(), fingerprint);
+    }
+}
+
+#[test]
+fn stable_key_fingerprint_rejects_invalid_identity_and_public_key() {
+    let (_, _, credential) = registered();
+    let original = serde_json::to_value(&credential).unwrap();
+    for (field, value) in [
+        ("schema_version", "other-schema/v1"),
+        ("rp_id", "attacker.example"),
+        ("principal_id", "not-a-uuid"),
+        ("principal_id", "00000000-0000-0000-0000-000000000000"),
+    ] {
+        let mut invalid = original.clone();
+        invalid[field] = json!(value);
+        let invalid: Credential = serde_json::from_value(invalid).unwrap();
+        assert!(matches!(invalid.key_fingerprint(), Err(Error::Input)));
+    }
+    for algorithm in ["RS256", "ES384", "INSECURE_RS1", "PinUvProtocol"] {
+        let mut invalid = original.clone();
+        invalid["passkey"]["cred"]["cred"]["type_"] = json!(algorithm);
+        let invalid: Credential = serde_json::from_value(invalid).unwrap();
+        assert!(matches!(invalid.key_fingerprint(), Err(Error::Input)));
+    }
+    let mut invalid = original;
+    for coordinate in ["x", "y"] {
+        invalid["passkey"]["cred"]["cred"]["key"]["EC_EC2"][coordinate] =
+            json!(URL_SAFE_NO_PAD.encode([0; 32]));
+    }
+    let invalid: Credential = serde_json::from_value(invalid).unwrap();
+    assert!(matches!(invalid.key_fingerprint(), Err(Error::Input)));
+}
+
+#[test]
+fn stable_key_fingerprint_canonicalizes_equivalent_public_key_encodings() {
+    let (_, key, credential) = registered();
+    let mut padded = serde_json::to_value(&credential).unwrap();
+    for (coordinate, bytes) in [("x", &key.public[1..33]), ("y", &key.public[33..65])] {
+        let mut with_leading_zero = vec![0];
+        with_leading_zero.extend_from_slice(bytes);
+        padded["passkey"]["cred"]["cred"]["key"]["EC_EC2"][coordinate] =
+            json!(URL_SAFE_NO_PAD.encode(with_leading_zero));
+    }
+    let padded: Credential = serde_json::from_value(padded).unwrap();
+    assert_ne!(
+        serde_json::to_value(&credential).unwrap(),
+        serde_json::to_value(&padded).unwrap()
+    );
+    assert_eq!(
+        padded.key_fingerprint().unwrap(),
+        credential.key_fingerprint().unwrap()
+    );
+}
+
+#[test]
+fn stable_key_fingerprint_admits_rsa_only_with_its_supported_algorithm() {
+    let (_, _, credential) = registered();
+    let key = openssl::rsa::Rsa::generate(2048).unwrap();
+    let mut value = serde_json::to_value(&credential).unwrap();
+    value["passkey"]["cred"]["cred"] = json!({
+        "type_": "RS256",
+        "key": { "RSA": { "n": URL_SAFE_NO_PAD.encode(key.n().to_vec()), "e": [1, 0, 1] } }
+    });
+    let rsa: Credential = serde_json::from_value(value.clone()).unwrap();
+    assert_ne!(
+        rsa.key_fingerprint().unwrap(),
+        credential.key_fingerprint().unwrap()
+    );
+    value["passkey"]["cred"]["cred"]["type_"] = json!("ES256");
+    let mislabeled: Credential = serde_json::from_value(value).unwrap();
+    assert!(matches!(mislabeled.key_fingerprint(), Err(Error::Input)));
+}
+
+#[test]
+fn stable_key_fingerprint_rejects_imported_weak_rsa_keys() {
+    let (_, _, credential) = registered();
+    for bits in [512, 1024] {
+        let key = openssl::rsa::Rsa::generate(bits).unwrap();
+        for modulus in [key.n().to_vec(), key.n().to_vec_padded(256).unwrap()] {
+            let mut value = serde_json::to_value(&credential).unwrap();
+            value["passkey"]["cred"]["cred"] = json!({
+                "type_": "RS256",
+                "key": { "RSA": { "n": URL_SAFE_NO_PAD.encode(modulus), "e": [1, 0, 1] } }
+            });
+            let weak: Credential = serde_json::from_value(value).unwrap();
+            assert!(matches!(weak.key_fingerprint(), Err(Error::Input)));
+        }
+    }
+}
+
+#[test]
+fn stable_key_fingerprint_rejects_imported_rsa_with_invalid_exponent() {
+    let (_, _, credential) = registered();
+    let key = openssl::rsa::Rsa::generate(2048).unwrap();
+    for exponent in [[0, 0, 1], [0, 0, 2], [0, 0, 0]] {
+        let mut value = serde_json::to_value(&credential).unwrap();
+        value["passkey"]["cred"]["cred"] = json!({
+            "type_": "RS256",
+            "key": { "RSA": { "n": URL_SAFE_NO_PAD.encode(key.n().to_vec()), "e": exponent } }
+        });
+        let invalid: Credential = serde_json::from_value(value).unwrap();
+        assert!(matches!(invalid.key_fingerprint(), Err(Error::Input)));
+    }
+}
+
+#[test]
+fn stable_key_fingerprint_rejects_imported_es256_with_wrong_curve() {
+    let (_, _, credential) = registered();
+    let group = EcGroup::from_curve_name(Nid::SECP384R1).unwrap();
+    let key = EcKey::generate(&group).unwrap();
+    let public = key
+        .public_key()
+        .to_bytes(
+            &group,
+            PointConversionForm::UNCOMPRESSED,
+            &mut BigNumContext::new().unwrap(),
+        )
+        .unwrap();
+    let mut value = serde_json::to_value(&credential).unwrap();
+    value["passkey"]["cred"]["cred"] = json!({
+        "type_": "ES256",
+        "key": { "EC_EC2": { "curve": "SECP384R1", "x": URL_SAFE_NO_PAD.encode(&public[1..49]), "y": URL_SAFE_NO_PAD.encode(&public[49..97]) } }
+    });
+    let wrong_curve: Credential = serde_json::from_value(value).unwrap();
+    assert!(matches!(wrong_curve.key_fingerprint(), Err(Error::Input)));
+}
+
+#[test]
 fn real_registration_and_assertion_survive_private_state_serialization() {
     let verifier = WebAuthn::new(ORIGIN).unwrap();
     let key = Authenticator::new();

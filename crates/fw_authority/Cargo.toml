@@ -6,11 +6,12 @@ license = "Apache-2.0"
 
 [features]
 default = ["approval-proofs"]
-approval-proofs = ["dep:fw_webauthn", "dep:openssl", "dep:sha2"]
+approval-proofs = ["dep:fw_webauthn", "dep:fw_domain", "dep:openssl", "dep:sha2"]
 
 [dependencies]
 fw_contracts = { path = "../fw_contracts" }
 fw_webauthn = { path = "../fw_webauthn", optional = true }
+fw_domain = { path = "../fw_domain", optional = true }
 sha2 = { workspace = true, optional = true }
 openssl = { version = "=0.10.81", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -24,3 +25,4 @@ rusqlite = { workspace = true }
 
 [dev-dependencies]
 serde_cbor_2 = "=0.13.0"
+tempfile = "3.23"

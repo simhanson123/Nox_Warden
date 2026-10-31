@@ -30,7 +30,7 @@ python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **331 Rust tests, 43 UI tests, 27 specification
+The full repository check passes: **387 Rust tests, 43 UI tests, 27 specification
 checks, 52 core and 28 extended contract fixtures, and nine Linux runner
 regressions**. Formatting, Clippy, frontend types, the production build and parity
 across eight locale catalogues with 214 keys also pass.
@@ -84,12 +84,27 @@ challenge tests and twelve authority-bridge tests. They cover domain-separated
 plan/bootstrap challenges and real signature verification against their
 immutable context. Their software authenticator responses are
 cryptographic test inputs, not evidence of a human approval decision. The
-controller exposes no approval service, and the tests do not establish durable
-one-use authority storage or independent role and credential trust.
+controller exposes no approval service. These bridge tests alone do not establish
+durable one-use consumption or independent role and credential trust.
 The [vendored-source check](../vendor/README.md) verifies the recorded source and
 license inventory; its archive mode also checks the original registry checksums
 and reconstructs the complete local patch. RustSec advisory scanning does not
 review those source changes.
+
+The [durable authority store](../docs/authority-store.md) adds **56 passing Rust
+tests** within the total: eight key-fingerprint/import-policy tests, eight full
+plan/requirements admission tests, six provisioning tests and 34 transaction
+tests. They exercise real P-256 signatures, zero-counter replay protection,
+simultaneous connections, restart, exact retries, current revocation, retained
+proofs after counter advancement, immutable SQL transitions, bounded failures,
+six injected decision-write failures and activation audit rollback. Concurrent
+first-open coverage uses sixteen fresh databases. Imported weak RSA and
+mislabeled-curve tests were observed failing before the validation fix.
+The emitted HumanApproval and both complete plan fixtures also validate against
+the preserved original schemas. An additional **23 tests** pass with
+`fw_authority --no-default-features`; native executor/lab dependency trees exclude
+WebAuthn and OpenSSL. These are transaction and cryptographic checks, not
+process-kill/power-loss, protected IPC, human-consent or installed-host qualification.
 
 Live Chromium checks cover English-first startup and saved locale selection,
 asset revisions, deep links and service prerequisites. The enrollment browser
@@ -108,8 +123,9 @@ artifacts, rather than a continuing development diary.
 ## Release boundary
 
 The controller remains **observe-only**. Local-owner passkey login identifies the
-operator; the plan-bound proof library does not complete the human approval
-workflow, durable authority transaction or independent signer integration.
+operator. Durable plan-decision admission now exists as an authority library;
+the human approval interface, quorum aggregation and independent signer
+integration remain incomplete.
 Transport registration and measured
 capability metadata now support real target/service inventory; they do not
 bootstrap policy authority, attest workloads or activate access requests.
