@@ -61,7 +61,17 @@ pub(super) fn credential(
     let fingerprint = stored
         .key_fingerprint()
         .map_err(|_| invalid("authority credential key"))?;
-    if stored.id() != id || stored.principal_id() != row.0 || hash(&fingerprint)? != row.1 {
+    let public_key: Vec<u8> = tx.query_row("SELECT public_key_hash FROM authority_public_key_registry WHERE org_id=? AND project_id=? AND credential_id=?",
+        params![tenant.org_id,tenant.project_id,id],|r|r.get(0)).optional()?.ok_or(invalid("authority public key registry"))?;
+    if stored.id() != id
+        || stored.principal_id() != row.0
+        || hash(&fingerprint)? != row.1
+        || hash(
+            &stored
+                .public_key_fingerprint()
+                .map_err(|_| invalid("authority public key"))?,
+        )? != public_key
+    {
         return Err(invalid("authority credential projection"));
     }
     Ok(CredentialRecord {

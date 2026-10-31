@@ -16,6 +16,69 @@ const OTHER: &str = "22222222-2222-4222-8222-222222222222";
 const ISSUER: &str = "https://identity.example.test";
 const NOW: i64 = 1_700_000_000;
 
+#[test]
+fn public_key_tombstone_blocks_credential_renaming_and_principal_aliases() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let mut p = Pending::new();
+    let activation = p
+        .store
+        .begin_credential_activation(&p.tenant, &p.credential.id(), &p.verifier, NOW)
+        .unwrap();
+    p.store
+        .finish_credential_activation(
+            &p.tenant,
+            &activation.activation_id,
+            &p.key.assertion(&activation.options, 1, 5, ORIGIN),
+            &p.verifier,
+            NOW + 1,
+        )
+        .unwrap();
+    p.store
+        .provision_principal(&p.tenant, OTHER, ISSUER, "bob", NOW + 1)
+        .unwrap();
+    for revoked in [false, true] {
+        if revoked {
+            p.store
+                .revoke_credential(&p.tenant, &p.credential.id(), NOW + 2)
+                .unwrap();
+        }
+        for principal in [PRINCIPAL, OTHER] {
+            let mut value = serde_json::to_value(&p.credential).unwrap();
+            value["principal_id"] = serde_json::json!(principal);
+            value["passkey"]["cred"]["cred_id"] =
+                serde_json::json!(URL_SAFE_NO_PAD.encode([0x42; 32]));
+            let renamed: Credential = serde_json::from_value(value).unwrap();
+            let audit_before = p.count("SELECT count(*) FROM authority_audit");
+            assert!(
+                p.store
+                    .pin_credential(&p.tenant, &renamed, NOW, NOW + 7200, NOW + 3)
+                    .is_err()
+            );
+            assert_eq!(p.count("SELECT count(*) FROM authority_credentials"), 1);
+            assert_eq!(
+                p.count("SELECT count(*) FROM authority_public_key_registry"),
+                1
+            );
+            assert_eq!(
+                p.count("SELECT count(*) FROM authority_audit"),
+                audit_before
+            );
+        }
+    }
+    let db = Connection::open(&p.path).unwrap();
+    assert!(
+        db.execute("DELETE FROM authority_public_key_registry", [])
+            .is_err()
+    );
+    assert!(
+        db.execute(
+            "UPDATE authority_public_key_registry SET public_key_hash=zeroblob(32)",
+            []
+        )
+        .is_err()
+    );
+}
+
 struct Pending {
     _directory: tempfile::TempDir,
     path: std::path::PathBuf,

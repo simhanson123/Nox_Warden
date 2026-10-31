@@ -52,6 +52,27 @@ impl Credential {
     /// Counters, backup state and transport hints are intentionally excluded.
     /// This is an identity comparison, not proof of activation or authorization.
     pub fn key_fingerprint(&self) -> Result<String> {
+        let der = self.validated_public_key_der()?;
+        let binding = serde_json::json!({
+            "principal_id": self.principal_id,
+            "rp_id": self.rp_id,
+            "credential_id": self.id(),
+            "algorithm": self.passkey.cred_algorithm(),
+            "spki_der": URL_SAFE_NO_PAD.encode(der),
+        });
+        let mut bytes = b"fw.webauthn-key-binding.v1\0".to_vec();
+        bytes.extend(fw_contracts::canonical_bytes(&binding).map_err(|_| Error::Input)?);
+        Ok(fw_contracts::hash_bytes(&bytes))
+    }
+    /// Canonical public-key identity, independent of credential/principal IDs.
+    /// An authority can retain this digest after revocation to reject a renamed
+    /// re-enrollment of the same key. It does not prove possession or consent.
+    pub fn public_key_fingerprint(&self) -> Result<String> {
+        let mut bytes = b"fw.webauthn-public-key.v1\0".to_vec();
+        bytes.extend(self.validated_public_key_der()?);
+        Ok(fw_contracts::hash_bytes(&bytes))
+    }
+    fn validated_public_key_der(&self) -> Result<Vec<u8>> {
         use webauthn_rs::prelude::{COSEAlgorithm, COSEKeyType, ECDSACurve};
 
         principal_uuid(&self.principal_id)?;
@@ -91,16 +112,7 @@ impl Credential {
         if der.len() > 8192 {
             return Err(Error::Input);
         }
-        let binding = serde_json::json!({
-            "principal_id": self.principal_id,
-            "rp_id": self.rp_id,
-            "credential_id": self.id(),
-            "algorithm": self.passkey.cred_algorithm(),
-            "spki_der": URL_SAFE_NO_PAD.encode(der),
-        });
-        let mut bytes = b"fw.webauthn-key-binding.v1\0".to_vec();
-        bytes.extend(fw_contracts::canonical_bytes(&binding).map_err(|_| Error::Input)?);
-        Ok(fw_contracts::hash_bytes(&bytes))
+        Ok(der)
     }
     fn validate(&self, principal: &str) -> Result<()> {
         if self.schema_version != "fw.local-passkey/v1"

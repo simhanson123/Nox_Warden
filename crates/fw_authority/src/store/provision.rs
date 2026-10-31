@@ -91,6 +91,11 @@ impl AuthorityStore {
         let fingerprint = credential
             .key_fingerprint()
             .map_err(|_| invalid("authority credential key"))?;
+        let public_key_hash = hash(
+            &credential
+                .public_key_fingerprint()
+                .map_err(|_| invalid("authority public key"))?,
+        )?;
         let canonical = bytes(credential)?;
         if canonical.len() > 65536 {
             return Err(invalid("authority credential size"));
@@ -119,6 +124,7 @@ impl AuthorityStore {
              VALUES(?,?,?,?,?,?,1,'pending',?,?,?)",
             params![tenant.org_id,tenant.project_id,id,credential.principal_id(),hash(&fingerprint)?,canonical,not_before,not_after,now]
         )?;
+        migrations::insert_public_key(&tx, tenant, &id, &public_key_hash)?;
         bump_security(&tx, tenant)?;
         audit(&tx, tenant, "credential_pinned", &id, now)?;
         tx.commit()?;

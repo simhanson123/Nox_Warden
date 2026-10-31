@@ -209,6 +209,43 @@ fn stable_key_fingerprint_binds_key_algorithm_credential_and_principal() {
 }
 
 #[test]
+fn public_key_fingerprint_preserves_key_identity_across_credential_renaming() {
+    let (_, key, credential) = registered();
+    let digest = credential.public_key_fingerprint().unwrap();
+    let binding = credential.key_fingerprint().unwrap();
+    let mut renamed = serde_json::to_value(&credential).unwrap();
+    renamed["principal_id"] = json!("22222222-2222-4222-8222-222222222222");
+    renamed["passkey"]["cred"]["cred_id"] = json!(URL_SAFE_NO_PAD.encode([0x42; 32]));
+    let renamed: Credential = serde_json::from_value(renamed).unwrap();
+    assert_eq!(renamed.public_key_fingerprint().unwrap(), digest);
+    assert_ne!(renamed.key_fingerprint().unwrap(), binding);
+    let (_, _, other) = registered();
+    assert_ne!(other.public_key_fingerprint().unwrap(), digest);
+    let mut independent = b"fw.webauthn-public-key.v1\0".to_vec();
+    independent.extend(key.key.public_key_to_der().unwrap());
+    assert_eq!(fw_contracts::hash_bytes(&independent), digest);
+}
+
+#[test]
+fn public_key_fingerprint_canonicalizes_encoding_and_reuses_strict_key_validation() {
+    let (_, key, credential) = registered();
+    let digest = credential.public_key_fingerprint().unwrap();
+    let mut padded = serde_json::to_value(&credential).unwrap();
+    for (coordinate, bytes) in [("x", &key.public[1..33]), ("y", &key.public[33..65])] {
+        let mut value = vec![0];
+        value.extend_from_slice(bytes);
+        padded["passkey"]["cred"]["cred"]["key"]["EC_EC2"][coordinate] =
+            json!(URL_SAFE_NO_PAD.encode(value));
+    }
+    let padded: Credential = serde_json::from_value(padded).unwrap();
+    assert_eq!(padded.public_key_fingerprint().unwrap(), digest);
+    let mut invalid = serde_json::to_value(&credential).unwrap();
+    invalid["passkey"]["cred"]["cred"]["type_"] = json!("RS256");
+    let invalid: Credential = serde_json::from_value(invalid).unwrap();
+    assert!(invalid.public_key_fingerprint().is_err());
+}
+
+#[test]
 fn stable_key_fingerprint_rejects_invalid_identity_and_public_key() {
     let (_, _, credential) = registered();
     let original = serde_json::to_value(&credential).unwrap();

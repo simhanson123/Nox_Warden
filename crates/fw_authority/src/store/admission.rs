@@ -117,6 +117,8 @@ impl AuthorityStore {
             // No timestamp, state, counter or audit record is renewed here.
             tx.commit()?;
             return Ok(DecisionResult {
+                decision: serde_json::from_value(previous.approval["decision"].clone())
+                    .map_err(|_| invalid("stored decision kind"))?,
                 approval: previous.approval,
                 replayed: true,
             });
@@ -234,6 +236,7 @@ impl AuthorityStore {
         audit(&tx, tenant, "approval_decision_recorded", &approval_id, now)?;
         tx.commit()?;
         Ok(DecisionResult {
+            decision: challenge.challenge.decision(),
             approval,
             replayed: false,
         })
@@ -377,6 +380,7 @@ impl AuthorityStore {
         }
         tx.commit()?;
         Ok(RetainedDecision {
+            decision: challenge.challenge.decision(),
             approval: decision.approval,
         })
     }
