@@ -32,12 +32,16 @@ fn main() {
     );
     let directory = Path::new(&args[1]);
     assert!(!directory.exists(), "fixture requires a new directory");
-    fs::create_dir(directory).unwrap();
+    let mut directory_builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        use std::os::unix::fs::DirBuilderExt;
+        directory_builder.mode(0o700);
     }
+    directory_builder
+        .recursive(false)
+        .create(directory)
+        .unwrap();
     let directory = directory.canonicalize().unwrap();
     let ui = Path::new(&args[2]).canonicalize().unwrap();
     let origin = "http://localhost:8790";

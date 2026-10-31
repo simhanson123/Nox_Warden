@@ -104,6 +104,19 @@ also cover those routes. It never writes a host firewall. This automated
 protocol check is not physical-key compatibility, human consent, protected
 operating-system deployment or native network enforcement qualification.
 
+The same CI check validates actual HTTP response objects against the unchanged
+definitions in both `F_OpenAPI.json` and `F_확장계약_스키마.json`: the reviewed
+`PolicyChangePlan`, its `ApprovalRequirements`, signed approve and reject
+`HumanApproval` responses, and the current human `ApprovalSet` containing the
+admitted approval. Copies of these responses must fail validation after adding
+unknown fields, corrupting an approval UUID or calendar date, or substituting a
+rejected member into the approval set. The check uses the pinned Python
+dependencies in `scripts/requirements.txt` and explicitly validates the
+contracts' UTC whole-second calendar timestamps. This covers the embedded
+objects, not the private HTTP response wrappers, access-lease plan output or
+delegation sets. Schema validity does not establish signature validity or safe
+policy semantics; those remain separate service and store checks.
+
 English, Korean, Japanese, Spanish, German, French, Simplified Chinese and
 Traditional Chinese have independent authority catalogues with automated key
 and placeholder parity. Human language and assistive-technology review remain

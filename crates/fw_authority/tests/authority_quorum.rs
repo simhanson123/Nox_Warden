@@ -3,6 +3,8 @@
 //! authenticators verify mechanics; trusted human enrollment is fixture input.
 #[path = "support/approval_authenticator.rs"]
 mod approval_authenticator;
+#[path = "support/private_directory.rs"]
+mod private_directory;
 use approval_authenticator::{Authenticator, ORIGIN, PRINCIPAL};
 #[path = "support/authority_legacy.rs"]
 mod authority_legacy;
@@ -119,7 +121,7 @@ struct Fixture {
 }
 impl Fixture {
     fn new(profile: &str, roles: &[ApprovalRole], basis: bool) -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_directory::private_directory();
         let path = directory.path().join("authority.sqlite3");
         let store = AuthorityStore::open(&path).unwrap();
         let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();

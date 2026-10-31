@@ -37,7 +37,7 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **488 workspace Rust tests, 23 authority
+The integrated repository check passes **498 workspace Rust tests, 23 authority
 tests without default features, and 89 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions and
@@ -54,11 +54,18 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | Audit HTTP/MCP/browser | 21 | Bounded denial evidence and stable snapshot pagination |
 | Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
 | TLS enrollment/browser | 25 | Ed25519 certificates, mTLS, reports, service creation and revocation; CI nonbrowser subset has 23 |
-| Independent authority browser | 24 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
+| Independent authority browser | 31 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
 | Isolated Linux compiler/readback | 66 | Includes 40 actual IPv4/IPv6 TCP/UDP packet probes |
 | Signed Linux execution | 98 | Includes 43 actual packet probes, expiry and interrupted submission/recovery |
 
 ## Security and persistence coverage
+
+Authority test directories and private fixture files receive `0700`/`0600` at
+creation. This preserves production rejection of unsafe paths while making the
+fixtures independent of permissive umasks and inherited default ACLs. The
+focused authority/service fixture suite passed under `0002`, `0022` and an actual
+inherited default ACL; CI separately reruns it under `0002`. Deliberately unsafe
+permission, symlink and hardlink rejection cases remain active.
 
 Controller bootstrap reads require a separate in-memory session proof; a cookie
 alone cannot disclose that proof or register the owner. CLI browser views withhold
@@ -83,6 +90,15 @@ real P-256 signatures, restart, exact retries, aliases, current revocation,
 retained proofs after counter advancement and atomic rollback. A separate
 first-open stress run passed 1,600 fresh-database races after bounded WAL retries.
 
+Authority audit checks include rollback of a genuine zero-counter activation
+when audit time moves backward, plus restart, independent tenants, exact retries,
+missing heads, gaps, broken links, tampered projections/hashes, oversized storage
+and legacy backward history. New appends verify the indexed tail and reject time
+regression within the mutation transaction. The read-only verifier streams one
+consistent tenant snapshot without rewriting old history. It has no external
+checkpoint and cannot detect a coherently replaced entire database. These checks
+are SQL/API failure and corruption tests, not power-loss qualification.
+
 Independent quorum tests cover Lab/Team/high-risk roles, canonical distinct
 humans, author exclusion, non-greedy role matching, terminal dissent, expiry,
 withdrawal, role/key/basis changes, concurrent last reviewers and injected write
@@ -105,7 +121,11 @@ role and a fresh decision-bound assertion. Uncertain requests allow exact retry;
 401 clears pending browser authority and requires explicit sign-in. The real
 browser suite covers approval, later fresh signed rejection by the same reviewer,
 terminal dissent after restart, stale independent epoch, missing evidence,
-keyboard navigation and cleanup. Expired approvals permit fresh review when the
+keyboard navigation and cleanup. Actual HTTP plan, requirements, approve/reject
+decision and current human approval-set objects also validate against both
+preserved schema documents. Mutated copies must reject unknown fields, invalid
+UUID/calendar dates and a rejection member inside an approval set. This does not
+cover access-lease plans or delegated sets. Expired approvals permit fresh review when the
 current store returns Pending. Set identity, hashes, bindings and deadlines must
 match the current detail response before the UI displays verified quorum.
 

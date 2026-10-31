@@ -2,6 +2,8 @@
 mod authenticator;
 #[path = "support/plans.rs"]
 mod plans;
+#[path = "../../fw_authority/tests/support/private_directory.rs"]
+mod private_directory;
 use authenticator::{Authenticator, ORIGIN, PRINCIPAL};
 use fw_authority::{ApprovalRole, AuthorityStore, AuthorityTenant};
 use fw_authority_service::{LocalProfile, Service, ServiceConfig};
@@ -16,6 +18,18 @@ const PLAN: &str = "44444444-4444-4444-8444-444444444444";
 const OTHER: &str = "99999999-9999-4999-8999-999999999999";
 const IDEMPOTENCY: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const IDEMPOTENCY_2: &str = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+fn write_new_private_fixture(path: &std::path::Path, bytes: &[u8]) {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path).unwrap().write_all(bytes).unwrap();
+}
 
 fn time(at: i64) -> String {
     chrono::DateTime::from_timestamp(at, 0)
@@ -103,7 +117,7 @@ impl Fixture {
         Self::configured(false)
     }
     fn configured(evidence: bool) -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_directory::private_directory();
         let db = directory.path().join("authority.sqlite3");
         let mut store = AuthorityStore::open(&db).unwrap();
         let verifier = WebAuthn::new(ORIGIN).unwrap();
@@ -142,12 +156,7 @@ impl Fixture {
             .unwrap();
         let (admitted_plan, admitted_requirements, bundle) = plans::complete_plan(NOW);
         let bundle_path = directory.path().join("review.json");
-        std::fs::write(&bundle_path, serde_json::to_vec(&bundle).unwrap()).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&bundle_path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
+        write_new_private_fixture(&bundle_path, &serde_json::to_vec(&bundle).unwrap());
         if evidence {
             store
                 .register_plan(&tenant, &admitted_plan, &admitted_requirements, NOW)
@@ -158,12 +167,17 @@ impl Fixture {
                 .unwrap();
         }
         let ui = directory.path().join("ui");
-        std::fs::create_dir(&ui).unwrap();
-        std::fs::write(
-            ui.join("index.html"),
-            "<!doctype html><title>Authority review</title>",
-        )
-        .unwrap();
+        let mut directory_builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            directory_builder.mode(0o700);
+        }
+        directory_builder.recursive(false).create(&ui).unwrap();
+        write_new_private_fixture(
+            &ui.join("index.html"),
+            b"<!doctype html><title>Authority review</title>",
+        );
         let config = ServiceConfig {
             origin: ORIGIN.into(),
             controller_origin: "http://localhost:8799".into(),
@@ -1424,12 +1438,7 @@ async fn oversized_trusted_review_is_not_truncated_or_approved() {
     let bytes = serde_json::to_vec(&evidence).unwrap();
     assert!(bytes.len() > 256 * 1024);
     let path = f._directory.path().join("large-review.json");
-    std::fs::write(&path, bytes).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
+    write_new_private_fixture(&path, &bytes);
     f.config.review_evidence.insert(new_id.into(), path);
     let mut store = AuthorityStore::open(&f.db).unwrap();
     store

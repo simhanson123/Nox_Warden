@@ -171,6 +171,38 @@ check present validity, revocation and role membership. A `reject` remains a
 reject and cannot satisfy an approval quorum. The original typed `aggregation`
 receipt is returned unchanged, even if the current set is no longer valid.
 
+## Audit chronology and verification
+
+Every new audit append checks the indexed latest event against the tenant's
+stored head, canonical bytes and column projections. Its timestamp must be at
+least the previous event's timestamp; equal timestamps are permitted. A backward
+timestamp returns `AuthorityError::Time` and rolls back the enclosing mutation,
+including credential/activation changes, security revisions and audit state.
+Exact retries that return existing results do not append or advance audit time.
+
+`AuthorityStore::verify_audit_chain(&mut self, &AuthorityTenant)` returns
+`Result<Option<AuthorityAuditVerification>>`. The summary contains `event_count`,
+`head_hash` and optional `last_recorded_at`. `None` means the tenant has no project,
+head or events. A known empty project requires the zero-sequence, zero-hash
+genesis head; a missing head, orphan event or nonempty missing history is an
+error. The caller must authenticate the tenant before invoking this local API.
+
+Verification streams bounded rows in one consistent read transaction, checking
+exact canonical event bytes, all stored projections, tenant identity, hashes,
+contiguous unsigned sequences, previous links, nondecreasing timestamps and the
+final head. It retains constant-size chain state rather than collecting history;
+oversized values are rejected before copying them into Rust-owned buffers.
+The full scan is explicit, not part of every write. Appends use the indexed tail
+and do not certify older events. Legacy backward timestamps therefore remain
+verification errors even after a later append; history is never rewritten or
+silently repaired by this verifier. No schema migration is needed.
+
+This summary verifies a local snapshot, not an external trust anchor. A writer
+able to replace the entire database and recompute every chain value can produce
+another internally consistent history. External checkpoints, trusted time and
+protected OS deployment are separate requirements; this API does not fabricate
+those guarantees or create signing authority.
+
 ## Independent reviewer aggregation
 
 `provision_authority_basis` pins an authority-owned current epoch, role-policy

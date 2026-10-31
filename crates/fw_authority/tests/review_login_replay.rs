@@ -5,6 +5,8 @@
 #[allow(dead_code)]
 #[path = "support/approval_authenticator.rs"]
 mod authenticator;
+#[path = "support/private_directory.rs"]
+mod private_directory;
 
 use authenticator::{Authenticator, ORIGIN, PRINCIPAL};
 use fw_authority::{ApprovalRole, AuthorityStore, AuthorityTenant, ReviewLogin};
@@ -30,7 +32,7 @@ struct Fixture {
 
 impl Fixture {
     fn new(active: bool) -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_directory::private_directory();
         let path = directory.path().join("authority.sqlite3");
         let mut store = AuthorityStore::open(&path).unwrap();
         let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
