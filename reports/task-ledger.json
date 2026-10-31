@@ -83,7 +83,7 @@
       "dependencies": [
         "M05"
       ],
-      "implemented": "React UI with English default and eight locales (en, ko, ja, es, de, fr, zh-Hans, zh-Hant). Request/audit/targets/policies, immutable asset revisions and service catalogue selectors. Real browser checks cover a registered target and persisted service creation. Native browser passkey enrollment/sign-in, pending/verified/revoked credential management, logout and explicit CLI authorization with eight-locale support.",
+      "implemented": "React UI with English default and eight locales (en, ko, ja, es, de, fr, zh-Hans, zh-Hant). Request/audit/targets/policies, immutable asset revisions and service catalogue selectors. Real browser checks cover a registered target and persisted service creation. Native browser passkey enrollment/sign-in, pending/verified/revoked credential management, logout and explicit CLI authorization with eight-locale support. Catalogue navigation uses server snapshot cursors with previous/next and 25/50/100 rows, cursor reset on refresh/retry/mutation, complete eligible pickers that preserve and revalidate selections, actual target backend/observation labels and same-section form navigation.",
       "blocker": "Approval/evidence/topology and enrollment-management screens, full keyboard/accessibility/translation acceptance remain."
     },
     {

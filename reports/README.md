@@ -176,3 +176,24 @@ signer/watchdog integration, signed installers and release acceptance remain
 incomplete. See the [implementation overview](../docs/implementation.md),
 [device workflow](../docs/device-enrollment.md) and
 [platform status](../docs/platform-support.md).
+
+## Catalogue browser navigation
+
+The controller UI follows server snapshot cursors with true previous/next and
+25/50/100-row selection. Refresh, retry and mutations discard old cursors.
+Eligible pickers traverse all reported pages, including empty pages, preserve
+selections and offer explicit choice refresh; unloaded or ineligible selections
+block submission. Target tables use actual backend and observation fields.
+See the [navigation guide](../docs/catalogue-navigation.md) for the behavior,
+backend boundary and reproducible browser command.
+
+Verification for this UI slice: `cd web && npm test -- --run --maxWorkers=2
+--testTimeout=30000` passes **54 tests**, including 11 new navigation/picker
+behavior checks. `npm run check` and `npm run build` pass; all eight locale
+catalogues have 229 keys with matching placeholders. The real-controller
+Chromium command in the guide passes **11 checks** with 65 seeded manual assets,
+including all three pages, previous-page identity, 50-row selection, refresh,
+post-save cursor reset, picker continuation and explicit picker refresh. Unit
+network/browser doubles are distinct from this actual HTTP/browser integration;
+neither qualifies native firewall enforcement. The generated report stays local
+at `reports/catalogue-browser.json`.
