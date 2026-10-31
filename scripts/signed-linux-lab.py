@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', type=Path, default=ROOT / 'reports/signed-linux-lab.json')
     parser.add_argument('--skip-image-build', action='store_true')
-    parser.add_argument('--scenario', choices=('all', 'crash', 'recovery-write-crash'), default='all',
+    parser.add_argument('--scenario', choices=('all', 'crash', 'recovery-write-crash', 'unsubmitted', 'orphan-writer', 'recovery-prepare-crash', 'recovery-claim-crash', 'recovery-submit-crash'), default='all',
                         help='Run a named crash regression; CI runs the complete default suite.')
     args = parser.parse_args()
     environment = os.environ.copy()
@@ -96,8 +96,11 @@ def main():
                          'DISPOSABLE_NETWORK_NAMESPACE'], 'namespace marker',
                 input_bytes=b'nox-linux-loopback-lab-v1\n')
         runner_started = True
+        # The complete suite now waits through several independent signed
+        # confirmation/expiry windows and orphan-writer lock contention. This is
+        # only the outer test budget; native and signed deadlines are unchanged.
         completed = subprocess.run(docker + ['exec', container, 'python3', '/lab/signed_lifecycle.py', '--scenario', args.scenario],
-                                   cwd=ROOT, env=environment, capture_output=True, text=True, timeout=240)
+                                   cwd=ROOT, env=environment, capture_output=True, text=True, timeout=300)
         result = json.loads(completed.stdout)
         code = completed.returncode
         if result.get('status') not in ('PASS', 'FAIL') or code not in (0, 1) or (code == 0) != (result['status'] == 'PASS'):

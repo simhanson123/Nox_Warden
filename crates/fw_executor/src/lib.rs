@@ -6,6 +6,7 @@
 mod material;
 #[cfg(test)]
 mod material_tests;
+mod recovery;
 mod secure_path;
 #[cfg(test)]
 fn private_test_directory() -> tempfile::TempDir {
@@ -25,6 +26,7 @@ use fs2::FileExt;
 use fw_authority::{pae, DsseEnvelope, TrustKey, VerifiedGrant};
 use fw_contracts::{canonical_bytes, parse_strict};
 pub use material::{ExecutionMaterial, JournalIdentity};
+pub use recovery::RecoveryAttempt;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::Path};
@@ -155,6 +157,30 @@ fn uuid(value: &str) -> bool {
     uuid::Uuid::parse_str(value).is_ok_and(|id| id.to_string() == value)
 }
 impl ExecutorJournal {
+    /// Keep the same exclusive journal lock alive in a native child even if this
+    /// process dies. Only that child's exec inherits the cloned descriptor;
+    /// unrelated watchdogs and subsequent commands retain CLOEXEC. The caller
+    /// must install this fence before spawning every native writer.
+    #[cfg(unix)]
+    pub fn fence_native_command(&self, command: &mut std::process::Command) -> Result<()> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        let fence = self._lock.try_clone()?;
+        // SAFETY: the child closure only calls async-signal-safe fcntl. Capturing
+        // the File keeps its descriptor alive until exec; clearing CLOEXEC in the
+        // child cannot change the parent's descriptor flags.
+        unsafe {
+            command.pre_exec(move || {
+                let fd = fence.as_raw_fd();
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        Ok(())
+    }
     /// Explicit initial enrollment only. Never silently recreates a lost journal.
     /// Epoch authorization and trusted observed baseline are supplied by bootstrap.
     pub fn create(
@@ -181,11 +207,12 @@ impl ExecutorJournal {
         configure(&connection)?;
         connection.execute_batch("BEGIN IMMEDIATE; CREATE TABLE identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1), org_id TEXT NOT NULL,target_id TEXT NOT NULL,epoch TEXT NOT NULL,highest TEXT NOT NULL,state_hash TEXT NOT NULL); CREATE TABLE operations(operation_id TEXT PRIMARY KEY, grant_hash TEXT NOT NULL UNIQUE,generation TEXT NOT NULL UNIQUE,state TEXT NOT NULL,baseline_hash TEXT NOT NULL,desired_state_hash TEXT NOT NULL,issued_at INTEGER NOT NULL,not_after INTEGER NOT NULL,confirm_not_after INTEGER NOT NULL,submitted_at INTEGER,confirm_deadline INTEGER,observed_hash TEXT,probe_hash TEXT);")?;
         connection.execute_batch(material::MATERIAL_SCHEMA)?;
+        connection.execute_batch(recovery::SCHEMA)?;
         connection.execute(
             "INSERT INTO identity VALUES(1,?1,?2,?3,'0',?4)",
             params![org_id, target_id, epoch.to_string(), baseline_hash],
         )?;
-        connection.execute_batch("PRAGMA user_version=2; COMMIT;")?;
+        connection.execute_batch("PRAGMA user_version=3; COMMIT;")?;
         directory.sync_all()?;
         Ok(Self {
             connection,
@@ -193,15 +220,16 @@ impl ExecutorJournal {
             _directory: directory,
         })
     }
-    /// Existing durable state is mandatory. Any incomplete operation is UNKNOWN
-    /// after restart; caller must reconcile actual device state, never reapply.
+    /// Existing durable state is mandatory. Uncertain submissions become UNKNOWN.
+    /// Complete material that never crossed the durable submission boundary closes
+    /// as NOT_APPLIED; its generation remains consumed and cannot be dispatched.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let directory = secure_path::parent(path)?;
         let locked = lock(path)?;
         secure_path::sidecars(path)?;
         let database = secure_path::open(path, false, false)?;
-        let connection = Connection::open_with_flags(
+        let mut connection = Connection::open_with_flags(
             path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
@@ -210,7 +238,7 @@ impl ExecutorJournal {
         let version: u32 = connection.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         // Legacy journals lack dispatch-time bounds; never fabricate those
         // values or reset a high-water mark to recover them.
-        if ![1, 2].contains(&version) {
+        if ![1, 2, 3].contains(&version) {
             return Err(ExecutorError::Binding);
         }
         let integrity: String = connection.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
@@ -229,9 +257,35 @@ impl ExecutorJournal {
             connection.execute_batch(material::MATERIAL_SCHEMA)?;
             connection.execute_batch("PRAGMA user_version=2; COMMIT;")?;
         }
-        // Bound PREPARED means the durable submission boundary was never crossed.
-        // Preserve a claimed recovery across crashes so late confirm cannot win.
-        connection.execute("UPDATE operations SET state='UNKNOWN' WHERE state='VERIFYING' OR (state='PREPARED' AND operation_id NOT IN (SELECT operation_id FROM execution_material))",[])?;
+        if version < 3 {
+            connection.execute_batch("BEGIN IMMEDIATE;")?;
+            connection.execute_batch(recovery::SCHEMA)?;
+            connection.execute_batch("PRAGMA user_version=3; COMMIT;")?;
+        }
+        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let prepared = tx.prepare("SELECT operation_id FROM operations WHERE state='PREPARED' AND operation_id IN (SELECT operation_id FROM execution_material)")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for id in prepared {
+            // Validate immutable material before trusting its submission boundary.
+            // No actual-device observation is fabricated by this local close.
+            material::read_material(&tx, &id)?.ok_or(ExecutorError::Binding)?;
+            let operation = get_operation(&tx, &id)?.ok_or(ExecutorError::Binding)?;
+            if operation.submitted_at.is_some() || operation.confirm_deadline.is_some() {
+                return Err(ExecutorError::Binding);
+            }
+            tx.execute(
+                "UPDATE operations SET state='NOT_APPLIED' WHERE operation_id=?1",
+                [&id],
+            )?;
+        }
+        // Legacy PREPARED has no proven native boundary. Preserve claimed recovery
+        // across crashes so late confirmation cannot win.
+        tx.execute(
+            "UPDATE operations SET state='UNKNOWN' WHERE state IN ('VERIFYING','PREPARED')",
+            [],
+        )?;
+        tx.commit()?;
         Ok(Self {
             connection,
             _lock: locked,
@@ -336,6 +390,26 @@ impl ExecutorJournal {
         }
         if op.submitted_at.is_some_and(|submitted| now < submitted) {
             return Err(ExecutorError::Expired);
+        }
+        if observed_hash == op.baseline_hash {
+            let (previous_observation, previous_probe, current, recovery_evidence):
+                (Option<String>, Option<String>, String, bool) = tx.query_row(
+                "SELECT observed_hash,probe_hash,(SELECT state_hash FROM identity WHERE singleton=1),
+                 EXISTS(SELECT 1 FROM recovery_attempts WHERE operation_id=?1)
+                 OR EXISTS(SELECT 1 FROM execution_material WHERE operation_id=?1 AND (recovery_report_hash IS NOT NULL OR recovered_at IS NOT NULL))
+                 FROM operations WHERE operation_id=?1", [id],
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+            if previous_observation.is_some()
+                || previous_probe.is_some()
+                || recovery_evidence
+                || current != op.baseline_hash
+            {
+                // Matching an old baseline after prior application is drift,
+                // not proof that submission never applied. Preserve all history
+                // and the current identity projection; never reset either.
+                tx.commit()?;
+                return Ok(State::Unknown);
+            }
         }
         let state = if observed_hash == op.desired_state_hash
             && op.confirm_deadline.is_some_and(|deadline| now < deadline)

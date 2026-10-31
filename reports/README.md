@@ -32,7 +32,7 @@ python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **431 workspace Rust tests, 23 authority tests
+The full repository check passes: **438 workspace Rust tests, 23 authority tests
 without default features, 54 UI tests, 27 specification checks, 52 core and 28
 extended contract fixtures, and nine Linux runner regressions**. Formatting,
 Clippy, frontend types, the production build and parity across eight locale
@@ -68,12 +68,17 @@ These results cover the experimental compiler profile, not full native release
 qualification or an application-driven firewall deployment.
 
 The separate [signed execution suite](../docs/signed-linux-execution.md) passes
-**55 checks, including 35 actual packet probes**. It covers verified grants,
+**98 checks, including 43 actual packet probes**. It covers verified grants,
 durable native material, real apply/readback and probe confirmation, replay
-without timeout refresh, established/new IPv4/IPv6 TCP/UDP expiry, automatic
-recovery after an applying process is killed, recovery completion after its
-writer is killed, and a later generation fencing stale recovery. Both the
-original and signed suites remove their disposable containers successfully.
+without timeout refresh, established/new IPv4/IPv6 TCP/UDP expiry, and later
+generations fencing stale recovery. Crash cases cover both original submission
+boundaries and recovery preparation, claim, submission and completion. Fresh
+baseline readback can close an unapplied submission automatically; prior
+candidate/probe/recovery evidence instead preserves UNKNOWN drift. A real nft
+child is observed reading stdin after startup, then survives parent death while
+retaining the exact journal lock inode; reconciliation waits for its exit.
+Immutable recovery attempts resume within original signed authority without
+replacing earlier files. Both suites remove their disposable containers.
 Signing and approval inputs are clearly marked synthetic fixtures, and the
 recovery process is not a qualified watchdog against a permanently hung lock
 owner. Expired rollback authority causes no unsigned fallback write.

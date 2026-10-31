@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import signal
 import socket
+import sqlite3
 import subprocess
 import threading
 import time
@@ -291,6 +292,26 @@ def confirmed_flow():
             probe(family, protocol, port, False, f'new_{family}_{protocol}_blocked_after_expiry')
     check('expired_observation_does_not_recreate_tokens', state(driver(case, 'observe')) == 'CONFIRMED'
           and not remaining_tokens(case['metadata']['table']))
+    # Deliberately restore this fixture's old restrictive baseline. A confirmed
+    # candidate and its probe history must remain historical fact, not NOT_APPLIED.
+    db_path = 'file:' + str(path / 'state' / 'journal.sqlite3') + '?mode=ro'
+    with sqlite3.connect(db_path, uri=True) as db:
+        previous_history = db.execute('SELECT state_hash,probe_hash FROM identity,operations WHERE operation_id=?',
+                                      (case['metadata']['operation_id'],)).fetchone()
+    bootstrap = json.loads((path / 'bootstrap.json').read_text())
+    nft(['-f', '-'], json.dumps({'nftables': [{'delete': {'table': {'family': 'inet', 'name': case['metadata']['table']}}}, *bootstrap['nftables']]}))
+    driver(case, 'observe', expected=1)
+    drift = driver(case, 'observe')
+    with sqlite3.connect(db_path, uri=True) as db:
+        retained = db.execute('SELECT state_hash,probe_hash FROM identity,operations WHERE operation_id=?',
+                              (case['metadata']['operation_id'],)).fetchone()
+    check('confirmed_baseline_drift_preserves_applied_and_probe_history', state(drift) == 'UNKNOWN'
+          and retained == previous_history and retained[1] is not None and drift['highest_generation'] == '1')
+    next_metadata = command([FIXTURE, 'successor-unapplied', str(path)])
+    successor = {'directory': path, 'metadata': next_metadata, 'bundle': path / 'bundle-next.json'}
+    unchanged = snapshot(case['metadata']['table'])
+    driver(successor, 'apply', expected=1)
+    check('confirmed_baseline_drift_blocks_next_generation', snapshot(case['metadata']['table']) == unchanged)
     remove_table(case)
 
 
@@ -348,9 +369,87 @@ def crash_flow():
     remove_table(case)
 
 
-def recovery_write_crash_flow():
-    case = prepare('recovery-write-crash', 'timeout')
-    check('recovery_write_fixture_applied', state(driver(case, 'apply')) == 'VERIFYING')
+def unsubmitted_flow():
+    for point in ('before-submit', 'after-submit'):
+        case = prepare(point, 'recovery-resume')
+        before = snapshot(case['metadata']['table'])
+        driver(case, 'apply', extra=['--crash-' + point], expected=-signal.SIGKILL)
+        if point == 'after-submit':
+            wait_until(case['metadata']['confirm_not_after_unix'] + 1)
+            deadline = time.monotonic() + 5
+            while True:
+                with sqlite3.connect('file:' + str(case['directory'] / 'state' / 'journal.sqlite3') + '?mode=ro', uri=True) as db:
+                    actual_state = db.execute('SELECT state FROM operations WHERE operation_id=?',
+                                              (case['metadata']['operation_id'],)).fetchone()[0]
+                if actual_state == 'NOT_APPLIED' or time.monotonic() >= deadline:
+                    break
+                time.sleep(.05)
+            check('watcher_independently_resolves_unapplied_submission', actual_state == 'NOT_APPLIED')
+        observed = driver(case, 'observe')
+        check(point + '_resolves_actual_unchanged_baseline', state(observed) == 'NOT_APPLIED'
+              and observed['highest_generation'] == '1' and snapshot(case['metadata']['table']) == before)
+        probe(socket.AF_INET, 'tcp', 18080, False, point + '_never_enabled_candidate')
+        replay = driver(case, 'apply')
+        check(point + '_historical_retry_cannot_submit', state(replay) == 'NOT_APPLIED'
+              and snapshot(case['metadata']['table']) == before)
+        next_metadata = command([FIXTURE, 'successor-unapplied', str(case['directory'])])
+        successor = {'directory': case['directory'], 'metadata': next_metadata,
+                     'bundle': case['directory'] / 'bundle-next.json'}
+        applied = driver(successor, 'apply')
+        check(point + '_fresh_generation_uses_observed_previous_installation',
+              state(applied) == 'VERIFYING' and applied['highest_generation'] == '2')
+        probe(socket.AF_INET, 'tcp', 18080, True, point + '_fresh_authorization_applies')
+        driver(case, 'recover', expected=1)
+        remove_table(case)
+
+
+def orphan_writer_flow():
+    case = prepare('orphan-writer', 'timeout')
+    directory = case['directory']
+    args = [DRIVER, 'apply', '--state-dir', str(directory / 'state'), '--trust', str(directory / 'trust.json'),
+            '--bundle', str(directory / 'bundle.json'), '--crash-with-native-child']
+    result = subprocess.run(args, text=True, capture_output=True, timeout=20)
+    check('orphan_writer_parent_dies_at_injected_boundary', result.returncode == -signal.SIGKILL)
+    injected = json.loads(result.stdout)
+    pid = injected['native_process_id']
+    descriptor = os.pidfd_open(pid, 0)
+    try:
+        child = Path('/proc') / str(pid)
+        check('orphan_writer_is_exact_stopped_private_nft_child',
+              injected['stdin_wait_confirmed'] is True
+              and any(line.startswith('State:\tT') for line in (child / 'status').read_text().splitlines())
+              and os.readlink(child / 'exe') == '/usr/sbin/nft'
+              and os.readlink(child / 'ns/net') == os.readlink('/proc/self/ns/net')
+              and (child / 'cmdline').read_bytes().rstrip(b'\0').split(b'\0') == [b'/usr/sbin/nft', b'-j', b'-f', b'-'])
+        lock_path = directory / 'state' / 'journal.sqlite3.lock'
+        inherited = [fd for fd in (child / 'fd').iterdir() if os.readlink(fd) == str(lock_path)]
+        identity = lock_path.stat()
+        check('native_child_inherits_locked_journal_inode', len(inherited) == 1
+              and (inherited[0].stat().st_dev, inherited[0].stat().st_ino) == (identity.st_dev, identity.st_ino)
+              and any(line.startswith('lock:') for line in (child / 'fdinfo' / inherited[0].name).read_text().splitlines()))
+        before = snapshot(case['metadata']['table'])
+        blocked = subprocess.run([DRIVER, 'observe', '--state-dir', str(directory / 'state'),
+                                  '--trust', str(directory / 'trust.json'), '--operation-id',
+                                  case['metadata']['operation_id']], text=True, capture_output=True, timeout=10)
+        after = snapshot(case['metadata']['table'])
+        codes = [line for line in blocked.stderr.splitlines() if re.fullmatch(r'[A-Z][A-Z0-9_]{0,80}', line)]
+        check('surviving_native_writer_blocks_baseline_reconciliation',
+              blocked.returncode == 1 and codes == ['JOURNAL_BUSY']
+              and after == before,
+              exit_code=blocked.returncode,
+              reason_codes=codes)
+        signal.pidfd_send_signal(descriptor, signal.SIGCONT)
+        observed = driver(case, 'observe')
+        check('released_native_writer_allows_actual_baseline_resolution',
+              state(observed) == 'NOT_APPLIED' and observed['highest_generation'] == '1'
+              and snapshot(case['metadata']['table']) == before)
+        probe(socket.AF_INET, 'tcp', 18080, False, 'orphan_writer_never_received_an_allow_batch')
+    finally:
+        os.close(descriptor)
+    remove_table(case)
+
+
+def stop_watcher(case):
     directory = case['directory']
     operation = case['metadata']['operation_id']
     ack = json.loads((directory / 'state' / ('ack-' + operation + '.json')).read_text())
@@ -369,6 +468,12 @@ def recovery_write_crash_flow():
         signal.pidfd_send_signal(descriptor, signal.SIGKILL)
     finally:
         os.close(descriptor)
+
+
+def recovery_write_crash_flow():
+    case = prepare('recovery-write-crash', 'timeout')
+    check('recovery_write_fixture_applied', state(driver(case, 'apply')) == 'VERIFYING')
+    stop_watcher(case)
     wait_until(case['metadata']['confirm_not_after_unix'] + 1)
     driver(case, 'recover', extra=['--crash-after-recovery-write'], expected=-signal.SIGKILL)
     written = snapshot(case['metadata']['table'])
@@ -376,6 +481,31 @@ def recovery_write_crash_flow():
     resumed = driver(case, 'recover')
     check('recovery_writer_crash_resumes_by_observation_without_reinstall', state(resumed) == 'ROLLED_BACK'
           and resumed['highest_generation'] == '1' and snapshot(case['metadata']['table']) == written)
+    remove_table(case)
+
+
+def recovery_prewrite_crash_flow(point):
+    # This case isolates recovery phases before token expiry; the separate
+    # expiry case verifies conservative expiry and denied late authority.
+    case = prepare('recovery-' + point + '-crash', 'recovery-resume')
+    check(point + '_fixture_applied', state(driver(case, 'apply')) == 'VERIFYING')
+    stop_watcher(case)
+    wait_until(case['metadata']['confirm_not_after_unix'] + 1)
+    driver(case, 'recover', extra=['--crash-after-recovery-' + point], expected=-signal.SIGKILL)
+    originals = {path: path.read_bytes() for path in (case['directory'] / 'state').glob('recovery-*.json')}
+    # Exceed the old installation commit budget: resuming may not reuse stale
+    # clock bindings or overwrite the original immutable recovery file.
+    time.sleep(4)
+    resumed = driver(case, 'recover')
+    check(point + '_recovery_resumes_with_remaining_signed_authority',
+          state(resumed) == 'ROLLED_BACK' and resumed['highest_generation'] == '1')
+    check(point + '_new_attempt_preserves_original_immutable_files', bool(originals)
+          and all(path.read_bytes() == contents for path, contents in originals.items())
+          and len(list((case['directory'] / 'state').glob('recovery-*.json'))) > len(originals))
+    written = snapshot(case['metadata']['table'])
+    check(point + '_completed_retry_is_observation_only', state(driver(case, 'recover')) == 'ROLLED_BACK'
+          and snapshot(case['metadata']['table']) == written)
+    probe(socket.AF_INET, 'tcp', 18080, False, point + '_recovery_blocks_actual_packets')
     remove_table(case)
 
 
@@ -398,7 +528,7 @@ def expired_recovery_flow():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scenario', choices=('all', 'crash', 'recovery-write-crash'), default='all')
+    parser.add_argument('--scenario', choices=('all', 'crash', 'recovery-write-crash', 'unsubmitted', 'orphan-writer', 'recovery-prepare-crash', 'recovery-claim-crash', 'recovery-submit-crash'), default='all')
     args = parser.parse_args()
     farm = None
     report = {'schema_version': 'fw.signed-linux-lab/v1', 'status': 'FAIL', 'checks': checks,
@@ -421,8 +551,15 @@ def main():
             confirmed_flow()
         if args.scenario in ('all', 'crash'):
             crash_flow()
+        if args.scenario in ('all', 'unsubmitted'):
+            unsubmitted_flow()
+        if args.scenario in ('all', 'orphan-writer'):
+            orphan_writer_flow()
         if args.scenario in ('all', 'recovery-write-crash'):
             recovery_write_crash_flow()
+        for point in ('prepare', 'claim', 'submit'):
+            if args.scenario in ('all', 'recovery-' + point + '-crash'):
+                recovery_prewrite_crash_flow(point)
         if args.scenario == 'all':
             expired_recovery_flow()
         report['status'] = 'PASS'

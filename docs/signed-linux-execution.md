@@ -42,6 +42,9 @@ executed assertions, packet counts and cleanup status are recorded without
 private signing keys. Startup failures are `NOT_RUN` with exit code 2; executed
 assertion or cleanup failures are nonzero. Only a completed suite reports `PASS`.
 Generated reports are ignored by Git. CI retains selected reports for seven days.
+The complete suite waits through several independent confirmation and expiry
+windows; its outer runner allows five minutes. This test budget does not change
+the two-second native command bound or any signed execution/recovery deadline.
 
 ## Immutable objects and runtime binding
 
@@ -87,6 +90,16 @@ acknowledgement before marking submission `UNKNOWN`. It replaces only the owned
 table in one nft transaction. A command exit alone cannot make the operation
 active: actual semantic readback is required to reach `VERIFYING`.
 
+On restart, complete, validated material that never crossed the durable submission
+boundary closes as `NOT_APPLIED`. Its generation stays consumed. A submitted
+`UNKNOWN` operation reaches `NOT_APPLIED` only after fresh exact baseline readback;
+a later signed generation rechecks that saved previous installation. Legacy
+material without a proven submission boundary remains `UNKNOWN`.
+The recovery watcher performs this reconciliation too. Prior candidate readback,
+probe history, any prepared recovery attempt, or a different current journal
+projection prevents baseline readback from relabeling an applied operation as
+`NOT_APPLIED`; that drift remains `UNKNOWN` and blocks a new generation.
+
 The grant's `not_after` bounds the start of native execution; policy absolute
 expiry is a separate deadline. The driver rechecks authority immediately before
 starting the nft command and bounds that process to two seconds. This does not
@@ -117,6 +130,26 @@ recovery write but before recording completion, the next recovery attempt checks
 the actual restored state and completes its journal entry without reinstalling
 rules. Entries created by the earlier journal-only primitive cannot be upgraded
 into native execution by attaching material after acceptance.
+
+Journal version 3 retains immutable numbered recovery attempts, their original
+installation bytes, and separate preparation, submission and observed-not-applied
+records. A restart can reuse an unsubmitted installation within its commit budget.
+If that budget elapsed, fresh matching candidate readback permits a new immutable
+attempt within the original signed recovery window. Existing files are never
+overwritten. A submitted attempt first needs actual matching recovery readback,
+or exact candidate readback proving that attempt was not applied, before any new
+write. These checks retain the original trust, generation and expiry bounds.
+
+Every native writer inherits the journal lock descriptor. A surviving nft process
+therefore retains the fence after its parent dies; reconciliation waits until the
+writer releases it. The isolated fault test waits for nft's actual stdin read
+after startup, stops that child, kills its parent, and verifies the inherited lock
+inode and blocked reconciliation until child exit. Legacy uncertain writes without this inheritance evidence
+cannot use baseline reconciliation or a fresh recovery submission. The fence
+covers userspace writer lifetime, not arbitrary asynchronous kernel activity or a
+qualified independent watchdog. Native qualification must still establish kernel
+transaction and process-death guarantees. Temporary native read I/O failures do
+not by themselves rewrite a prior confirmed state as verified drift.
 
 Recovery authority is bounded. When it is missing or expired, this profile has
 no unsigned quarantine fallback and makes no guessed write. Unknown or drifted

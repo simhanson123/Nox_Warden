@@ -44,8 +44,8 @@
         "M01",
         "M03"
       ],
-      "implemented": "Experimental nft compiler and immutable full-StateIR portable artifacts with absolute deadlines, runtime installation bindings and semantic readback. Guarded signed Linux execution connects durable complete material, atomic native apply, actual packet probes, confirmation and restrictive timeout/crash recovery with preserved generation fencing.",
-      "blocker": "Real approval/bootstrap and authenticated production policy dispatch, a qualified independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC, complete clock/crash/reboot/coexistence and installer acceptance remain. Synthetic lab authority is not production approval."
+      "implemented": "Experimental nft compiler and immutable full-StateIR portable artifacts with absolute deadlines, runtime installation bindings and semantic readback. Guarded signed Linux execution connects durable complete material, atomic native apply, actual packet probes, confirmation and restrictive timeout/crash recovery with preserved generation fencing. Journal schema 3 closes validated unsubmitted operations without resetting generation, reconciles fresh unchanged baselines through the recovery watcher, preserves prior application/probe history on drift, and retains immutable recovery attempts with separate submission evidence. Native writers retain the journal fence after parent exit; resumed recovery respects the original trust and expiry bounds.",
+      "blocker": "Real approval/bootstrap and authenticated production policy dispatch, a qualified independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC, complete clock/crash/reboot/coexistence and installer acceptance remain. Synthetic lab authority is not production approval. Legacy uncertain submissions without writer-fence evidence remain UNKNOWN; userspace writer lifetime does not qualify asynchronous kernel completion or a hung-owner watchdog."
     },
     {
       "id": "M04W",

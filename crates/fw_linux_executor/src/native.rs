@@ -4,6 +4,7 @@ use fw_contracts::{MAX_INTERNAL_BYTES, canonical_bytes, parse_value_with_limit};
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -155,21 +156,101 @@ pub fn guard() -> Result<ObservationContext> {
 }
 /// Fixed program/argument callers only. Output and run time are bounded, no shell.
 pub fn command(program: &str, arguments: &[&str], input: Option<Vec<u8>>) -> Result<Vec<u8>> {
+    command_fenced(program, arguments, input, None, false)
+}
+fn command_fenced(
+    program: &str,
+    arguments: &[&str],
+    input: Option<Vec<u8>>,
+    journal: Option<&fw_executor::ExecutorJournal>,
+    crash_with_child: bool,
+) -> Result<Vec<u8>> {
     if !["/usr/sbin/ip", "/usr/sbin/nft"].contains(&program) || !Path::new(program).is_file() {
         return Err(Error::new("NATIVE_BINARY_UNAVAILABLE"));
     }
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(arguments)
         .env("TZ", "UTC")
-        .process_group(0)
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    if crash_with_child {
+        // A stopped process group orphaned by the injected parent death receives
+        // SIGHUP/SIGCONT. A separate test session keeps this exact child stopped
+        // so the test really observes a surviving writer, not its completed exit.
+        // SAFETY: setsid is async-signal-safe and affects only the spawned child.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    } else {
+        command.process_group(0);
+    }
+    if let Some(journal) = journal {
+        journal.fence_native_command(&mut command)?;
+    }
+    let mut child = command.spawn()?;
+    drop(command);
+    if crash_with_child {
+        // Isolated fault injection only: the exact spawned nft child is stopped
+        // before receiving any batch. Its PID is diagnostic fixture output.
+        let pipe = fs::read_link(format!(
+            "/proc/self/fd/{}",
+            child
+                .stdin
+                .as_ref()
+                .ok_or(Error::new("NATIVE_PIPE"))?
+                .as_raw_fd()
+        ))?;
+        let started = Instant::now();
+        loop {
+            let syscall = fs::read_to_string(format!("/proc/{}/syscall", child.id()))?;
+            let fields: Vec<&str> = syscall.split_whitespace().collect();
+            let reading = fields.first().and_then(|v| v.parse::<i64>().ok())
+                == Some(libc::SYS_read)
+                && fields
+                    .get(1)
+                    .and_then(|fd| u64::from_str_radix(fd.trim_start_matches("0x"), 16).ok())
+                    .is_some_and(|fd| {
+                        fs::read_link(format!("/proc/{}/fd/{fd}", child.id()))
+                            .is_ok_and(|actual| actual == pipe)
+                    });
+            if reading {
+                break;
+            }
+            if started.elapsed() >= Duration::from_secs(1) || child.try_wait()?.is_some() {
+                return Err(Error::new("FAULT_CHILD_NOT_READING_INPUT"));
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let mut status = 0;
+        // SAFETY: this is our live child; waitpid confirms the stop before killing
+        // this process. The normal execution path never pauses a native writer.
+        unsafe {
+            if libc::kill(child.id() as i32, libc::SIGSTOP) != 0
+                || libc::waitpid(child.id() as i32, &mut status, libc::WUNTRACED)
+                    != child.id() as i32
+                || !libc::WIFSTOPPED(status)
+            {
+                return Err(Error::new("FAULT_CHILD_NOT_STOPPED"));
+            }
+        }
+        println!(
+            "{}",
+            json!({"native_process_id":child.id(),"stdin_wait_confirmed":true})
+        );
+        std::io::stdout().flush()?;
+        super::crash_self();
+    }
     let writer = input.map(|bytes| {
         let mut stdin = child.stdin.take().expect("piped stdin");
         thread::spawn(move || stdin.write_all(&bytes))
@@ -244,10 +325,12 @@ pub fn readback(table: &str) -> Result<Value> {
     parse_value_with_limit(&bytes, MAX_INTERNAL_BYTES).map_err(|_| Error::new("NATIVE_JSON"))
 }
 pub fn replace(
+    journal: &fw_executor::ExecutorJournal,
     table: &str,
     nft_json: &Value,
     binding: &BindingContext,
     authority_deadline: i64,
+    crash_with_child: bool,
 ) -> Result<()> {
     let mut commands = vec![json!({"delete":{"table":{"family":"inet","name":table}}})];
     commands.extend(
@@ -275,6 +358,12 @@ pub fn replace(
     {
         return Err(Error::new("INSTALLATION_BUDGET_EXPIRED"));
     }
-    command("/usr/sbin/nft", &["-j", "-f", "-"], Some(bytes))?;
+    command_fenced(
+        "/usr/sbin/nft",
+        &["-j", "-f", "-"],
+        Some(bytes),
+        Some(journal),
+        crash_with_child,
+    )?;
     Ok(())
 }

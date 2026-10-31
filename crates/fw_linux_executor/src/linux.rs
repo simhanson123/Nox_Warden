@@ -114,6 +114,9 @@ struct StoredInstallation {
     bundle: ExecutionBundle,
     installation: Installation,
     trust_hash: String,
+    /// Old material did not retain the operation fence in the native child.
+    #[serde(default)]
+    native_write_fenced: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -349,6 +352,11 @@ fn read_match(
     let result =
         verify_installation_readback_at(artifact, install, &actual, &native::observation()?);
     if result.comparison != Comparison::Match {
+        // Fixed verifier reason codes aid diagnosis without logging native rules,
+        // private state, paths or submitted material.
+        if let Some(reason) = result.reason_code {
+            eprintln!("{reason}");
+        }
         return Err(Error::new("ACTUAL_READBACK_MISMATCH"));
     }
     Ok(result)
@@ -389,31 +397,58 @@ fn init(state: &Path, bundle: &ExecutionBundle, trust: &LabTrust) -> Result<Valu
 fn observe(state: &Path, j: &mut ExecutorJournal, saved: &StoredInstallation) -> Result<Value> {
     let id = &saved.bundle.operation_id;
     let operation = j.operation(id)?.ok_or(Error::new("OPERATION_MISSING"))?;
-    let observed = if operation.state == State::RolledBack {
-        let recovery: RecoveryInstallation =
-            files::read(&state.join(format!("recovery-{id}.json")))?;
-        if recovery.schema_version != "fw.isolated-recovery-installation/v1"
-            || Some(recovery.material_hash) != j.execution_material_hash(id)?
-        {
-            return Err(Error::new("RECOVERY_MATERIAL_BINDING"));
+    if operation.state == State::Unknown {
+        // The journal fence is also held by every new native writer. Once this
+        // process owns it, an orphan writer cannot commit after this readback.
+        // Compare candidate and baseline against one fresh kernel snapshot.
+        let actual = native::readback(&saved.bundle.candidate.table)?;
+        let observed = native::observation()?;
+        let candidate = verify_installation_readback_at(
+            &saved.bundle.candidate,
+            &saved.installation,
+            &actual,
+            &observed,
+        );
+        if candidate.comparison == Comparison::Match {
+            j.record_observation(
+                id,
+                &saved.bundle.candidate.desired_state_hash,
+                native::now()?,
+            )?;
+            return status_value(j, id, value(&candidate)?);
         }
+        if saved.native_write_fenced {
+            let previous = verify_installation_readback_at(
+                &saved.bundle.previous,
+                &saved.bundle.previous_installation,
+                &actual,
+                &observed,
+            );
+            if previous.comparison == Comparison::Match {
+                j.record_observation(
+                    id,
+                    &saved.bundle.previous.desired_state_hash,
+                    native::now()?,
+                )?;
+                return status_value(j, id, value(&previous)?);
+            }
+        }
+        return Err(Error::new("ACTUAL_READBACK_MISMATCH"));
+    }
+    let observed = if operation.state == State::RolledBack {
+        let recovery = recovery_installation(state, j, id)?;
         read_match(&saved.bundle.recovery, &recovery.installation)
+    } else if operation.state == State::NotApplied {
+        read_match(&saved.bundle.previous, &saved.bundle.previous_installation)
     } else {
         read_match(&saved.bundle.candidate, &saved.installation)
     };
     match observed {
-        Ok(report) => {
-            if operation.state == State::Unknown {
-                j.record_observation(
-                    id,
-                    &saved.bundle.candidate.desired_state_hash,
-                    native::now()?,
-                )?;
-            }
-            status_value(j, id, value(&report)?)
-        }
+        Ok(report) => status_value(j, id, value(&report)?),
         Err(error) => {
-            if matches!(operation.state, State::Confirmed | State::RolledBack) {
+            if error.0 == "ACTUAL_READBACK_MISMATCH"
+                && matches!(operation.state, State::Confirmed | State::RolledBack)
+            {
                 j.mark_drift(id, native::now()?)?;
             }
             Err(error)
@@ -450,12 +485,9 @@ fn actual_baseline(
     let (_, saved) = stored(j, &latest.operation_id, trusted)?;
     match latest.state {
         State::Confirmed => Ok((saved.bundle.candidate, saved.installation)),
+        State::NotApplied => Ok((saved.bundle.previous, saved.bundle.previous_installation)),
         State::RolledBack => {
-            let recovery: RecoveryInstallation =
-                files::read(&state.join(format!("recovery-{}.json", latest.operation_id)))?;
-            if Some(recovery.material_hash) != j.execution_material_hash(&latest.operation_id)? {
-                return Err(Error::new("RECOVERY_MATERIAL_BINDING"));
-            }
+            let recovery = recovery_installation(state, j, &latest.operation_id)?;
             Ok((saved.bundle.recovery, recovery.installation))
         }
         _ => Err(Error::new("CURRENT_OPERATION_UNRESOLVED")),
@@ -482,7 +514,7 @@ fn apply(
     bundle: &ExecutionBundle,
     trusted: &LabTrust,
     trust_path: &Path,
-    crash: bool,
+    crash: Option<&str>,
 ) -> Result<Value> {
     let mut j = journal(state, trusted, trust_path)?;
     if let Some(operation) = j.operation(&bundle.operation_id)? {
@@ -514,9 +546,13 @@ fn apply(
         bundle: bundle.clone(),
         installation,
         trust_hash: hash(trusted)?,
+        native_write_fenced: true,
     };
     let execution = material(&saved)?;
     j.accept_execution(&grant, &bundle.operation_id, &execution, native::now()?)?;
+    if crash == Some("--crash-before-submit") {
+        crash_self();
+    }
     let material_hash = execution.content_hash()?;
     let request = WatchRequest {
         schema_version: "fw.isolated-recovery-watch/v1".into(),
@@ -572,16 +608,21 @@ fn apply(
     initial(state, &current_trust)?;
     verify_bundle(bundle, &current_trust, false)?;
     j.mark_submitted(&bundle.operation_id, native::now()?)?;
+    if crash == Some("--crash-after-submit") {
+        crash_self();
+    }
     within_commit_budget(&saved.installation)?;
     native::replace(
+        &j,
         &bundle.candidate.table,
         &saved.installation.native.nft_json,
         &saved.installation.manifest.binding,
         grant
             .not_after()
             .min(current_trust.grant_key.not_after_unix),
+        crash == Some("--crash-with-native-child"),
     )?;
-    if crash {
+    if crash == Some("--crash-after-commit") {
         crash_self();
     }
     let report = read_match(&bundle.candidate, &saved.installation)?;
@@ -731,40 +772,109 @@ fn confirm(
     j.confirm(&evidence.confirmation, &trusted_key, native::now()?)?;
     status_value(j, id, json!({"probe_report_hash":report_hash}))
 }
+fn recovery_installation(
+    state: &Path,
+    j: &ExecutorJournal,
+    id: &str,
+) -> Result<RecoveryInstallation> {
+    let recovery: RecoveryInstallation = if let Some(attempt) = j.latest_recovery_attempt(id)? {
+        decode(attempt.installation)?
+    } else {
+        files::read(&state.join(format!("recovery-{id}.json")))?
+    };
+    if ![
+        "fw.isolated-recovery-installation/v1",
+        "fw.isolated-recovery-installation/v2",
+    ]
+    .contains(&recovery.schema_version.as_str())
+        || Some(recovery.material_hash.clone()) != j.execution_material_hash(id)?
+    {
+        return Err(Error::new("RECOVERY_MATERIAL_BINDING"));
+    }
+    Ok(recovery)
+}
 fn recover(
     state: &Path,
     j: &mut ExecutorJournal,
     saved: &StoredInstallation,
     trusted: &LabTrust,
     trust_path: &Path,
-    crash: bool,
+    crash: Option<&str>,
 ) -> Result<Value> {
     let id = &saved.bundle.operation_id;
     let operation = j.operation(id)?.ok_or(Error::new("OPERATION_MISSING"))?;
     if operation.generation != j.highest_generation()?.to_string() {
         return Err(Error::new("STALE_RECOVERY"));
     }
-    if operation.state == State::RolledBack {
+    if matches!(operation.state, State::RolledBack | State::NotApplied) {
         return observe(state, j, saved);
+    }
+    if operation.state == State::Unknown && saved.native_write_fenced {
+        // The autonomous watcher must also resolve a submission that never
+        // changed the kernel. The shared journal refuses baseline closure once
+        // any durable candidate/probe/recovery evidence exists.
+        let observed = observe(state, j, saved)?;
+        if j.operation(id)?
+            .is_some_and(|op| op.state == State::NotApplied)
+        {
+            return Ok(observed);
+        }
     }
     let grant = verify_bundle(&saved.bundle, trusted, true)?;
     let material_hash = j
         .execution_material_hash(id)?
         .ok_or(Error::new("MATERIAL_MISSING"))?;
-    let path = state.join(format!("recovery-{id}.json"));
-    let recovery: RecoveryInstallation;
-    if operation.state == State::RecoveryClaimed {
-        recovery = files::read(&path)?;
-        if recovery.material_hash != material_hash
-            || recovery.schema_version != "fw.isolated-recovery-installation/v1"
-        {
-            return Err(Error::new("RECOVERY_MATERIAL_BINDING"));
+    let mut attempt = j.latest_recovery_attempt(id)?;
+    let mut completed = None;
+    if operation.state == State::RecoveryClaimed && attempt.is_none() {
+        // A legacy claim has no proven pre-write phase or inherited child fence.
+        // Its exact old recovery can still complete by observation, never replay.
+        let recovery = recovery_installation(state, j, id)?;
+        completed = Some(read_match(&saved.bundle.recovery, &recovery.installation)?);
+    } else if let Some(previous) = &attempt
+        && previous.submitted_at.is_some()
+        && previous.not_applied_at.is_none()
+    {
+        let recovery = recovery_installation(state, j, id)?;
+        // Journal ownership excludes every surviving native writer from this
+        // version. Resolve uncertainty using one fresh actual snapshot.
+        let actual = native::readback(&saved.bundle.recovery.table)?;
+        let observed = native::observation()?;
+        let report = verify_installation_readback_at(
+            &saved.bundle.recovery,
+            &recovery.installation,
+            &actual,
+            &observed,
+        );
+        if report.comparison == Comparison::Match {
+            completed = Some(report);
+        } else {
+            let candidate = verify_installation_readback_at(
+                &saved.bundle.candidate,
+                &saved.installation,
+                &actual,
+                &observed,
+            );
+            if !saved.native_write_fenced || candidate.comparison != Comparison::Match {
+                return Err(Error::new("ACTUAL_READBACK_MISMATCH"));
+            }
+            j.record_recovery_attempt_not_applied(
+                id,
+                previous.sequence,
+                &saved.bundle.candidate.desired_state_hash,
+                &hash(&candidate)?,
+                native::now()?,
+            )?;
+            attempt = j.latest_recovery_attempt(id)?;
         }
-        // A lost native response is resolved by actual readback only. Never
-        // blindly repeat even a restrictive write after a claimed recovery.
-        read_match(&saved.bundle.recovery, &recovery.installation)?;
-    } else {
-        if !matches!(operation.state, State::Unknown | State::Verifying) {
+    }
+    if completed.is_none() {
+        if !saved.native_write_fenced
+            || !matches!(
+                operation.state,
+                State::Unknown | State::Verifying | State::RecoveryClaimed
+            )
+        {
             return Err(Error::new("RECOVERY_TRANSITION"));
         }
         read_match(&saved.bundle.candidate, &saved.installation)?;
@@ -779,21 +889,64 @@ fn recover(
         {
             return Err(Error::new("RECOVERY_WINDOW"));
         }
-        recovery = RecoveryInstallation {
-            schema_version: "fw.isolated-recovery-installation/v1".into(),
-            material_hash: material_hash.clone(),
-            installation: bind_at(
-                &saved.bundle.recovery,
-                &native::binding(id, grant.grant_hash())?,
-            )?,
+        // Reuse exact prepared bytes while their clock budget is valid. A stale
+        // unsubmitted preparation is superseded by a new immutable attempt;
+        // no existing security file or signed expiry is rewritten.
+        let reusable = attempt
+            .as_ref()
+            .filter(|a| a.submitted_at.is_none())
+            .map(|a| decode::<RecoveryInstallation>(a.installation.clone()))
+            .transpose()?;
+        let recovery = match reusable {
+            Some(recovery) if within_commit_budget(&recovery.installation).is_ok() => recovery,
+            _ => RecoveryInstallation {
+                schema_version: "fw.isolated-recovery-installation/v2".into(),
+                material_hash: material_hash.clone(),
+                installation: bind_at(
+                    &saved.bundle.recovery,
+                    &native::binding(id, grant.grant_hash())?,
+                )?,
+            },
         };
-        files::write(&path, &recovery)?;
-        j.claim_recovery(id, grant.generation(), grant.desired_state_hash(), now)?;
+        if recovery.material_hash != material_hash
+            || recovery.schema_version != "fw.isolated-recovery-installation/v2"
+        {
+            return Err(Error::new("RECOVERY_MATERIAL_BINDING"));
+        }
+        let attempt = j.prepare_recovery_attempt(id, &material_hash, &value(&recovery)?, now)?;
+        let path = state.join(format!("recovery-{id}-attempt-{}.json", attempt.sequence));
+        if path.try_exists()? {
+            let published: RecoveryInstallation = files::read(&path)?;
+            if hash(&published)? != attempt.installation_hash {
+                return Err(Error::new("RECOVERY_MATERIAL_BINDING"));
+            }
+        } else {
+            files::write(&path, &recovery)?;
+        }
+        if crash == Some("--crash-after-recovery-prepare") {
+            crash_self();
+        }
+        if operation.state != State::RecoveryClaimed {
+            j.claim_recovery(
+                id,
+                grant.generation(),
+                grant.desired_state_hash(),
+                native::now()?,
+            )?;
+        }
+        if crash == Some("--crash-after-recovery-claim") {
+            crash_self();
+        }
         let current_trust = trust(trust_path)?;
         initial(state, &current_trust)?;
         verify_bundle(&saved.bundle, &current_trust, true)?;
         within_commit_budget(&recovery.installation)?;
+        j.mark_recovery_submitted(id, attempt.sequence, native::now()?)?;
+        if crash == Some("--crash-after-recovery-submit") {
+            crash_self();
+        }
         native::replace(
+            j,
             &saved.bundle.recovery.table,
             &recovery.installation.native.nft_json,
             &recovery.installation.manifest.binding,
@@ -801,12 +954,14 @@ fn recover(
                 .rollback_authority()
                 .valid_until_unix()?
                 .min(current_trust.grant_key.not_after_unix),
+            false,
         )?;
-        if crash {
+        if crash == Some("--crash-after-recovery-write") {
             crash_self();
         }
+        completed = Some(read_match(&saved.bundle.recovery, &recovery.installation)?);
     }
-    let readback = read_match(&saved.bundle.recovery, &recovery.installation)?;
+    let readback = completed.ok_or(Error::new("RECOVERY_OBSERVATION_MISSING"))?;
     j.record_recovery_completion(
         id,
         grant.generation(),
@@ -818,6 +973,7 @@ fn recover(
     )?;
     status_value(j, id, value(&readback)?)
 }
+
 fn watch(state: &Path, id: &str, trusted: &LabTrust, trust_path: &Path) -> Result<()> {
     uuid(id)?;
     initial(state, trusted)?;
@@ -871,7 +1027,7 @@ fn watch(state: &Path, id: &str, trusted: &LabTrust, trust_path: &Path) -> Resul
             .is_some_and(|deadline| native::now().is_ok_and(|now| now >= deadline))
         {
             let (_, saved) = stored(&j, id, &current_trust)?;
-            recover(state, &mut j, &saved, &current_trust, trust_path, false)?;
+            recover(state, &mut j, &saved, &current_trust, trust_path, None)?;
             return Ok(());
         }
     }
@@ -899,15 +1055,33 @@ fn run() -> Result<Option<Value>> {
     }
     native::guard()?;
     let mut options = BTreeMap::new();
-    let mut crash_commit = false;
-    let mut crash_recovery = false;
+    let mut crash_commit = None;
+    let mut crash_recovery = None;
     while let Some(option) = arguments.next() {
-        if option == "--crash-after-commit" {
-            crash_commit = true;
+        if [
+            "--crash-after-commit",
+            "--crash-before-submit",
+            "--crash-after-submit",
+            "--crash-with-native-child",
+        ]
+        .contains(&option.as_str())
+        {
+            if crash_commit.replace(option).is_some() {
+                return Err(Error::new("ARGUMENT"));
+            }
             continue;
         }
-        if option == "--crash-after-recovery-write" {
-            crash_recovery = true;
+        if [
+            "--crash-after-recovery-write",
+            "--crash-after-recovery-prepare",
+            "--crash-after-recovery-claim",
+            "--crash-after-recovery-submit",
+        ]
+        .contains(&option.as_str())
+        {
+            if crash_recovery.replace(option).is_some() {
+                return Err(Error::new("ARGUMENT"));
+            }
             continue;
         }
         if ![
@@ -945,7 +1119,7 @@ fn run() -> Result<Option<Value>> {
             &files::read(Path::new(required("--bundle")?))?,
             &trusted,
             &trust_path,
-            crash_commit,
+            crash_commit.as_deref(),
         )?)),
         "watch" => {
             watch(&state, required("--operation-id")?, &trusted, &trust_path)?;
@@ -974,7 +1148,7 @@ fn run() -> Result<Option<Value>> {
                     &saved,
                     &trusted,
                     &trust_path,
-                    crash_recovery,
+                    crash_recovery.as_deref(),
                 )?,
             };
             Ok(Some(result))
