@@ -1,6 +1,7 @@
 //! Local development login, device invitations and controller queries.
 mod enrollment;
 mod passkey_login;
+mod read_query;
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -33,7 +34,7 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] {
         println!(
-            "fw_cli <login|health|status|requests|operations|audit|capabilities|assets|services|targets|enrollments>\n  fw_cli enroll-token --name NAME --platform linux --fingerprint SHA256 --output FILE\n  fw_cli revoke-target TARGET_UUID\nEnvironment:\n  FW_API_URL: controller origin (default http://localhost:8787)\n  FW_BOOTSTRAP_FILE: protected token file (default state/bootstrap-token)\n  FW_SESSION_FILE: private local session file (default state/cli-session.json)\nLogin uses the initial console token before passkey enrollment; afterward, approve the displayed code in your browser with a passkey.\nLogin currently requires Unix private-file protections. No command changes the host firewall."
+            "fw_cli <login|health|status|requests|operations|audit|capabilities|assets|services|targets|enrollments>\n  fw_cli <requests|operations|audit|assets|services|targets|enrollments> [--limit 1..100] [--cursor NEXT_CURSOR]\n  fw_cli enroll-token --name NAME --platform linux --fingerprint SHA256 --output FILE\n  fw_cli revoke-target TARGET_UUID\nEnvironment:\n  FW_API_URL: controller origin (default http://localhost:8787)\n  FW_BOOTSTRAP_FILE: protected token file (default state/bootstrap-token)\n  FW_SESSION_FILE: private local session file (default state/cli-session.json)\nLogin uses the initial console token before passkey enrollment; afterward, approve the displayed code in your browser with a passkey.\nLogin currently requires Unix private-file protections. No command changes the host firewall."
         );
         return Ok(());
     }
@@ -49,7 +50,7 @@ fn run() -> Result<()> {
     if args[0] == "revoke-target" {
         return enrollment::revoke(&args[1..], base, &session_path);
     }
-    if args.len() != 1 {
+    if args[0] == "login" && args.len() != 1 {
         return Err(
             "one command is required; credential values are never command-line arguments".into(),
         );
@@ -65,21 +66,13 @@ fn run() -> Result<()> {
         );
         return Ok(());
     }
-    let route = match args[0].as_str() {
-        "health" => "/healthz",
-        "status" => "/api/v1/status",
-        "requests" => "/api/v1/access-requests",
-        "operations" => "/api/v1/operations",
-        "audit" => "/api/v1/audit/events",
-        "capabilities" => "/api/v1/capabilities",
-        "assets" => "/api/v1/assets",
-        "services" => "/api/v1/services",
-        "targets" => "/api/v1/targets",
-        "enrollments" => "/api/v1/enrollments",
-        _ => return Err("unknown command; see --help".into()),
-    };
+    // Parse all read arguments before opening credentials or making a request.
+    let query = read_query::parse(&args)?;
     let client = agent();
-    let mut req = client.get(format!("{base}{route}"));
+    // query_pairs percent-encodes values; no caller text becomes part of the route.
+    let mut req = client
+        .get(format!("{base}{}", query.route))
+        .query_pairs(query.parameters);
     if args[0] != "health" {
         let session = load_session(&session_path, base)?;
         req = req

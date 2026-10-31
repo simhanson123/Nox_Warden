@@ -42,6 +42,20 @@ requests. Sessions end on controller restart; run `login` again with the passkey
 flow. Restart does not issue a bootstrap credential after owner enrollment.
 See the [passkey guide](../../docs/passkey-login.md).
 
+List commands return one envelope with `data` and `next_cursor`. Use `--limit`
+(1–100, default 50) and copy a non-null cursor into the next invocation:
+
+```sh
+cargo run -p fw_cli -- assets --limit 25
+cargo run -p fw_cli -- assets --limit 25 --cursor '<previous next_cursor>'
+```
+
+The same options work for services, requests, operations, targets, enrollments
+and audit. Continue until the cursor is null, including after an empty filtered
+page. Cursors expire after 15 minutes and require the same current session;
+restart a first-page read after expiry. Health, status, capabilities and login do
+not accept list options. See the [snapshot contract](../../docs/catalogue-pagination.md).
+
 ## Register and revoke devices
 
 Initialize the controller PKI and device key using the

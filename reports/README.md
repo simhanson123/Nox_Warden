@@ -141,6 +141,26 @@ This variant requires Python Playwright and local Chromium; see the
 acceptance remain incomplete. Detailed results stay in local output or CI
 artifacts, rather than a continuing development diary.
 
+## Catalogue continuation and target selection
+
+The controller's six catalogue/request/target collections now use stable,
+15-minute authenticated snapshot cursors with default 50 / maximum 100 rows and
+byte-limited continuation. Migration 6 backfills verified projections atomically
+and retains only the live cursor window plus each resource's predecessor.
+Service target writes and selector reads share current certificate/report checks;
+capability refresh now commits a distinct monotonic outbox event, while exact
+retries create none. See the [contract and reproduction steps](../docs/catalogue-pagination.md).
+
+`cargo test --locked --offline -p fw_store -p fw_control -p fw_cli` passed **150 tests**;
+`cargo clippy --locked --offline -p fw_store -p fw_control -p fw_cli --all-targets -- -D warnings`
+and the real controller `python scripts/smoke_control.py` **24 checks** passed.
+The actual CLI `python scripts/smoke_cli.py` passed **13 checks**, including
+three-page traversal and rejection of malformed options before credential reads
+or HTTP.
+These cover pagination beyond 100 rows, byte boundaries, scoped/tampered cursors,
+current selector filtering, migration/clock rollback and concurrent report
+renewal. These are repository/API checks, not native firewall qualification.
+
 ## Release boundary
 
 The controller remains **observe-only**. Local-owner passkey login identifies the

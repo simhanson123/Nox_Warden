@@ -3,6 +3,8 @@ mod audit;
 mod audit_cursor;
 mod bootstrap_file;
 mod cli_auth;
+mod collection_cursor;
+mod collections;
 mod enrollment;
 mod login_ticket;
 mod passkeys;
@@ -468,37 +470,20 @@ impl AccessRequest {
         Ok(())
     }
 }
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct ListQuery {
-    limit: Option<usize>,
-}
-fn list_limit(q: &ListQuery) -> Result<usize, Problem> {
-    let n = q.limit.unwrap_or(50);
-    if n == 0 || n > 100 {
-        Err(bad("PAGE_LIMIT_INVALID"))
-    } else {
-        Ok(n)
-    }
-}
 async fn requests(
     State(s): State<Arc<AppState>>,
     h: HeaderMap,
-    Query(q): Query<ListQuery>,
+    Query(q): Query<collections::ListQuery>,
 ) -> ApiResult {
-    s.auth(&h, false)?;
-    let limit = list_limit(&q)?;
-    let rows = s
-        .store
-        .list_requests(&s.tenant, None, 100)
-        .map_err(|_| unavailable())?;
-    if s.store.count_requests(&s.tenant).map_err(map_store)? > limit as u64 {
-        return Err(Problem(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "RESULT_TOO_LARGE",
-        ));
-    }
-    Ok(axum::Json(envelope(json!(rows))).into_response())
+    let session = s.auth(&h, false)?;
+    Ok(axum::Json(collections::page(
+        &s,
+        &session,
+        q,
+        fw_store::collections::CollectionKind::Requests,
+        "/api/v1/access-requests",
+    )?)
+    .into_response())
 }
 async fn create_request(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
     s.auth(&h, true)?;
@@ -545,21 +530,19 @@ async fn request(
     response["revision"] = json!(row.revision);
     Ok(axum::Json(response).into_response())
 }
-async fn operations(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
-    s.auth(&h, false)?;
-    if s.store.count_operations(&s.tenant).map_err(map_store)? > 100 {
-        return Err(Problem(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "RESULT_TOO_LARGE",
-        ));
-    }
-    let rows = s
-        .store
-        .list_operations(&s.tenant, None, 100)
-        .map_err(map_store)?;
-    Ok(axum::Json(envelope(json!(
-        rows.iter().map(|v| v.view()).collect::<Vec<_>>()
-    )))
+async fn operations(
+    State(s): State<Arc<AppState>>,
+    h: HeaderMap,
+    Query(q): Query<collections::ListQuery>,
+) -> ApiResult {
+    let session = s.auth(&h, false)?;
+    Ok(axum::Json(collections::page(
+        &s,
+        &session,
+        q,
+        fw_store::collections::CollectionKind::Operations,
+        "/api/v1/operations",
+    )?)
     .into_response())
 }
 async fn operation(

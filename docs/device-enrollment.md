@@ -130,7 +130,8 @@ profiles are empty. Desired and observed policy hashes remain null; authority
 epoch and generation remain `0`.
 
 The agent reports once per command. Its capability report lasts **five minutes**;
-run `report` again when it becomes stale. Missing or stale reports, revoked
+run `report` again when it becomes stale. Each new immutable report receives a
+monotonic outbox revision; an exact retry creates no duplicate event. Missing or stale reports, revoked
 credentials and expired certificates cannot establish a usable service target.
 This is device-supplied metadata authenticated by a transport identity, not an
 independent assessment of the machine or proof of installed firewall rules.

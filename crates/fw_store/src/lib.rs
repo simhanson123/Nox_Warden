@@ -15,12 +15,14 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod audit;
+pub mod collections;
 pub mod enrollment;
 pub use audit::AuditPage;
 pub mod passkeys;
 pub mod registry;
 pub use registry::RegistryMutation;
 
+const COLLECTION_MIGRATION: &str = include_str!("../migrations/0006_collection_versions.sql");
 const ENROLLMENT_MIGRATION: &str = include_str!("../migrations/0003_enrollment.sql");
 const PASSKEY_MIGRATION: &str = include_str!("../migrations/0004_passkeys.sql");
 const DENIAL_SUMMARY_MIGRATION: &str = include_str!("../migrations/0005_denial_summaries.sql");
@@ -157,6 +159,7 @@ impl Store {
             ENROLLMENT_MIGRATION,
             PASSKEY_MIGRATION,
             DENIAL_SUMMARY_MIGRATION,
+            COLLECTION_MIGRATION,
         ];
         let installed = {
             let mut query = transaction
@@ -185,6 +188,9 @@ impl Store {
         for (index, migration) in migrations.iter().enumerate().skip(installed.len()) {
             transaction.execute_batch(migration)?;
             let version = index + 1;
+            if version == 6 {
+                collections::backfill(&transaction)?;
+            }
             transaction.execute(
                 "INSERT INTO schema_migrations VALUES(?1,?2,?1,?1)",
                 params![version, hash_bytes(migration.as_bytes())],
@@ -442,6 +448,20 @@ impl Store {
                 now,
             )?;
         }
+        collections::capture(
+            &tx,
+            t,
+            collections::CollectionKind::Requests,
+            &request_id,
+            now,
+        )?;
+        collections::capture(
+            &tx,
+            t,
+            collections::CollectionKind::Operations,
+            &operation_id,
+            now,
+        )?;
         tx.commit()?;
         Ok(result)
     }
@@ -559,6 +579,20 @@ impl Store {
             Some(&old.operation_id),
             if terminal { "failed" } else { "pending" },
             Some(reason),
+            now,
+        )?;
+        collections::capture(
+            &tx,
+            t,
+            collections::CollectionKind::Requests,
+            request_id,
+            now,
+        )?;
+        collections::capture(
+            &tx,
+            t,
+            collections::CollectionKind::Operations,
+            &old.operation_id,
             now,
         )?;
         let updated = read_request(&tx, t, request_id)?;

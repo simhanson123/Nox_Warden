@@ -511,9 +511,19 @@ fn capability_tampering_is_detected_on_read() {
 fn real_enrollment_revocation_blocks_new_service_references() {
     let store = Store::in_memory().unwrap();
     let (t, p) = prepare(&store);
-    let (target, _, _, _) = enrolled(&store, &t, &p);
+    let (target, fingerprint, _, _) = enrolled(&store, &t, &p);
     let asset=store.create_asset(&t,&p,&json!({"definition":{"name":"Server","asset_kind":"host","owner_id":p,"addresses":[{"family":"ipv4","cidr":"192.0.2.1/32","interface":null}],"criticality":"normal","isolation":"host","provenance":"manual","source_evidence":null},"state":"active"}),&id(),NOW+3).unwrap().value;
     let service = |service_id: &str| json!({"service_id":service_id,"definition":{"name":service_id,"owner_id":p,"destination_asset_ids":[asset["asset_id"]],"target_ids":[target],"transport":{"protocol":"tcp","destination_ports":[{"start":443,"end":443}]},"description":"Test","criticality":"normal"}});
+    assert!(matches!(
+        store.create_service(&t, &p, &service("no-report"), &id(), NOW + 3),
+        Err(StoreError::NotFound)
+    ));
+    let identity = store
+        .authenticate_enrollment(&fingerprint, NOW + 3)
+        .unwrap();
+    store
+        .save_target_capability(&identity, &capability(&target, NOW + 3), NOW + 3)
+        .unwrap();
     store
         .create_service(&t, &p, &service("before-revoke"), &id(), NOW + 3)
         .unwrap();

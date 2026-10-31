@@ -312,49 +312,20 @@ fn object_response(object: Value, status: StatusCode, kind: &str) -> ApiResult {
     response.headers_mut().insert("etag", etag);
     Ok(response)
 }
-#[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-pub(super) struct RegistryQuery {
-    limit: Option<usize>,
-    cursor: Option<String>,
-}
-fn list_limit(query: &RegistryQuery) -> Result<usize, Problem> {
-    if query.cursor.is_some() {
-        return Err(bad("CURSOR_UNSUPPORTED"));
-    }
-    let limit = query.limit.unwrap_or(50);
-    if limit == 0 || limit > 100 {
-        return Err(bad("PAGE_LIMIT_INVALID"));
-    }
-    Ok(limit)
-}
-fn list_response(rows: Vec<Value>, kind: &str) -> ApiResult {
-    let revision = rows
-        .iter()
-        .try_fold(1_i32, |sum, row| {
-            let rev = i32::try_from(row["revision"].as_i64()?).ok()?;
-            if rev <= 0 {
-                return None;
-            }
-            sum.checked_add(rev)
-        })
-        .ok_or(Problem(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "REVISION_EXHAUSTED",
-        ))?;
-    Ok(axum::Json(registry_envelope(json!(rows), kind, revision)).into_response())
-}
 pub(super) async fn list_assets(
     State(s): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<RegistryQuery>,
+    Query(query): Query<super::collections::ListQuery>,
 ) -> ApiResult {
-    s.auth(&headers, false)?;
-    let rows = s
-        .store
-        .list_assets(&s.tenant, list_limit(&query)?)
-        .map_err(store_error)?;
-    list_response(rows, "assets")
+    let session = s.auth(&headers, false)?;
+    Ok(axum::Json(super::collections::page(
+        &s,
+        &session,
+        query,
+        fw_store::collections::CollectionKind::Assets,
+        "/api/v1/assets",
+    )?)
+    .into_response())
 }
 pub(super) async fn get_asset(
     State(s): State<Arc<AppState>>,
@@ -422,14 +393,17 @@ pub(super) async fn revise_asset(
 pub(super) async fn list_services(
     State(s): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<RegistryQuery>,
+    Query(query): Query<super::collections::ListQuery>,
 ) -> ApiResult {
-    s.auth(&headers, false)?;
-    let rows = s
-        .store
-        .list_services(&s.tenant, list_limit(&query)?)
-        .map_err(store_error)?;
-    list_response(rows, "services")
+    let session = s.auth(&headers, false)?;
+    Ok(axum::Json(super::collections::page(
+        &s,
+        &session,
+        query,
+        fw_store::collections::CollectionKind::Services,
+        "/api/v1/services",
+    )?)
+    .into_response())
 }
 pub(super) async fn get_service(
     State(s): State<Arc<AppState>>,
