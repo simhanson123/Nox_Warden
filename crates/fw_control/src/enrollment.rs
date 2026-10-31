@@ -107,38 +107,20 @@ pub(crate) async fn create_token(
     };
     Ok((status, axum::Json(envelope(result.value))).into_response())
 }
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ListQuery {
-    limit: Option<usize>,
-}
-fn limit(query: &ListQuery) -> Result<usize, Problem> {
-    let limit = query.limit.unwrap_or(50);
-    if !(1..=100).contains(&limit) {
-        return Err(bad("LIMIT_INVALID"));
-    }
-    Ok(limit)
-}
 pub(crate) async fn list_enrollments(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<crate::collections::ListQuery>,
 ) -> ApiResult {
-    state.auth(&headers, false)?;
-    let limit = limit(&query)?;
-    if state
-        .store
-        .count_enrollments(&state.tenant)
-        .map_err(storage)?
-        > limit as u64
-    {
-        return Err(Problem(StatusCode::PAYLOAD_TOO_LARGE, "RESULT_TOO_LARGE"));
-    }
-    let values = state
-        .store
-        .list_enrollments(&state.tenant, limit, now())
-        .map_err(storage)?;
-    Ok(axum::Json(envelope(json!(values))).into_response())
+    let session = state.auth(&headers, false)?;
+    Ok(axum::Json(crate::collections::page(
+        &state,
+        &session,
+        query,
+        fw_store::collections::CollectionKind::Enrollments,
+        "/api/v1/enrollments",
+    )?)
+    .into_response())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -163,18 +145,17 @@ pub(crate) async fn revoke(
 pub(crate) async fn list_targets(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(query): Query<ListQuery>,
+    Query(query): Query<crate::collections::ListQuery>,
 ) -> ApiResult {
-    state.auth(&headers, false)?;
-    let limit = limit(&query)?;
-    if state.store.count_targets(&state.tenant).map_err(storage)? > limit as u64 {
-        return Err(Problem(StatusCode::PAYLOAD_TOO_LARGE, "RESULT_TOO_LARGE"));
-    }
-    let values = state
-        .store
-        .list_targets(&state.tenant, limit, now())
-        .map_err(storage)?;
-    Ok(axum::Json(envelope(json!(values))).into_response())
+    let session = state.auth(&headers, false)?;
+    Ok(axum::Json(crate::collections::page(
+        &state,
+        &session,
+        query,
+        fw_store::collections::CollectionKind::Targets,
+        "/api/v1/targets",
+    )?)
+    .into_response())
 }
 pub(crate) async fn get_target(
     State(state): State<Arc<AppState>>,

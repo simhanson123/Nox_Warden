@@ -9,28 +9,32 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
-const TARGET: &str = "00000000-0000-4000-8000-000000000004";
+#[path = "../../fw_store/tests/support/enrolled_target.rs"]
+mod enrolled_target;
 fn asset(name: &str) -> Value {
     json!({"definition":{"name":name,"asset_kind":"host","owner_id":PRINCIPAL,"addresses":[{"family":"ipv4","cidr":"192.0.2.10/32","interface":null}],"criticality":"normal","isolation":"host","provenance":"manual","source_evidence":null},"state":"active"})
 }
-fn service(id: &str, asset_id: &str) -> Value {
-    json!({"service_id":id,"definition":{"name":format!("Service {id}"),"owner_id":PRINCIPAL,"destination_asset_ids":[asset_id],"target_ids":[TARGET],"transport":{"protocol":"tcp","destination_ports":[{"start":443,"end":443}]},"description":"HTTPS catalogue entry","criticality":"normal"}})
+fn service(id: &str, asset_id: &str, target: &str) -> Value {
+    json!({"service_id":id,"definition":{"name":format!("Service {id}"),"owner_id":PRINCIPAL,"destination_asset_ids":[asset_id],"target_ids":[target],"transport":{"protocol":"tcp","destination_ports":[{"start":443,"end":443}]},"description":"HTTPS catalogue entry","criticality":"normal"}})
 }
-fn app(store: Store) -> Router {
+fn app(store: Store) -> (Router, String) {
     let tenant = store
         .ensure_tenant(ORG, PROJECT, "Local development", 1)
         .unwrap();
     store
         .ensure_principal(&tenant, PRINCIPAL, "human", 1)
         .unwrap();
-    store
-        .register_observe_target(&tenant, TARGET, "linux")
-        .unwrap();
-    router(
-        Arc::new(
-            AppState::new(store, "http://127.0.0.1:8787".into(), "registry-test-token").unwrap(),
+    let (target, _) =
+        enrolled_target::enrolled(&store, &tenant, PRINCIPAL, chrono::Utc::now().timestamp());
+    (
+        router(
+            Arc::new(
+                AppState::new(store, "http://127.0.0.1:8787".into(), "registry-test-token")
+                    .unwrap(),
+            ),
+            "/tmp/nox-registry-web-absent".into(),
         ),
-        "/tmp/nox-registry-web-absent".into(),
+        target,
     )
 }
 async fn decode(response: axum::response::Response) -> (StatusCode, HeaderMap, Value) {
@@ -109,7 +113,7 @@ async fn post(
 }
 #[tokio::test]
 async fn asset_revision_and_idempotency_are_real() {
-    let app = app(Store::in_memory().unwrap());
+    let (app, _target) = app(Store::in_memory().unwrap());
     let (cookie, csrf) = login(&app).await;
     let key = Uuid::new_v4().to_string();
     let (status, headers, created) = post(
@@ -169,11 +173,11 @@ async fn asset_revision_and_idempotency_are_real() {
     let (status, _, list) = get(&app, "/api/v1/assets", &cookie, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list["data"].as_array().unwrap().len(), 1);
-    assert_eq!(list["revision"], 2);
+    assert!(list["revision"].as_i64().unwrap() > 0);
 }
 #[tokio::test]
 async fn revisions_require_exact_etag_and_retry_original_revision() {
-    let app = app(Store::in_memory().unwrap());
+    let (app, _target) = app(Store::in_memory().unwrap());
     let (cookie, csrf) = login(&app).await;
     let (_, headers, created) = post(
         &app,
@@ -265,7 +269,7 @@ async fn revisions_require_exact_etag_and_retry_original_revision() {
 }
 #[tokio::test]
 async fn catalogue_input_cannot_claim_trusted_identity_or_server_fields() {
-    let app = app(Store::in_memory().unwrap());
+    let (app, _target) = app(Store::in_memory().unwrap());
     let (cookie, csrf) = login(&app).await;
     let mut trusted = asset("Untrusted");
     trusted["definition"]["provenance"] = json!("enrolled_agent");
@@ -358,7 +362,7 @@ async fn catalogue_input_cannot_claim_trusted_identity_or_server_fields() {
 }
 #[tokio::test]
 async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
-    let app = app(Store::in_memory().unwrap());
+    let (app, _target) = app(Store::in_memory().unwrap());
     let (cookie, csrf) = login(&app).await;
     let (_, _, created) = post(
         &app,
@@ -371,7 +375,7 @@ async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
     )
     .await;
     let id = created["data"]["asset_id"].as_str().unwrap();
-    let body = service("web.https", id);
+    let body = service("web.https", id, &_target);
     let key = Uuid::new_v4().to_string();
     let (status, headers, created) = post(
         &app,
@@ -417,7 +421,7 @@ async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
         .0,
         StatusCode::CREATED
     );
-    let mut missing = service("missing", id);
+    let mut missing = service("missing", id, &_target);
     missing["definition"]["target_ids"] = json!([Uuid::new_v4()]);
     assert_eq!(
         post(
@@ -433,7 +437,7 @@ async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
         .0,
         StatusCode::NOT_FOUND
     );
-    let mut overlap = service("overlap", id);
+    let mut overlap = service("overlap", id, &_target);
     overlap["definition"]["transport"]["destination_ports"] =
         json!([{"start":443,"end":445},{"start":445,"end":446}]);
     assert_eq!(
@@ -450,7 +454,7 @@ async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
         .0,
         StatusCode::UNPROCESSABLE_ENTITY
     );
-    let mut extra = service("extra", id);
+    let mut extra = service("extra", id, &_target);
     extra["definition"]["transport"]["type"] = json!(8);
     assert_eq!(
         post(
@@ -469,7 +473,7 @@ async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
 }
 #[tokio::test]
 async fn retired_assets_stay_visible_but_cannot_be_reactivated_or_referenced() {
-    let app = app(Store::in_memory().unwrap());
+    let (app, _target) = app(Store::in_memory().unwrap());
     let (cookie, csrf) = login(&app).await;
     let (_, headers, created) = post(
         &app,
@@ -522,7 +526,7 @@ async fn retired_assets_stay_visible_but_cannot_be_reactivated_or_referenced() {
             &csrf,
             &Uuid::new_v4().to_string(),
             None,
-            service("retired", id)
+            service("retired", id, &_target)
         )
         .await
         .0,
@@ -553,7 +557,7 @@ async fn cross_tenant_objects_are_not_found() {
         )
         .unwrap()
         .value;
-    let app = app(store);
+    let (app, _target) = app(store);
     let (cookie, csrf) = login(&app).await;
     let hidden_id = hidden["asset_id"].as_str().unwrap();
     assert_eq!(
@@ -570,7 +574,7 @@ async fn cross_tenant_objects_are_not_found() {
             &csrf,
             &Uuid::new_v4().to_string(),
             None,
-            service("hidden", hidden_id)
+            service("hidden", hidden_id, &_target)
         )
         .await
         .0,
@@ -578,8 +582,8 @@ async fn cross_tenant_objects_are_not_found() {
     );
 }
 #[tokio::test]
-async fn bounded_lists_fail_explicitly_instead_of_truncating() {
-    let app = app(Store::in_memory().unwrap());
+async fn bounded_lists_continue_instead_of_failing() {
+    let (app, _target) = app(Store::in_memory().unwrap());
     let (cookie, csrf) = login(&app).await;
     for name in ["One", "Two"] {
         assert_eq!(
@@ -598,8 +602,9 @@ async fn bounded_lists_fail_explicitly_instead_of_truncating() {
         );
     }
     let (status, _, body) = get(&app, "/api/v1/assets?limit=1", &cookie, &csrf).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["code"], "RESULT_TOO_LARGE");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+    assert!(body["next_cursor"].is_string());
     for query in ["limit=0", "limit=101", "cursor=unknown", "unknown=true"] {
         assert_eq!(
             get(&app, &format!("/api/v1/assets?{query}"), &cookie, &csrf)
@@ -608,4 +613,256 @@ async fn bounded_lists_fail_explicitly_instead_of_truncating() {
             StatusCode::BAD_REQUEST
         );
     }
+}
+#[tokio::test]
+async fn collections_over_one_hundred_rows_have_scoped_stable_continuations() {
+    let store = Store::in_memory().unwrap();
+    let at = chrono::Utc::now().timestamp();
+    let tenant = store
+        .ensure_tenant(ORG, PROJECT, "Local development", at)
+        .unwrap();
+    store
+        .ensure_principal(&tenant, PRINCIPAL, "human", at)
+        .unwrap();
+    for n in 0..105 {
+        store
+            .create_asset(
+                &tenant,
+                PRINCIPAL,
+                &asset(&format!("Asset {n}")),
+                &Uuid::new_v4().to_string(),
+                at,
+            )
+            .unwrap();
+        store
+            .submit_unenrolled_request(
+                &tenant,
+                PRINCIPAL,
+                "access_request",
+                &json!({"number":n}),
+                &Uuid::new_v4().to_string(),
+                at,
+            )
+            .unwrap();
+    }
+    let (app, _) = app(store);
+    let (cookie, csrf) = login(&app).await;
+    for route in ["assets", "access-requests", "operations"] {
+        let (status, _, first) = get(&app, &format!("/api/v1/{route}"), &cookie, &csrf).await;
+        assert_eq!(status, StatusCode::OK, "{first}");
+        assert_eq!(first["data"].as_array().unwrap().len(), 50);
+        let (status, _, max) =
+            get(&app, &format!("/api/v1/{route}?limit=100"), &cookie, &csrf).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(max["data"].as_array().unwrap().len(), 100);
+        let mut rows = first["data"].as_array().unwrap().clone();
+        let mut cursor = first["next_cursor"].as_str().map(str::to_owned);
+        while let Some(c) = cursor {
+            let (status, _, page) =
+                get(&app, &format!("/api/v1/{route}?cursor={c}"), &cookie, &csrf).await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            assert_eq!(page["revision"], first["revision"]);
+            rows.extend(page["data"].as_array().unwrap().clone());
+            cursor = page["next_cursor"].as_str().map(str::to_owned);
+            assert!(rows.len() <= 105);
+        }
+        assert_eq!(rows.len(), 105);
+    }
+    let (_, _, first) = get(
+        &app,
+        "/api/v1/assets?limit=25&eligible=true",
+        &cookie,
+        &csrf,
+    )
+    .await;
+    let cursor = first["next_cursor"].as_str().unwrap();
+    for path in [
+        format!("/api/v1/services?cursor={cursor}"),
+        format!("/api/v1/assets?limit=26&cursor={cursor}"),
+        format!("/api/v1/assets?eligible=false&cursor={cursor}"),
+    ] {
+        let (status, _, body) = get(&app, &path, &cookie, &csrf).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "INVALID_INPUT");
+        assert_eq!(body["detail"], "CURSOR_SCOPE_MISMATCH");
+    }
+    let mut altered = cursor.as_bytes().to_vec();
+    altered[10] = if altered[10] == b'A' { b'B' } else { b'A' };
+    let (status, _, body) = get(
+        &app,
+        &format!(
+            "/api/v1/assets?cursor={}",
+            String::from_utf8(altered).unwrap()
+        ),
+        &cookie,
+        &csrf,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "INVALID_INPUT");
+    assert_eq!(body["detail"], "CURSOR_INVALID");
+    let (status, _, _) = post(
+        &app,
+        "/api/v1/assets",
+        &cookie,
+        &csrf,
+        &Uuid::new_v4().to_string(),
+        None,
+        asset("Added after snapshot"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _, next) = get(
+        &app,
+        &format!("/api/v1/assets?cursor={cursor}"),
+        &cookie,
+        &csrf,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(next["revision"], first["revision"]);
+    assert!(
+        next["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v["definition"]["name"] != "Added after snapshot")
+    );
+    assert_eq!(
+        get(
+            &app,
+            &format!("/api/v1/assets?cursor={cursor}"),
+            "session=invalid",
+            &csrf,
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+#[tokio::test]
+async fn response_byte_cap_returns_a_smaller_page_and_continuation() {
+    let store = Store::in_memory().unwrap();
+    let at = chrono::Utc::now().timestamp();
+    let tenant = store
+        .ensure_tenant(ORG, PROJECT, "Local development", at)
+        .unwrap();
+    store
+        .ensure_principal(&tenant, PRINCIPAL, "human", at)
+        .unwrap();
+    for n in 0..4 {
+        store
+            .submit_unenrolled_request(
+                &tenant,
+                PRINCIPAL,
+                "access_request",
+                &json!({"number":n,"large":"x".repeat(60_000)}),
+                &Uuid::new_v4().to_string(),
+                at,
+            )
+            .unwrap();
+    }
+    let (app, _) = app(store);
+    let (cookie, csrf) = login(&app).await;
+    let (status, _, first) = get(&app, "/api/v1/access-requests?limit=100", &cookie, &csrf).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert_eq!(first["data"].as_array().unwrap().len(), 3);
+    let cursor = first["next_cursor"].as_str().unwrap();
+    let (status, _, next) = get(
+        &app,
+        &format!("/api/v1/access-requests?cursor={cursor}"),
+        &cookie,
+        &csrf,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(next["data"].as_array().unwrap().len(), 1);
+    assert!(next["next_cursor"].is_null());
+}
+#[tokio::test]
+async fn eligible_target_pages_skip_revoked_and_expired_reports_and_keep_continuation() {
+    let store = Store::in_memory().unwrap();
+    let at = chrono::Utc::now().timestamp();
+    let tenant = store
+        .ensure_tenant(ORG, PROJECT, "Local development", at - 301)
+        .unwrap();
+    store
+        .ensure_principal(&tenant, PRINCIPAL, "human", at - 301)
+        .unwrap();
+    let (stale, _) = enrolled_target::enrolled(&store, &tenant, PRINCIPAL, at - 301);
+    let (revoked, _) = enrolled_target::enrolled(&store, &tenant, PRINCIPAL, at);
+    store
+        .revoke_enrollment(&tenant, PRINCIPAL, &revoked, at)
+        .unwrap();
+    let (app, target) = app(store);
+    let (cookie, csrf) = login(&app).await;
+    let (status, _, first) = get(
+        &app,
+        "/api/v1/targets?limit=1&eligible=true",
+        &cookie,
+        &csrf,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert!(first["data"].as_array().unwrap().is_empty());
+    assert!(
+        first["next_cursor"].is_string(),
+        "empty filtered page must retain continuation"
+    );
+    let mut cursor = first["next_cursor"].as_str().map(str::to_owned);
+    let mut rows = vec![];
+    let mut pages = 0;
+    while let Some(c) = cursor {
+        pages += 1;
+        assert!(pages <= 3);
+        let (status, _, page) =
+            get(&app, &format!("/api/v1/targets?cursor={c}"), &cookie, &csrf).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        rows.extend(page["data"].as_array().unwrap().clone());
+        cursor = page["next_cursor"].as_str().map(str::to_owned);
+    }
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["target_id"], target);
+    assert_eq!(rows[0]["enforcement_backend"], "nftables");
+    assert!(rows[0]["observed_at"].is_null());
+    let (_, _, all) = get(&app, "/api/v1/targets?limit=100", &cookie, &csrf).await;
+    assert_eq!(all["data"].as_array().unwrap().len(), 3);
+    for id in [&stale, &revoked] {
+        assert_eq!(
+            all["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["target_id"] == *id)
+                .unwrap()["state"],
+            "quarantined"
+        );
+    }
+    let (_, _, created) = post(
+        &app,
+        "/api/v1/assets",
+        &cookie,
+        &csrf,
+        &Uuid::new_v4().to_string(),
+        None,
+        asset("Destination"),
+    )
+    .await;
+    let aid = created["data"]["asset_id"].as_str().unwrap();
+    for (n, id) in [&stale, &revoked].into_iter().enumerate() {
+        let (status, _, _) = post(
+            &app,
+            "/api/v1/services",
+            &cookie,
+            &csrf,
+            &Uuid::new_v4().to_string(),
+            None,
+            service(&format!("bad-{n}"), aid, id),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    let (status, _, page) = get(&app, "/api/v1/enrollments?limit=1", &cookie, &csrf).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page["next_cursor"].is_string());
 }

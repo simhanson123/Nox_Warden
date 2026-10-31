@@ -499,6 +499,16 @@ impl Store {
             &[content_hash],
             now,
         )?;
+        super::collections::capture(
+            &tx,
+            t,
+            match kind {
+                Kind::Asset => super::collections::CollectionKind::Assets,
+                Kind::Service => super::collections::CollectionKind::Services,
+            },
+            &resource_id,
+            now,
+        )?;
         tx.commit()?;
         Ok(RegistryMutation {
             value: revision_value,
@@ -731,7 +741,11 @@ fn validate_service_refs(
         }
     }
     for id in strings(&definition["target_ids"])? {
-        let exists:bool=c.query_row("SELECT EXISTS(SELECT 1 FROM targets t LEFT JOIN target_enrollments e USING(org_id,project_id,target_id) WHERE t.org_id=?1 AND t.project_id=?2 AND t.target_id=?3 AND (?4 != 'active' OR e.target_id IS NULL OR (e.revoked_at IS NULL AND e.enrolled_at<=?5 AND e.certificate_expires_at>?5)))",params![t.org_id,t.project_id,id,state,now],|r|r.get(0))?;
+        let exists = if state == "active" {
+            super::enrollment::target_eligible(c, t, id, now)?
+        } else {
+            c.query_row("SELECT EXISTS(SELECT 1 FROM targets WHERE org_id=?1 AND project_id=?2 AND target_id=?3)",params![t.org_id,t.project_id,id],|r|r.get(0))?
+        };
         if !exists {
             return Err(StoreError::NotFound);
         }
@@ -915,4 +929,23 @@ fn decode_hash(value: &str) -> Result<Vec<u8>> {
                 .map_err(|_| StoreError::InvalidInput("content hash"))
         })
         .collect()
+}
+
+pub(super) fn collection_view(
+    c: &Connection,
+    t: &Tenant,
+    kind: super::collections::CollectionKind,
+    id: &str,
+) -> Result<Value> {
+    read_registry(
+        c,
+        t,
+        match kind {
+            super::collections::CollectionKind::Assets => Kind::Asset,
+            super::collections::CollectionKind::Services => Kind::Service,
+            _ => return Err(StoreError::InvalidInput("registry collection kind")),
+        },
+        id,
+        None,
+    )
 }

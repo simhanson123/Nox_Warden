@@ -1,3 +1,5 @@
+#[path = "support/enrolled_target.rs"]
+mod enrolled_target;
 use fw_contracts::{canonical_hash, hash_bytes};
 use fw_store::{Store, StoreError, Tenant};
 use rusqlite::{params, Connection};
@@ -27,8 +29,7 @@ fn make_service(store: &Store, t: &Tenant, p: &str) -> (Value, Value) {
         .create_asset(t, p, &asset(p, "DB host"), &id(), NOW)
         .unwrap()
         .value;
-    let target = id();
-    store.register_observe_target(t, &target, "linux").unwrap();
+    let (target, _) = enrolled_target::enrolled(store, t, p, NOW);
     let body = service(p, a["asset_id"].as_str().unwrap(), &target);
     let s = store.create_service(t, p, &body, &id(), NOW).unwrap().value;
     (a, s)
@@ -160,8 +161,7 @@ fn retired_assets_are_visible_historically_but_cannot_reactivate_or_join_new_ser
         ),
         Err(StoreError::Retired)
     ));
-    let target = id();
-    store.register_observe_target(&t, &target, "linux").unwrap();
+    let (target, _) = enrolled_target::enrolled(&store, &t, &p, NOW);
     assert!(matches!(
         store.create_service(&t, &p, &service(&p, aid, &target), &id(), NOW),
         Err(StoreError::Retired)
@@ -266,8 +266,7 @@ fn services_reject_cross_tenant_destinations_and_unknown_targets() {
         .create_asset(&other, &op, &asset(&op, "Foreign"), &id(), NOW)
         .unwrap()
         .value;
-    let target = id();
-    store.register_observe_target(&t, &target, "linux").unwrap();
+    let (target, _) = enrolled_target::enrolled(&store, &t, &p, NOW);
     assert!(matches!(
         store.create_service(
             &t,
@@ -437,7 +436,7 @@ fn registry_audit_failure_rolls_back_revision_head_relations_outbox_and_idempote
     assert_eq!(store.security_revision(&t).unwrap(), 1);
 }
 #[test]
-fn v1_migration_preserves_existing_data_and_marks_version_five() {
+fn v1_migration_preserves_existing_data_and_marks_version_six() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db");
     let raw = Connection::open(&path).unwrap();
@@ -462,7 +461,7 @@ fn v1_migration_preserves_existing_data_and_marks_version_five() {
     assert_eq!(
         raw.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
     assert_eq!(
         raw.query_row(
@@ -477,7 +476,7 @@ fn v1_migration_preserves_existing_data_and_marks_version_five() {
         raw.query_row("SELECT count(*) FROM schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
 }
 #[test]
@@ -488,7 +487,7 @@ fn unknown_version_or_old_migration_checksum_prevents_upgrade() {
     let raw = Connection::open(&path).unwrap();
     raw.pragma_update(None, "user_version", 99).unwrap();
     assert!(matches!(Store::open(&path), Err(StoreError::Integrity(_))));
-    raw.pragma_update(None, "user_version", 5).unwrap();
+    raw.pragma_update(None, "user_version", 6).unwrap();
     raw.execute(
         "UPDATE schema_migrations SET checksum='tampered' WHERE version=1",
         [],
@@ -505,8 +504,7 @@ fn creation_replay_returns_original_revision_after_retirement_and_service_confli
     let body = asset(&p, "Host");
     let first = store.create_asset(&t, &p, &body, &key, NOW).unwrap().value;
     let aid = first["asset_id"].as_str().unwrap();
-    let target = id();
-    store.register_observe_target(&t, &target, "linux").unwrap();
+    let (target, _) = enrolled_target::enrolled(&store, &t, &p, NOW);
     let service_body = service(&p, aid, &target);
     let service_key = id();
     let service_first = store
@@ -581,8 +579,7 @@ fn icmp_protocol_family_is_checked_against_destination_catalog() {
         .create_asset(&t, &p, &asset(&p, "Host"), &id(), NOW)
         .unwrap()
         .value;
-    let target = id();
-    store.register_observe_target(&t, &target, "linux").unwrap();
+    let (target, _) = enrolled_target::enrolled(&store, &t, &p, NOW);
     let mut body = service(&p, a["asset_id"].as_str().unwrap(), &target);
     body["definition"]["transport"] = json!({"protocol":"icmpv6","type":128,"code":0});
     assert!(matches!(

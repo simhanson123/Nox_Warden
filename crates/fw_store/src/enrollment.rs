@@ -375,6 +375,7 @@ impl Store {
             &json!({"target_id":token.target_id,"state":"observe_only"}),
             now,
         )?;
+        super::collections::capture_enrollment(&tx, &token.tenant, &token.target_id, now)?;
         tx.commit()?;
         Ok(serde_json::to_value(response)?)
     }
@@ -459,6 +460,7 @@ impl Store {
             &json!({"target_id":target_id,"network_revoked":false}),
             now,
         )?;
+        super::collections::capture_enrollment(&tx, t, target_id, now)?;
         let result = enrollment_view(&tx, t, target_id, now)?;
         tx.commit()?;
         Ok(result)
@@ -535,16 +537,24 @@ impl Store {
             std::slice::from_ref(&hash),
             now,
         )?;
+        // A target can renew its report many times. Each immutable capability
+        // needs a distinct outbox revision; replays return before this insert.
+        // enrolled_capabilities forbids UPDATE and DELETE, so this count is a
+        // durable monotonic sequence under the current IMMEDIATE transaction.
+        let report_count: i64 = tx.query_row("SELECT count(*) FROM enrolled_capabilities WHERE org_id=?1 AND project_id=?2 AND target_id=?3",params![current.tenant.org_id,current.tenant.project_id,current.target_id],|r|r.get(0))?;
+        let report_revision = i32::try_from(report_count)
+            .map_err(|_| StoreError::Integrity("capability revision exhausted"))?;
         enqueue(
             &tx,
             &current.tenant,
             "target",
             &current.target_id,
-            1,
+            report_revision,
             "target.capability_reported",
             &json!({"target_id":current.target_id,"capability_hash":hash,"state":"observe_only"}),
             now,
         )?;
+        super::collections::capture_enrollment(&tx, &current.tenant, &current.target_id, now)?;
         let result = target_view(&tx, &current.tenant, &current.target_id, now)?;
         tx.commit()?;
         Ok(result)
@@ -624,13 +634,13 @@ fn read_job_for_token(c: &Connection, token: &TokenRow) -> Result<Option<Enrollm
 fn authenticate(c: &Connection, fp: &str, now: i64) -> Result<EnrollmentIdentity> {
     c.query_row("SELECT e.org_id,e.project_id,e.target_id,e.key_fingerprint,e.certificate_expires_at FROM target_enrollments e JOIN projects p ON (e.org_id=p.org_id AND e.project_id=p.project_id) JOIN organizations o ON e.org_id=o.org_id WHERE e.certificate_fingerprint=?1 AND e.revoked_at IS NULL AND e.enrolled_at<=?2 AND e.certificate_expires_at>?2 AND p.state='active' AND o.state='active'",params![fp,now],|r|Ok(EnrollmentIdentity {tenant:Tenant {org_id:r.get(0)?,project_id:r.get(1)?},target_id:r.get(2)?,key_fingerprint:r.get(3)?,certificate_fingerprint:fp.into(),certificate_expires_at:r.get(4)?})).optional()?.ok_or(StoreError::NotFound)
 }
-fn enrollment_view(c: &Connection, t: &Tenant, id: &str, now: i64) -> Result<Value> {
+pub(super) fn enrollment_view(c: &Connection, t: &Tenant, id: &str, now: i64) -> Result<Value> {
     let row:(String,String,String,i64,i64,Option<i64>,Option<String>)=c.query_row("SELECT e.name,t.platform,e.key_fingerprint,e.enrolled_at,e.certificate_expires_at,e.revoked_at,e.capability_hash FROM target_enrollments e JOIN targets t USING(org_id,project_id,target_id) WHERE e.org_id=?1 AND e.project_id=?2 AND e.target_id=?3",params![t.org_id,t.project_id,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?.ok_or(StoreError::NotFound)?;
     Ok(
         json!({"target_id":id,"name":row.0,"platform":row.1,"state":if row.5.is_some() || row.4<=now || row.3>now {"quarantined"} else {"observe_only"},"key_fingerprint":row.2,"enrolled_at":timestamp(row.3)?,"certificate_expires_at":timestamp(row.4)?,"revoked":row.5.is_some(),"capability_hash":row.6}),
     )
 }
-fn target_view(c: &Connection, t: &Tenant, id: &str, now: i64) -> Result<Value> {
+pub(super) fn target_view(c: &Connection, t: &Tenant, id: &str, now: i64) -> Result<Value> {
     let enrollment = enrollment_view(c, t, id, now)?;
     let hash = enrollment["capability_hash"]
         .as_str()
@@ -864,4 +874,35 @@ fn validate_capability(
         }
     }
     Ok((checked, until))
+}
+
+/// Catalogue suitability only: enrollment and current report confer no policy authority.
+pub(super) fn target_eligible(c: &Connection, t: &Tenant, id: &str, now: i64) -> Result<bool> {
+    match target_view(c, t, id, now) {
+        Ok(v) => Ok(v["state"] == "observe_only"),
+        Err(StoreError::NotFound) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+pub(super) fn snapshot_target_eligible(
+    c: &Connection,
+    t: &Tenant,
+    v: &Value,
+    now: i64,
+) -> Result<bool> {
+    let id = field(v, "target_id")?;
+    if v["state"] != "observe_only" || enrollment_view(c, t, id, now)?["state"] != "observe_only" {
+        return Ok(false);
+    }
+    let hash = field(v, "capability_hash")?;
+    let (bytes,checked,until):(Vec<u8>,i64,i64)=c.query_row("SELECT canonical_bytes,checked_at,valid_until FROM enrolled_capabilities WHERE org_id=?1 AND project_id=?2 AND target_id=?3 AND capability_hash=?4",params![t.org_id,t.project_id,id,hash],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+    let cap: Value = serde_json::from_slice(&bytes)?;
+    if hash_bytes(&bytes) != hash
+        || cap["target_id"] != id
+        || parse_time(field(&cap, "checked_at")?)? != checked
+        || parse_time(field(&cap, "valid_until")?)? != until
+    {
+        return Err(StoreError::Integrity("snapshot capability projection"));
+    }
+    Ok(checked <= now && now < until)
 }

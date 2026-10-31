@@ -30,7 +30,7 @@ return HTTP 410 `CURSOR_EXPIRED`. Cursors are one base64url value with at most
 The HMAC key exists only in the running controller process. Restart, logout or
 session replacement requires a new authenticated read; old cursors are not
 portable export credentials. This mechanism covers audit events. Other catalogue
-and request endpoints do not thereby gain snapshot pagination.
+and request endpoints now have their own [collection snapshot contract](catalogue-pagination.md).
 
 ## Repeated authentication failures
 

@@ -5,6 +5,7 @@ import type { JsonRecord, ReadEnvelope } from './api';
 import { formatTime } from './i18n';
 import type { Locale, Translate } from './i18n';
 import { Detail, Empty, ErrorNotice, Freshness, Icon, Loader } from './ui';
+import { checkedPage, PageNavigation, usePagedCollection } from './Pagination';
 
 export type RegistryKind = 'assets' | 'services';
 type RegistryState = 'active' | 'retired';
@@ -16,7 +17,6 @@ interface AssetDefinition { name: string; asset_kind: AssetKind; owner_id: strin
 type Transport = { protocol: 'tcp' | 'udp'; destination_ports: { start: number; end: number }[] } | { protocol: 'icmp' | 'icmpv6'; type: number; code: number };
 interface ServiceDefinition { name: string; owner_id: string; destination_asset_ids: string[]; target_ids: string[]; transport: Transport; description: string; criticality: Criticality }
 interface RegistryRecord extends JsonRecord { revision: number; state: RegistryState; content_hash: string; created_at: string; definition: AssetDefinition | ServiceDefinition }
-interface Collection { loading: boolean; envelope?: ReadEnvelope<unknown>; error?: ApiError }
 const uuidPattern = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const isAllowed = (envelope: ReadEnvelope<unknown> | undefined, kind: RegistryKind) => envelope?.actions?.some(action => action.action_id === `registry.${kind}.write` && action.allowed) ?? false;
 const recordId = (record: JsonRecord, kind: RegistryKind) => displayValue(record[kind === 'assets' ? 'asset_id' : 'service_id']);
@@ -25,40 +25,33 @@ function locationRecord(kind: RegistryKind): string | null {
   try { return parts[1] === kind && parts[2] && parts[2] !== 'new' ? decodeURIComponent(parts[2]) : null; }
   catch { return null; }
 }
-function useCollection(path: string, revision: number): Collection {
-  const [result, setResult] = useState<Collection>({ loading: true });
-  useEffect(() => {
-    const controller = new AbortController(); setResult({ loading: true });
-    void api<unknown>(path, { signal: controller.signal }).then(envelope => {
-      listData(envelope); setResult({ loading: false, envelope });
-    }).catch((error: unknown) => { if (!controller.signal.aborted) setResult({ loading: false, error: error instanceof ApiError ? error : new ApiError(0, 'INVALID_RESPONSE', '') }); });
-    return () => controller.abort();
-  }, [path, revision]);
-  return result;
-}
-
 /** Paged, server-backed registry choices; manual IDs cannot enter this control. */
 export function RegistryPicker({ path, label, value, onChange, multiple = false, t, onAvailability }: {
   path: '/assets' | '/services' | '/targets'; label: string; value: string[];
   onChange: (ids: string[]) => void; multiple?: boolean; t: Translate; onAvailability?: (available: boolean) => void;
 }) {
-  const [items, setItems] = useState<JsonRecord[]>([]); const [cursor, setCursor] = useState<string | null>(null);
-  const [next, setNext] = useState<string | null>(null); const [error, setError] = useState<ApiError>(); const [loading, setLoading] = useState(true);
-  const [attempt, setAttempt] = useState(0);
+  const [pages, setPages] = useState<{ path: string; items: JsonRecord[]; cursor: string | null; next: string | null; error?: ApiError; loading: boolean; attempt: number }>({ path, items: [], cursor: null, next: null, loading: true, attempt: 0 });
+  const page = pages.path === path ? pages : { path, items: [], cursor: null, next: null, loading: true, attempt: pages.attempt };
+  const { items, cursor, next, error, loading, attempt } = page;
   useEffect(() => {
-    const controller = new AbortController(); setLoading(true); setError(undefined);
-    void api<unknown>(path + '?limit=25' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''), { signal: controller.signal }).then(envelope => {
-      const page = listData(envelope).filter(item => item.state !== 'retired');
-      setItems(previous => cursor ? [...previous, ...page.filter(item => !previous.some(existing => choiceId(existing, path) === choiceId(item, path)))] : page);
-      setNext(envelope.next_cursor ?? null); setLoading(false);
-    }).catch((err: unknown) => { if (!controller.signal.aborted) { setError(err instanceof ApiError ? err : new ApiError(0, 'INVALID_RESPONSE', '')); setLoading(false); } });
+    const controller = new AbortController();
+    setPages(previous => ({ ...(previous.path === path ? previous : { path, items: [], cursor: null, next: null, attempt }), loading: true, error: undefined }));
+    void api<unknown>(path + '?limit=25&eligible=true' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''), { signal: controller.signal }).then(envelope => {
+      const received = checkedPage(envelope);
+      const eligible = received.rows.filter(item => item.state !== 'retired' && (path !== '/targets' || item.state !== 'quarantined'));
+      if (!controller.signal.aborted) setPages(previous => ({ path, cursor, next: received.next, loading: false, attempt,
+        items: cursor ? [...previous.items, ...eligible.filter(item => !previous.items.some(existing => choiceId(existing, path) === choiceId(item, path)))] : eligible }));
+    }).catch((err: unknown) => { if (!controller.signal.aborted) setPages(previous => ({ ...previous, error: err instanceof ApiError ? err : new ApiError(0, 'INVALID_RESPONSE', ''), loading: false })); });
     return () => controller.abort();
   }, [path, cursor, attempt]);
-  useEffect(() => { onAvailability?.(!loading && !error && items.length > 0); }, [loading, error, items, onAvailability]);
+  const missing = value.filter(id => !items.some(item => choiceId(item, path) === id));
+  useEffect(() => { onAvailability?.(!loading && !error && items.length > 0 && missing.length === 0); }, [loading, error, items.length, missing.length, onAvailability]);
+  function restart() { setPages({ path, items: [], cursor: null, next: null, loading: true, attempt: attempt + 1 }); }
   return <div className="registry-picker"><label>{label}<select aria-label={label} required multiple={multiple} size={multiple ? 4 : undefined} value={multiple ? value : value[0] ?? ''} disabled={loading || !!error || items.length === 0} onChange={event => onChange(Array.from(event.target.selectedOptions).map(option => option.value).filter(Boolean))}>
     {!multiple && <option value="">{t('registry.select')}</option>}
+    {missing.map(id => <option disabled key={id} value={id}>{id} · {t('registry.unavailableChoice')}</option>)}
     {items.map(item => <option key={choiceId(item, path)} value={choiceId(item, path)}>{choiceLabel(item, path)}</option>)}
-  </select></label>{loading && <span role="status" className="field-hint">{t('common.loading')}</span>}{error && <ErrorNotice error={error} t={t} retry={() => setAttempt(value => value + 1)}/>}{!loading && !error && items.length === 0 && <p className="field-hint">{t('registry.noOptions')}</p>}{multiple && <p className="field-hint">{t('registry.multiHint')}</p>}{next && <button type="button" className="text-button" disabled={loading} onClick={() => setCursor(next)}>{t('registry.nextOptions')}</button>}</div>;
+  </select></label>{loading && <span role="status" className="field-hint">{t('common.loading')}</span>}{error && <ErrorNotice error={error} t={t} retry={restart}/>}{!loading && !error && items.length === 0 && <p className="field-hint">{t(next ? 'pagination.emptyPage' : 'registry.noOptions')}</p>}{missing.length > 0 && !loading && <p className="notice warning">{t('registry.missingSelection')} <button type="button" className="text-button" onClick={() => onChange(value.filter(id => !missing.includes(id)))}>{t('registry.removeMissing')}</button></p>}{multiple && <p className="field-hint">{t('registry.multiHint')}</p>}<p className="field-hint">{t('registry.loadedOptions', { count: items.length })}</p><button type="button" className="text-button" disabled={loading} onClick={restart}>{t('registry.refreshChoices')}</button>{next && !error && <button type="button" className="text-button" disabled={loading} onClick={() => setPages({ ...page, cursor: next, loading: true })}>{t('registry.nextOptions')}</button>}</div>;
 }
 function choiceId(item: JsonRecord, path: string): string { return displayValue(recordValue(item, path === '/assets' ? 'asset_id' : path === '/services' ? 'service_id' : 'target_id', 'id')); }
 function choiceLabel(item: JsonRecord, path: string): string {
@@ -134,10 +127,10 @@ function RegistryEditor({ kind, current, principalId, t, saved, close }: { kind:
 }
 
 export function RegistryPage({ kind, t, locale, principalId, revision }: { kind: RegistryKind; t: Translate; locale: Locale; principalId: string; revision: number }) {
-  const [cursor, setCursor] = useState<string | null>(null); const [selectedId, setSelectedId] = useState<string | null>(() => locationRecord(kind));
+  const [selectedId, setSelectedId] = useState<string | null>(() => locationRecord(kind));
   const [current, setCurrent] = useState<ReadEnvelope<RegistryRecord>>(); const [detailError, setDetailError] = useState<ApiError>();
   const [editing, setEditing] = useState(location.pathname === '/' + kind + '/new'); const [refresh, setRefresh] = useState(0); const [saved, setSaved] = useState(false); const [raw, setRaw] = useState(false);
-  const collection = useCollection('/' + kind + '?limit=25' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''), revision + refresh);
+  const collection = usePagedCollection('/' + kind, `${revision}:${refresh}`);
   useEffect(() => { const pop = () => { setSelectedId(locationRecord(kind)); setEditing(location.pathname === '/' + kind + '/new'); setCurrent(undefined); setDetailError(undefined); }; window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, [kind]);
   useEffect(() => {
     if (!selectedId) return;
@@ -155,7 +148,7 @@ export function RegistryPage({ kind, t, locale, principalId, revision }: { kind:
     <div className="registry-toolbar">{selectedId ? <button className="button" onClick={close}>{t('registry.back')}</button> : <span/>}<button className="button primary" disabled={!canWrite || !!trusted || !!(selectedId && !current?.httpEtag)} title={trusted ? t('registry.trusted') : !canWrite ? t('error.forbidden') : undefined} onClick={() => { setEditing(true); setSaved(false); if (!selectedId) history.pushState(null, '', '/' + kind + '/new'); }}><Icon name="plus" size={16}/>{t(selectedId ? 'registry.newRevision' : kind === 'assets' ? 'registry.newAsset' : 'registry.newService')}</button></div>
     {editing && !canWrite && <ErrorNotice error={new ApiError(403, 'ACTION_UNAVAILABLE', '')} t={t}/>}
     {editing && canWrite && !trusted && <RegistryEditor key={`${kind}-${selectedId ?? 'new'}-${current?.data.revision ?? 0}`} kind={kind} current={selectedId ? current : undefined} principalId={principalId} t={t} close={() => { setEditing(false); if (!selectedId) history.replaceState(null, '', '/' + kind); else setRefresh(value => value + 1); }} saved={envelope => { const id = recordId(envelope.data, kind); setCurrent(envelope); setSelectedId(id); setEditing(false); setSaved(true); setRefresh(value => value + 1); history.replaceState(null, '', '/' + kind + '/' + encodeURIComponent(id)); }}/>}
-    {selectedId ? detailError ? <ErrorNotice error={detailError} t={t} retry={() => setRefresh(value => value + 1)}/> : !current ? <Loader t={t}/> : <section className="panel registry-detail"><div className="section-heading"><div><span className="eyebrow">{recordId(current.data, kind)}</span><h2>{current.data.definition.name}</h2></div><span className="badge muted">r{current.data.revision}</span></div><Freshness envelope={current} t={t} locale={locale}/><dl><div><dt>{t('list.state')}</dt><dd>{t(current.data.state === 'active' ? 'registry.stateActive' : 'registry.stateRetired')}</dd></div><div><dt>{t('registry.owner')}</dt><dd><code>{current.data.definition.owner_id}</code></dd></div><div><dt>{t('list.created')}</dt><dd>{formatTime(current.data.created_at, locale)}</dd></div><div><dt>{t('registry.hash')}</dt><dd><code>{current.data.content_hash}</code></dd></div><div><dt>{t('registry.previousHash')}</dt><dd><code>{displayValue(current.data.previous_revision_hash)}</code></dd></div></dl><p className="field-hint">{t('registry.stateHint')}</p><button className="button" onClick={() => setRaw(true)}>{t('list.details')}</button></section> : <section className="panel list-panel"><div className="section-heading"><h2>{t(kind === 'assets' ? 'nav.assets' : 'nav.services')}</h2><span className="table-note">{t('list.scope')}</span></div><Freshness envelope={collection.envelope} t={t} locale={locale}/>{collection.loading ? <Loader t={t}/> : collection.error ? <ErrorNotice error={collection.error} t={t} retry={() => setRefresh(value => value + 1)}/> : !listData(collection.envelope!).length ? <Empty t={t}/> : <div className="table-scroll" role="region" aria-label={t(kind === 'assets' ? 'nav.assets' : 'nav.services')} tabIndex={0}><table><thead><tr><th scope="col">{t('registry.name')}</th><th scope="col">{t('list.id')}</th><th scope="col">{t('registry.revision')}</th><th scope="col">{t('list.state')}</th><th scope="col">{t(kind === 'assets' ? 'registry.provenance' : 'registry.protocol')}</th></tr></thead><tbody>{listData(collection.envelope!).map(item => { const definition = item.definition as JsonRecord; return <tr key={recordId(item, kind)}><td><button className="record-link" onClick={() => open(recordId(item, kind))}>{displayValue(definition.name)}</button></td><td><code>{recordId(item, kind)}</code></td><td>{displayValue(item.revision)}</td><td>{t(item.state === 'active' ? 'registry.stateActive' : 'registry.stateRetired')}</td><td>{displayValue(kind === 'assets' ? definition.provenance : (definition.transport as JsonRecord)?.protocol)}</td></tr>; })}</tbody></table></div>}{(cursor || collection.envelope?.next_cursor) && <div className="pagination"><button className="button" disabled={!cursor} onClick={() => setCursor(null)}>{t('action.back')}</button><button className="button" disabled={!collection.envelope?.next_cursor} onClick={() => setCursor(collection.envelope?.next_cursor ?? null)}>{t('action.next')}</button></div>}</section>}
+    {selectedId ? detailError ? <ErrorNotice error={detailError} t={t} retry={() => setRefresh(value => value + 1)}/> : !current ? <Loader t={t}/> : <section className="panel registry-detail"><div className="section-heading"><div><span className="eyebrow">{recordId(current.data, kind)}</span><h2>{current.data.definition.name}</h2></div><span className="badge muted">r{current.data.revision}</span></div><Freshness envelope={current} t={t} locale={locale}/><dl><div><dt>{t('list.state')}</dt><dd>{t(current.data.state === 'active' ? 'registry.stateActive' : 'registry.stateRetired')}</dd></div><div><dt>{t('registry.owner')}</dt><dd><code>{current.data.definition.owner_id}</code></dd></div><div><dt>{t('list.created')}</dt><dd>{formatTime(current.data.created_at, locale)}</dd></div><div><dt>{t('registry.hash')}</dt><dd><code>{current.data.content_hash}</code></dd></div><div><dt>{t('registry.previousHash')}</dt><dd><code>{displayValue(current.data.previous_revision_hash)}</code></dd></div></dl><p className="field-hint">{t('registry.stateHint')}</p><button className="button" onClick={() => setRaw(true)}>{t('list.details')}</button></section> : <section className="panel list-panel"><div className="section-heading"><h2>{t(kind === 'assets' ? 'nav.assets' : 'nav.services')}</h2><span className="table-note">{t('pagination.scope')}</span></div><Freshness envelope={collection.envelope} t={t} locale={locale}/>{collection.loading ? <Loader t={t}/> : collection.error ? <ErrorNotice error={collection.error} t={t} retry={() => setRefresh(value => value + 1)}/> : !listData(collection.envelope!).length ? collection.envelope?.next_cursor ? <p className="notice">{t('pagination.emptyPage')}</p> : <Empty t={t}/> : <div className="table-scroll" role="region" aria-label={t(kind === 'assets' ? 'nav.assets' : 'nav.services')} tabIndex={0}><table><thead><tr><th scope="col">{t('registry.name')}</th><th scope="col">{t('list.id')}</th><th scope="col">{t('registry.revision')}</th><th scope="col">{t('list.state')}</th><th scope="col">{t(kind === 'assets' ? 'registry.provenance' : 'registry.protocol')}</th></tr></thead><tbody>{listData(collection.envelope!).map(item => { const definition = item.definition as JsonRecord; return <tr key={recordId(item, kind)}><td><button className="record-link" onClick={() => open(recordId(item, kind))}>{displayValue(definition.name)}</button></td><td><code>{recordId(item, kind)}</code></td><td>{displayValue(item.revision)}</td><td>{t(item.state === 'active' ? 'registry.stateActive' : 'registry.stateRetired')}</td><td>{displayValue(kind === 'assets' ? definition.provenance : (definition.transport as JsonRecord)?.protocol)}</td></tr>; })}</tbody></table></div>}<PageNavigation page={collection} t={t}/></section>}
     {raw && current && <Detail record={current.data} t={t} close={() => setRaw(false)}/>}
   </>;
 }
