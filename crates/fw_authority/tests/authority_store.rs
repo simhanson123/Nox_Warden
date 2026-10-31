@@ -697,11 +697,16 @@ fn migration_casefolds_ascii_sidecars_and_rejects_non_ascii_basenames_without_wr
 #[cfg(unix)]
 #[test]
 fn migration_accepts_unicode_parent_directories_and_checks_parent_identity() {
+    use std::os::unix::fs::DirBuilderExt;
+
     let f = Fixture::new();
     drop(f.store);
     restore_v1_fixture(&f.path);
     let directory = f.path.with_file_name("권한저장소");
-    std::fs::create_dir(&directory).unwrap();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
     let source = directory.join("authority.sqlite3");
     std::fs::rename(&f.path, &source).unwrap();
     let alias = f.path.with_file_name("PARENT-ALIAS");
