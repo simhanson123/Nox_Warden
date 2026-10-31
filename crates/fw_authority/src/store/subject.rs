@@ -38,6 +38,8 @@ pub(super) struct ValidatedSubject {
     pub author_may_approve: bool,
     pub required_roles: Vec<ApprovalRole>,
     pub profile: String,
+    pub authority_epoch: u64,
+    pub role_policy_hash: String,
     pub plan_bytes: Vec<u8>,
     pub requirements_bytes: Vec<u8>,
 }
@@ -538,6 +540,8 @@ pub(super) fn validate_subject(
         author_may_approve,
         required_roles,
         profile,
+        authority_epoch: counter(string(plan, "authority_epoch")?)?,
+        role_policy_hash: string(requirements, "role_policy_hash")?.into(),
         plan_bytes,
         requirements_bytes,
     })

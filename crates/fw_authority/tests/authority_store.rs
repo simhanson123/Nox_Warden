@@ -5,6 +5,8 @@
 //! the deployment's operating-system trust boundary.
 #[path = "support/approval_authenticator.rs"]
 mod approval_authenticator;
+#[path = "support/authority_legacy.rs"]
+mod authority_legacy;
 
 use approval_authenticator::{Authenticator, ORIGIN, PRINCIPAL};
 use fw_authority::{
@@ -440,6 +442,7 @@ fn reject_decision_stays_reject_across_restart_and_proof_review() {
 // Test-only reconstruction of the previous published schema. Product code has
 // no downgrade operation; all v1 tables, original bytes and counters are kept.
 fn restore_v1_fixture(path: &std::path::Path) {
+    authority_legacy::restore_v2(path);
     let db = rusqlite::Connection::open(path).unwrap();
     db.execute_batch(
         "DROP TRIGGER authority_public_key_registry_no_update;
@@ -466,7 +469,7 @@ fn backed_up_v1_migration_preserves_original_decisions_proofs_and_exact_retries(
         AuthorityStore::open(&f.path),
         Err(fw_authority::AuthorityError::MigrationRequired {
             found: 1,
-            required: 2
+            required: 3
         })
     ));
     assert_eq!(snapshot(&f.path), original);

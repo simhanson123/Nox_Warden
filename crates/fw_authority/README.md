@@ -40,8 +40,12 @@ persisted signed possession ceremony before activation. Stored immutable plans
 and approval requirements use locally computed canonical hashes. Challenge
 issuance commits private state before returning options; admission rechecks
 current records and atomically verifies, consumes, updates the credential,
-retains original evidence and appends the decision and audit event. Exact retries
-return the original result. Retained proof verification uses the saved
+retains original evidence and appends the decision and audit event. With an
+independently pinned epoch/role-policy basis and canonical human enrollment,
+that same transaction verifies distinct eligible reviewers and records an
+immutable approval set and members. Rejections veto the immutable plan; current
+reads recheck retained proofs and current authority without creating new sets.
+Exact retries return the original decision and aggregation receipt. Retained proof verification uses the saved
 pre-authentication credential and admission time while separately checking
 present key identity, role and revocation. See the
 [authority store guide](../../docs/authority-store.md) for trust, transaction and
@@ -65,7 +69,7 @@ come from the authority, not a client.
 Local-owner [WebAuthn login](../../docs/passkey-login.md) is implemented separately
 and does not authorize a plan. Remaining M03 work includes approval HTTP/UI,
 production out-of-band enrollment and authority bootstrap, trusted plan/artifact
-admission, quorum/`ApprovalSet` aggregation, independent signer jobs/trust
+admission, independent signer jobs/trust
 ceremonies, signed grant/quota reconciliation, complete PostgreSQL authority
 transactions, and process/key isolation deployment. The store accepts plan
 decisions only; it does not issue grants or turn its provisioning API into an

@@ -15,3 +15,4 @@ cargo test -p fw_authority --no-default-features --locked
 npm run check --prefix web
 npm test --prefix web -- --run
 npm run build --prefix web
+npm run build:authority --prefix web

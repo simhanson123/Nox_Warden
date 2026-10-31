@@ -1,191 +1,140 @@
 # Verification and implementation status
 
-This directory tracks the concise status summary, [task ledger](task-ledger.json)
-and [specification provenance](spec-import.json). Generated reports, logs and
-screenshots are ignored by Git. CI retains selected HTTP, CLI, enrollment, Linux
-packet, signed-execution, passkey, audit and catalogue reports as downloadable artifacts for
-seven days; logs and check status remain attached to [GitHub Actions runs](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
-Keep tests and reproduction commands in source control. The supplied specification
-and its bundled fixtures remain unchanged under `docs/specs`.
+Keep source, regression tests, reproducible commands, this summary, the
+[task ledger](task-ledger.json) and [specification provenance](spec-import.json)
+in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
+remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
+The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## Reproduce the checks
+## Reproduce
 
-Run from the repository root after installing the [build prerequisites](../README.md#run-locally):
+Install the [build prerequisites](../README.md#run-locally), Python browser
+requirements and Chromium as described in the [passkey guide](../docs/passkey-login.md).
+Run from the repository root:
 
 ```sh
 source scripts/dev-env.sh
+umask 0022
 bash scripts/check.sh
-# Focused immutable approval challenge and bound WebAuthn verification suites:
-cargo test -p fw_authority -p fw_webauthn --locked
-python scripts/check_vendor.py
-cargo build -p fw_control -p fw_cli -p fw_agent --locked
+cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority_service --bins --examples
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
-python scripts/smoke_catalogue_navigation.py --controller-binary target/debug/fw_control
 python crates/fw_cli/tests/smoke_login.py
-# Browser prerequisites: docs/passkey-login.md
 python scripts/smoke_passkeys.py
 python scripts/smoke_login_admission.py
 python scripts/smoke_audit.py
-python scripts/smoke_enrollment.py
+python scripts/smoke_catalogue_navigation.py --controller-binary target/debug/fw_control
+python scripts/smoke_enrollment.py --browser
+python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **438 workspace Rust tests, 23 authority tests
-without default features, 54 UI tests, 27 specification checks, 52 core and 28
-extended contract fixtures, and nine Linux runner regressions**. Formatting,
-Clippy, frontend types, the production build and parity across eight locale
-catalogues with 229 keys also pass.
+Browser suites start actual loopback services and use Chromium CDP virtual CTAP2
+authenticators. Native suites require Docker and run only in disposable network
+namespaces with NET_ADMIN; they do not change the host firewall. A missing native
+or browser prerequisite is not a passing check.
 
-The real-controller HTTP and CLI smokes pass **24 and 13 checks**, respectively;
-the separate CLI protocol fixture passes **five checks**. The TLS enrollment
-smoke with Chromium passes **25 checks**, including original contract validation,
-live target selection and persisted service creation. Its nonbrowser CI subset
-contains 23 checks. The suite uses real Ed25519 certificates, pinned TLS, mutual
-authentication, durable retries, conservative capability reports and credential
-revocation. Reports do not record private keys or credential values.
+## Verified scope
 
-Controller/store verification includes
-15 login-admission regressions for encrypted tickets, tampering, bounded decompression,
-maximum credential/assertion sizes, current revocation/counter checks, zero-counter
-replay, separate database connections and four injected write failures. Its
-real-controller Chromium suite passes **14 checks**: 1,005 anonymous options
-requests create no pending database rows, an earlier legitimate proof still
-authenticates, protected registration remains available, replay fails and restart
-rotates the ticket key. The flood regression was observed failing before the fix.
-Run `cargo test --locked -p fw_control -p fw_store` and
-`python scripts/smoke_login_admission.py`; both require localhost socket access.
-The new browser report is an ignored local output or a seven-day CI artifact.
-This is bounded admission testing, not a sustained network/CPU saturation claim.
+The integrated repository check passes **488 workspace Rust tests, 23 authority
+tests without default features, and 89 UI tests**. It also passes formatting,
+Clippy, frontend types, both production UI builds, 27 specification checks,
+52 core and 28 extended contract fixtures, nine Linux runner regressions and
+vendored-source verification. English remains the default. Eight controller
+catalogues have 229 messages each; eight authority catalogues have 58, with
+complete key and placeholder parity. Human translation acceptance is pending.
 
-The isolated compiler/readback suite passes **66 checks, including 40 actual
-packet probes**.
-It covers IPv4/IPv6 TCP/UDP allow/deny and expiry, plus 13 bounded semantic readback
-checks including actual kernel rule mutation and restore. Docker with an isolated
-network namespace and NET_ADMIN is required; see the [Linux lab guide](../native/linux/README.md).
-These results cover the experimental compiler profile, not full native release
-qualification or an application-driven firewall deployment.
+| Runtime suite | Passing checks | Exercised boundary |
+| --- | ---: | --- |
+| Controller HTTP | 24 | Actual HTTP routes and original OpenAPI contracts |
+| CLI / separate protocol fixture | 13 / 5 | Login, bounded list continuation and hostile-server refusal |
+| Passkey browser | 56 | Durable owner enrollment, login, key lifecycle, logout and CLI authorization |
+| Login admission browser | 14 | 1,005 anonymous options requests, valid earlier proof, replay refusal and restart |
+| Audit HTTP/MCP/browser | 21 | Bounded denial evidence and stable snapshot pagination |
+| Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
+| TLS enrollment/browser | 25 | Ed25519 certificates, mTLS, reports, service creation and revocation; CI nonbrowser subset has 23 |
+| Independent authority browser | 24 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
+| Isolated Linux compiler/readback | 66 | Includes 40 actual IPv4/IPv6 TCP/UDP packet probes |
+| Signed Linux execution | 98 | Includes 43 actual packet probes, expiry and interrupted submission/recovery |
 
-The separate [signed execution suite](../docs/signed-linux-execution.md) passes
-**98 checks, including 43 actual packet probes**. It covers verified grants,
-durable native material, real apply/readback and probe confirmation, replay
-without timeout refresh, established/new IPv4/IPv6 TCP/UDP expiry, and later
-generations fencing stale recovery. Crash cases cover both original submission
-boundaries and recovery preparation, claim, submission and completion. Fresh
-baseline readback can close an unapplied submission automatically; prior
-candidate/probe/recovery evidence instead preserves UNKNOWN drift. A real nft
-child is observed reading stdin after startup, then survives parent death while
-retaining the exact journal lock inode; reconciliation waits for its exit.
-Immutable recovery attempts resume within original signed authority without
-replacing earlier files. Both suites remove their disposable containers.
-Signing and approval inputs are clearly marked synthetic fixtures, and the
-recovery process is not a qualified watchdog against a permanently hung lock
-owner. Expired rollback authority causes no unsigned fallback write.
+## Security and persistence coverage
 
-The [passkey browser suite](../docs/passkey-login.md) passes **56 checks** with
-actual Chromium WebAuthn backed by a CDP virtual CTAP2 authenticator and real
-controller/CLI processes. It covers durable owner enrollment across restart,
-signed login, credential management, bootstrap closure and browser-authorized CLI
-login. The browser request view withholds the expected terminal code and polling
-secret; missing or incorrect codes and unauthenticated authorization fail.
-Initial bootstrap sessions also reject cookie-only proof recovery and owner
-registration. Both browser and CLI sessions work before credential revocation and are
-rejected afterward. Browser/controller cleanup succeeds. This verifies the
-protocol and cryptographic path with an automated authenticator; it does not
-establish physical-key compatibility or a human policy-approval decision.
+Controller bootstrap reads require a separate in-memory session proof; a cookie
+alone cannot disclose that proof or register the owner. CLI browser views withhold
+the terminal confirmation code and polling secret. Public login options use
+bounded encrypted tickets without allocating shared pending database slots;
+successful proof verification, durable consumption, counters and mandatory audit
+commit atomically. Tampering, bounded decompression, maximum sizes, zero-counter
+replay, independent connections and injected failures are covered. This is
+bounded admission testing, not sustained CPU/network saturation qualification.
 
-The [audit integration suite](../docs/audit-log.md) passes **21 checks** using
-real HTTP/MCP and browser pagination after 100 anonymous and 100 invalid-cookie
-requests. It checks bounded denial evidence, stable snapshot traversal, a fresh
-read including later events, the browser's Next page and successful cleanup.
-Its report is `reports/audit-smoke.json`; credentials are excluded. These results
-do not establish complete per-request audit retention across crashes.
+[Audit snapshots](../docs/audit-log.md) and [catalogue snapshots](../docs/catalogue-pagination.md)
+bind continuation to the session, tenant, filters, limit and original deadline.
+Tests cover traversal beyond 100 rows, byte caps, mutation isolation, projection
+integrity, migration, clock rollback and concurrent capability renewal. Current
+certificate and report eligibility is checked by both service writes and pickers.
 
-The [approval proof suites](../docs/policy-approval-proofs.md) add **27 passing
-Rust tests** within that total: six bound-authentication tests, nine typed
-challenge tests and twelve authority-bridge tests. They cover domain-separated
-plan/bootstrap challenges and real signature verification against their
-immutable context. Their software authenticator responses are
-cryptographic test inputs, not evidence of a human approval decision. The
-controller exposes no approval service. These bridge tests alone do not establish
-durable one-use consumption or independent role and credential trust.
-The [vendored-source check](../vendor/README.md) verifies the recorded source and
-license inventory; its archive mode also checks the original registry checksums
-and reconstructs the complete local patch. RustSec advisory scanning does not
-review those source changes.
+[Authority schema 3](../docs/authority-store.md) preserves original signatures,
+immutable plans, credential snapshots and public-key tombstones. Explicit
+migrations validate private online backups before changing known older schemas;
+they never infer trusted epochs or human identities from plans. The tests cover
+real P-256 signatures, restart, exact retries, aliases, current revocation,
+retained proofs after counter advancement and atomic rollback. A separate
+first-open stress run passed 1,600 fresh-database races after bounded WAL retries.
 
-The [durable authority store](../docs/authority-store.md) adds **56 passing Rust
-tests** within the total: eight key-fingerprint/import-policy tests, eight full
-plan/requirements admission tests, six provisioning tests and 34 transaction
-tests. They exercise real P-256 signatures, zero-counter replay protection,
-simultaneous connections, restart, exact retries, current revocation, retained
-proofs after counter advancement, immutable SQL transitions, bounded failures,
-six injected decision-write failures and activation audit rollback. Concurrent
-first-open coverage uses sixteen fresh databases; a separate 100-repeat stress
-run passed all 1,600 fresh-database races after bounded WAL lock retries.
-Schema 2 adds permanent public-key tombstones independent of credential aliases.
-Migration tests cover private verified backups, duplicate-key rollback, schema
-checksums, and preservation of original signatures and exact retry results. Imported weak RSA and
-mislabeled-curve tests were observed failing before the validation fix.
-The emitted HumanApproval and both complete plan fixtures also validate against
-the preserved original schemas. An additional **23 tests** pass with
-`fw_authority --no-default-features`; native executor/lab dependency trees exclude
-WebAuthn and OpenSSL. These are transaction and cryptographic checks, not
-process-kill/power-loss, protected IPC, human-consent or installed-host qualification.
+Independent quorum tests cover Lab/Team/high-risk roles, canonical distinct
+humans, author exclusion, non-greedy role matching, terminal dissent, expiry,
+withdrawal, role/key/basis changes, concurrent last reviewers and injected write
+failures. Decision consumption, proof, immutable approval-set members, current
+head, historical receipt and audit commit in one transaction. Current reads
+revalidate the head; historical receipts never renew authority. A current read
+is a snapshot, not reserved permission for a future signing transaction.
 
-Live Chromium checks cover English-first startup and saved locale selection,
-asset revisions, deep links and service prerequisites. The enrollment browser
-check additionally verifies selecting an actual registered target, creating a
-service and seeing the saved service after reload:
+The [independent review service](../docs/authority-review-service.md) has 23
+HTTP/P-256 regressions plus five review-adapter tests. It requires separately
+pinned private authority trust and a distinct origin. Tests cover exact
+Host/Origin, cookie plus memory proof, tenant isolation, bounded requests,
+anonymous admission floods, counter/revision replay, mandatory-audit rollback,
+complete immutable before/after evidence and refusal of missing or oversized
+review content. Runtime routes never provision keys, roles, epochs or human maps.
 
-```sh
-python scripts/smoke_enrollment.py --browser
-```
+The [authority UI](../docs/authority-review-ui.md) has a separate build and 35
+unit/catalogue tests within the UI total. It requires explicit consent, a current
+role and a fresh decision-bound assertion. Uncertain requests allow exact retry;
+401 clears pending browser authority and requires explicit sign-in. The real
+browser suite covers approval, later fresh signed rejection by the same reviewer,
+terminal dissent after restart, stale independent epoch, missing evidence,
+keyboard navigation and cleanup. Expired approvals permit fresh review when the
+current store returns Pending. Set identity, hashes, bindings and deadlines must
+match the current detail response before the UI displays verified quorum.
 
-This variant requires Python Playwright and local Chromium; see the
-[web guide](../web/README.md). Human translation review and full accessibility
-acceptance remain incomplete. Detailed results stay in local output or CI
-artifacts, rather than a continuing development diary.
+The [Linux lab](../native/linux/README.md) covers actual compilation, packet
+behavior, expiry and semantic kernel readback, including tamper/restore. The
+[signed execution lab](../docs/signed-linux-execution.md) covers verified grants,
+durable native material, actual apply/probe confirmation, established and new
+connection expiry, restrictive crash recovery and generation fencing. The native
+writer inherits the journal lock so an orphan writer cannot race fresh recovery.
+Immutable recovery attempts preserve original deadlines; fresh fenced observations
+can close genuinely unapplied work without reclassifying historical confirmation
+or rollback as NotApplied. Interrupted preparation, submission and recovery are
+exercised, including parent/child process termination. Both suites remove
+their containers successfully. Signing and approval inputs are synthetic test
+fixtures; no lab result establishes production authority or installed-host safety.
 
-## Catalogue continuation and target selection
+## Remaining acceptance
 
-Six collections use authenticated 15-minute snapshot cursors, default 50 / maximum
-100 rows and byte-limited continuation. Migration 6 atomically backfills verified
-projections and retains the live cursor window plus each resource's predecessor.
-Service writes and selectors share current certificate/report checks. Report
-renewal commits a distinct monotonic outbox revision; exact retries create none.
-CLI list commands accept bounded `--limit` and `--cursor` options.
+The controller remains **observe-only**. A separately provisioned local review
+service can now retain signed decisions and complete verified quorums, but
+production authority bootstrap, protected OS-account/IPC deployment, independent
+signer transactions and authenticated host dispatch remain incomplete. The
+same writable account cannot provide the required process/trust isolation.
 
-The UI supports true previous/next navigation and 25/50/100-row selection;
-refresh, retry and writes reset the cursor. Eligible pickers traverse reported
-pages, preserve and revalidate selections, and continue after empty pages.
-Target tables show actual backend and observation fields. See the
-[API/storage contract](../docs/catalogue-pagination.md) and
-[browser navigation guide](../docs/catalogue-navigation.md).
-
-The full checks above include more-than-100-row traversal, byte limits, tampered
-and mismatched cursors, current eligibility, migration/clock rollback, projection
-integrity and concurrent report renewal. The real CLI smoke passes 13 checks,
-including three-page traversal and rejection of malformed options before
-credential reads or HTTP. Real Chromium catalogue navigation passes 11 checks
-against 65 manual assets, including all pages, previous-page identity, page size,
-refresh, write reset and picker continuation. CI runs this browser test after
-installing pinned browser tooling and retains `reports/catalogue-browser.json`
-for seven days. These checks do not qualify native firewall enforcement.
-
-## Release boundary
-
-The controller remains **observe-only**. Local-owner passkey login identifies the
-operator. Durable plan-decision admission now exists as an authority library;
-the human approval interface, quorum aggregation and independent signer
-integration remain incomplete.
-Transport registration and measured
-capability metadata now support real target/service inventory; they do not
-bootstrap policy authority, attest workloads or activate access requests.
-Certificate renewal and remote enrollment, full Linux qualification, Windows
-WFP/callout and macOS Network Extension implementations, independent
-signer/watchdog integration, signed installers and release acceptance remain
-incomplete. See the [implementation overview](../docs/implementation.md),
-[device workflow](../docs/device-enrollment.md) and
-[platform status](../docs/platform-support.md).
+Physical authenticators, human review/consent, full accessibility and translation
+acceptance are not qualified by virtual-authenticator tests. Full Linux
+crash/reboot/coexistence and hung-owner watchdog qualification, Windows WFP/callout,
+macOS Network Extension, signed installation/update/removal, complete F_07
+acceptance receipts/aggregate gates and provider deployment remain outstanding.
+Public CLI-handoff admission bounds and local recovery after loss of all owner
+keys remain documented limitations. See the [implementation overview](../docs/implementation.md),
+[platform status](../docs/platform-support.md) and [task ledger](task-ledger.json).

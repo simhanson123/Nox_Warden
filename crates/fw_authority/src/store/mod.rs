@@ -4,12 +4,17 @@
 //! The caller must provision this database through an independently authenticated
 //! authority administrator and protect its directory from the controller OS user.
 //! A different SQLite filename, on its own, does not establish that boundary.
-//! Decisions here do not create approval sets, grants or signing jobs.
+//! Decisions can atomically complete a human approval set; they do not create
+//! grants or signing jobs.
 mod admission;
 mod migrations;
 mod provision;
 mod records;
+mod review;
+mod sets;
 mod subject;
+pub use review::*;
+pub use sets::{AggregationOutcome, AuthorityBasis, StoredApprovalSet};
 
 use crate::{ApprovalChallenge, ApprovalDecision, ApprovalRole, AuthorityError, Result};
 use chrono::{DateTime, Utc};
@@ -70,6 +75,7 @@ pub struct IssuedApproval {
 pub struct DecisionResult {
     pub approval: Value,
     pub replayed: bool,
+    pub aggregation: AggregationOutcome,
     decision: ApprovalDecision,
 }
 impl DecisionResult {
@@ -118,8 +124,9 @@ impl AuthorityStore {
             if tables == 0 && application == 0 && version == 0 {
                 migrations::initialize_v1(&tx)?;
                 migrations::apply_v2(&tx)?;
+                migrations::apply_v3(&tx)?;
             } else {
-                if application != APPLICATION_ID || ![1, 2].contains(&version) {
+                if application != APPLICATION_ID || ![1, 2, 3].contains(&version) {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -132,13 +139,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version == 1 {
+                if version < 3 {
                     return Err(AuthorityError::MigrationRequired {
-                        found: 1,
-                        required: 2,
+                        found: version,
+                        required: 3,
                     });
                 }
-                migrations::validate_v2(&tx)?;
+                migrations::validate_v3(&tx)?;
             }
             tx.commit()?;
         }

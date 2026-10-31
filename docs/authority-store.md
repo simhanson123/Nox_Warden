@@ -3,8 +3,13 @@
 `fw_authority::AuthorityStore` records a signed decision about an immutable plan
 in a separate SQLite database. It persists the challenge, current credential and
 role checks, original proof, credential update, decision and audit transaction.
+With independently provisioned authority and human identity records, that same
+transaction can complete an immutable `ApprovalSet` for the plan.
 The controller still refuses policy approval and deployment HTTP routes. This
 library does not provide an approval screen, signing service or host protection.
+The separate [local review service](authority-review-service.md) provides its own
+authenticated HTTP boundary and immutable review content; production isolation
+and signing remain separate deployment requirements.
 
 ## Trust boundary
 
@@ -34,8 +39,9 @@ not establish an independent security boundary. Protected ownership and ACLs,
 separate accounts/processes, authenticated IPC and a signer inaccessible to the
 controller remain required. The library does not protect against an attacker
 who can replace the authority database or execute privileged provisioning calls.
-There is currently no authority daemon or operator CLI exposing these methods;
-the reproducible entry point is the library integration suite.
+The independent review daemon exposes possession proofs and decisions, never
+these privileged provisioning methods. Its explicit isolated example provisioner
+is test-only machinery, not a production initial-owner bootstrap ceremony.
 
 ## Credential, role and plan lifecycle
 
@@ -82,18 +88,18 @@ those referenced objects and current authority independently. A plan containing
 
 Authority-bootstrap manifests are supported by the lower-level challenge
 primitive, but this storage slice accepts plan decisions only. It does not
-produce bootstrap approval proofs, aggregate an `ApprovalSet`, count a quorum,
-reserve signing work, issue grants or dispatch policies.
+produce bootstrap approval proofs, reserve signing work, issue grants or
+dispatch policies.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 2. The stable family identity
+Fresh authority databases use schema version 3. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1 database returns `MigrationRequired` without adding tables
+populated version 1 or 2 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate_v1("authority.sqlite3", "private-backups/before-v2.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v3.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -105,16 +111,19 @@ Backup files and manifests contain restricted authority data and stay outside
 public logs and source commits. Restoring an old backup over live revocations,
 credential counters or executor authority requires a separate recovery procedure.
 
-The migration validates the exact known version 1 schema and credential
-projections, computes public-key fingerprints for all records including revoked
-ones, and commits the new registry, migration checksums and version switch
+The migration validates the exact known starting schema and credential
+projections, computes public-key fingerprints when upgrading version 1 records
+including revoked ones, and commits the new registries, migration checksums and version switch
 atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 2 database makes no new backup or state change. Foreign and
+on a valid version 3 database makes no new backup or state change. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
-are rejected.
+are rejected. Version 3 never invents a current epoch, role policy, human mapping
+or approval set from historical plans and decisions. Original pre-aggregation
+retries return `NotEvaluated`. `migrate_v1` remains a compatibility alias for the
+explicit maintenance operation.
 
 ## Issuance and atomic decision admission
 
@@ -133,6 +142,8 @@ assertion, then commits the following together:
 - Updated credential state and one-use challenge consumption.
 - Immutable `HumanApproval` decision, exact-request idempotency result and audit
   event.
+- A completed immutable `ApprovalSet`, its exact members and current head when
+  eligible reviewers satisfy the independently configured authority policy.
 
 Failed verification does not successfully consume a challenge. Failure attempts
 are retained and capped at ten per challenge or credential-activation ceremony,
@@ -157,7 +168,54 @@ audit event or renew validity. Different assertion bytes or an idempotency key
 that conflicts with an existing decision are rejected. Returning an old result
 is an acknowledgement, not a new authorization; a future signer must still
 check present validity, revocation and role membership. A `reject` remains a
-reject and cannot satisfy an approval quorum.
+reject and cannot satisfy an approval quorum. The original typed `aggregation`
+receipt is returned unchanged, even if the current set is no longer valid.
+
+## Independent reviewer aggregation
+
+`provision_authority_basis` pins an authority-owned current epoch, role-policy
+hash and validity interval. Neither is copied from a plan. An exact repeated pin
+is idempotent; a changed pin requires a strictly greater unsigned 64-bit epoch.
+`bind_human_identity` binds each verified principal to an independently established
+canonical human ID. Known identity aliases must share that ID. These trusted
+local APIs are not a signed bootstrap-manifest verification ceremony, and WebAuthn
+user verification alone cannot establish that two accounts belong to two people.
+
+Aggregation requires the plan's epoch and role-policy hash to match the current
+basis. Its author and participating reviewers must have explicit human bindings;
+missing enrollment produces `AuthorityUnavailable`, never a fabricated quorum.
+For Team profiles, author aliases are excluded and each required role must be
+filled by a distinct canonical human. Lab owner and high-risk profiles retain
+their exact required roles. Matching searches up to 64 unexpired approval
+decisions and three roles, including non-greedy role assignments. Exceeding the
+candidate bound rolls back the new admission rather than silently truncating
+the candidate set.
+
+The T4 `BEGIN IMMEDIATE` transaction rechecks every selected member's original
+WebAuthn proof and current key, role, revocation and validity, then runs the closed
+`f.approval-set/v1` verifier before storing canonical bytes and normalized members.
+Selection, membership insertion, the set head, decision receipt and audits commit
+with challenge consumption and the credential update. There is no authorization
+snapshot passed from a separate read transaction. Foreign keys bind exact tenant,
+plan, decision, credential, role and human identity; uniqueness prevents counting
+one person or role twice. Set validity is bounded by every member, plan and basis.
+
+A recorded rejection is a terminal veto for that immutable plan, including after
+the rejecting credential or decision expires or is revoked. Further progress
+requires a new plan. Late dissent, decision withdrawal, key/role revocation,
+authority changes and expiry can invalidate a stored set without changing its
+bytes. Fresh valid signed decisions can append a new immutable set after a prior
+set becomes stale; they never rewrite it or renew an identical selection. The
+current head advances without falling back to an older set.
+
+`approval_review_status` returns typed current status and an optional verified
+set in one read snapshot. It never creates a set on GET, including after trusted
+enrollment completes. `current_approval_set` returns only the current verified
+set or `None`. A still-valid plan and authority basis returns `Pending` after old
+member approvals expire, are withdrawn, or lose a current key/role, allowing
+fresh signed reviews to create a new immutable set. An invalid plan or basis,
+or an explicitly revoked current set, remains `Stale`. These results are review snapshots, not signing capabilities. The
+future signing transaction must repeat current checks before granting authority.
 
 ## Retained proof verification
 
@@ -188,6 +246,7 @@ Run from the repository root with the documented build prerequisites:
 umask 0022
 source scripts/dev-env.sh
 cargo test --locked -p fw_authority --test authority_store
+cargo test --locked -p fw_authority --test authority_quorum
 cargo test --locked -p fw_authority -p fw_webauthn
 cargo test --locked -p fw_authority --no-default-features
 bash scripts/check.sh
@@ -212,7 +271,8 @@ For authorization and cryptography review, examine:
   authenticators, altered retries and cross-tenant requests.
 - Original pre-authentication state in retained proof verification, combined
   with current stable key identity, revocation and membership checks.
-- Rejection handling and the absence of an unchecked path to a quorum or grant.
+- Terminal dissent, distinct canonical humans, author aliases, exact current
+  authority basis and absence of an unchecked path to a quorum or grant.
 
 For storage and failure review, examine:
 

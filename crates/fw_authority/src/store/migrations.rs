@@ -11,6 +11,7 @@ use std::{
 };
 
 const MIGRATION_2: &str = include_str!("migration_002.sql");
+const MIGRATION_3: &str = include_str!("migration_003.sql");
 
 pub(super) fn initialize_v1(tx: &Transaction<'_>) -> Result<()> {
     tx.execute_batch(include_str!("schema.sql"))?;
@@ -65,6 +66,59 @@ fn known_v1_digest() -> Result<Vec<u8>> {
     let tx = memory.transaction()?;
     initialize_v1(&tx)?;
     schema_digest(&tx)
+}
+
+fn known_v2_digest() -> Result<Vec<u8>> {
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    tx.execute_batch(MIGRATION_2)?;
+    schema_digest(&tx)
+}
+
+pub(super) fn apply_v3(tx: &Transaction<'_>) -> Result<()> {
+    validate_v2(tx)?;
+    if schema_digest(tx)? != known_v2_digest()? {
+        return Err(invalid("unexpected authority v2 schema"));
+    }
+    tx.execute_batch(MIGRATION_3)?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(3,?,3,3,?)",
+        params![hash(&hash_bytes(MIGRATION_3.as_bytes()))?, now()?],
+    )?;
+    let broken: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+        [],
+        |r| r.get(0),
+    )?;
+    if broken {
+        return Err(invalid("authority quorum migration foreign keys"));
+    }
+    tx.pragma_update(None, "user_version", 3)?;
+    Ok(())
+}
+
+pub(super) fn validate_v3(connection: &Connection) -> Result<()> {
+    let mut query=connection.prepare("SELECT version,checksum,minimum_app_schema,maximum_app_schema FROM authority_schema_migrations ORDER BY version")?;
+    let rows = query
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let expected = vec![
+        (1, known_v1_digest()?, 1, 1),
+        (2, hash(&hash_bytes(MIGRATION_2.as_bytes()))?, 2, 2),
+        (3, hash(&hash_bytes(MIGRATION_3.as_bytes()))?, 3, 3),
+    ];
+    if rows != expected {
+        return Err(invalid("authority migration checksum or compatibility"));
+    }
+    Ok(())
 }
 
 fn now() -> Result<i64> {
@@ -212,7 +266,12 @@ fn new_private_file(path: &Path) -> Result<fs::File> {
         .map_err(|_| invalid("authority backup destination already exists or is unavailable"))
 }
 
-fn create_backup(source: &Path, backup_path: &Path, original_schema: &[u8]) -> Result<()> {
+fn create_backup(
+    source: &Path,
+    backup_path: &Path,
+    original_schema: &[u8],
+    version: i64,
+) -> Result<()> {
     let file = new_private_file(backup_path)?;
     private_path(backup_path)?;
     let manifest_path = backup_path.with_extension("manifest.json");
@@ -262,7 +321,7 @@ fn create_backup(source: &Path, backup_path: &Path, original_schema: &[u8]) -> R
         digest.update(&chunk[..count]);
     }
     let body = bytes(
-        &json!({"schema_version":"fw.authority-backup/v1","database_schema":1,
+        &json!({"schema_version":"fw.authority-backup/v1","database_schema":version,
         "schema_hash":hash_string(original_schema)?,"database_hash":hash_string(&digest.finalize())?,
         "size_bytes":size,"created_at":at(now()?)?,"executor_epoch":null,"executor_generation":null,
         "scope":"authority-store-only"}),
@@ -285,12 +344,17 @@ fn create_backup(source: &Path, backup_path: &Path, original_schema: &[u8]) -> R
 }
 
 impl AuthorityStore {
+    /// Compatibility entry point. Upgrade a known prior schema to the current
+    /// schema using the same explicit, private online-backup procedure.
+    pub fn migrate_v1(path: impl AsRef<Path>, backup_path: impl AsRef<Path>) -> Result<()> {
+        Self::migrate(path, backup_path)
+    }
     /// Explicit maintenance upgrade of a known v1 database. A new private
     /// SQLite online backup and manifest are durable before schema changes.
     /// Existing duplicate key material aborts migration; no row is deleted or
     /// silently selected as trusted. Keep the backup private and do not restore
     /// old authority state over a live deployment's revocations/counters.
-    pub fn migrate_v1(path: impl AsRef<Path>, backup_path: impl AsRef<Path>) -> Result<()> {
+    pub fn migrate(path: impl AsRef<Path>, backup_path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         private_path(path)?;
         let mut connection = Connection::open(path)?;
@@ -300,22 +364,32 @@ impl AuthorityStore {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if application == APPLICATION_ID && version == 2 {
-            validate_v2(&tx)?;
+        if application == APPLICATION_ID && version == 3 {
+            validate_v3(&tx)?;
             tx.commit()?;
             return Ok(());
         }
-        if application != APPLICATION_ID || version != 1 {
-            return Err(invalid("authority migration requires known v1 database"));
+        if application != APPLICATION_ID || ![1, 2].contains(&version) {
+            return Err(invalid("authority migration requires known prior database"));
         }
-        let original_schema = known_v1_digest()?;
+        if version == 2 {
+            validate_v2(&tx)?;
+        }
+        let original_schema = if version == 1 {
+            known_v1_digest()?
+        } else {
+            known_v2_digest()?
+        };
         if schema_digest(&tx)? != original_schema {
             return Err(invalid("unexpected authority v1 schema"));
         }
         // A second read-only connection sees a consistent pre-migration DB;
         // this IMMEDIATE transaction prevents other writers while it is copied.
-        create_backup(path, backup_path.as_ref(), &original_schema)?;
-        apply_v2(&tx)?;
+        create_backup(path, backup_path.as_ref(), &original_schema, version)?;
+        if version == 1 {
+            apply_v2(&tx)?;
+        }
+        apply_v3(&tx)?;
         tx.commit()?;
         Ok(())
     }
