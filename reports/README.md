@@ -31,7 +31,7 @@ python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **388 Rust tests, 43 UI tests, 27 specification
+The full repository check passes: **414 Rust tests, 43 UI tests, 27 specification
 checks, 52 core and 28 extended contract fixtures, and nine Linux runner
 regressions**. Formatting, Clippy, frontend types, the production build and parity
 across eight locale catalogues with 213 keys also pass.
@@ -44,8 +44,8 @@ contains 23 checks. The suite uses real Ed25519 certificates, pinned TLS, mutual
 authentication, durable retries, conservative capability reports and credential
 revocation. Reports do not record private keys or credential values.
 
-The login-admission change passes **137 controller/store Rust tests**, including
-15 new regressions for encrypted tickets, tampering, bounded decompression,
+Controller/store verification includes
+15 login-admission regressions for encrypted tickets, tampering, bounded decompression,
 maximum credential/assertion sizes, current revocation/counter checks, zero-counter
 replay, separate database connections and four injected write failures. Its
 real-controller Chromium suite passes **14 checks**: 1,005 anonymous options
@@ -76,13 +76,14 @@ Signing and approval inputs are clearly marked synthetic fixtures, and the
 recovery process is not a qualified watchdog against a permanently hung lock
 owner. Expired rollback authority causes no unsigned fallback write.
 
-The [passkey browser suite](../docs/passkey-login.md) passes **53 checks** with
+The [passkey browser suite](../docs/passkey-login.md) passes **56 checks** with
 actual Chromium WebAuthn backed by a CDP virtual CTAP2 authenticator and real
 controller/CLI processes. It covers durable owner enrollment across restart,
 signed login, credential management, bootstrap closure and browser-authorized CLI
 login. The browser request view withholds the expected terminal code and polling
 secret; missing or incorrect codes and unauthenticated authorization fail.
-Both browser and CLI sessions work before credential revocation and are
+Initial bootstrap sessions also reject cookie-only proof recovery and owner
+registration. Both browser and CLI sessions work before credential revocation and are
 rejected afterward. Browser/controller cleanup succeeds. This verifies the
 protocol and cryptographic path with an automated authenticator; it does not
 establish physical-key compatibility or a human policy-approval decision.
@@ -114,7 +115,11 @@ tests. They exercise real P-256 signatures, zero-counter replay protection,
 simultaneous connections, restart, exact retries, current revocation, retained
 proofs after counter advancement, immutable SQL transitions, bounded failures,
 six injected decision-write failures and activation audit rollback. Concurrent
-first-open coverage uses sixteen fresh databases. Imported weak RSA and
+first-open coverage uses sixteen fresh databases; a separate 100-repeat stress
+run passed all 1,600 fresh-database races after bounded WAL lock retries.
+Schema 2 adds permanent public-key tombstones independent of credential aliases.
+Migration tests cover private verified backups, duplicate-key rollback, schema
+checksums, and preservation of original signatures and exact retry results. Imported weak RSA and
 mislabeled-curve tests were observed failing before the validation fix.
 The emitted HumanApproval and both complete plan fixtures also validate against
 the preserved original schemas. An additional **23 tests** pass with

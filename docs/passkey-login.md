@@ -128,9 +128,11 @@ establish isolation from software or administrators controlling the same host.
 The controller stores local-owner credentials and proof in its own database.
 That database is not an independently protected signer's source of authority.
 The [approval proof library](policy-approval-proofs.md) separately implements
-immutable subject challenges and bound WebAuthn verification. The authority still
-needs current-role resolution, trusted credential enrollment and durable one-use
-approval storage. A successful login does not satisfy those requirements. See the [implementation boundaries](implementation.md)
+immutable subject challenges and bound WebAuthn verification. The separate
+[authority store](authority-store.md) implements explicit credential pinning and
+activation, current scoped roles and durable one-use decision storage. Protected
+service deployment, production authority enrollment, quorum and signing still
+remain incomplete. Controller login never supplies those approvals. See the [implementation boundaries](implementation.md)
 and [WebAuthn dependency review](passkey-dependencies.md).
 
 ## Authentication API extension
