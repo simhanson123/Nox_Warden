@@ -24,6 +24,7 @@ impl AppState {
             | "SESSION_PROOF_REQUIRED"
             | "PASSKEY_SESSION_REVOKED"
             | "PASSKEY_AUTHENTICATION_REQUIRED"
+            | "PASSKEY_VERIFICATION_FAILED"
             | "ORIGIN_REJECTED"
             | "CSRF_REJECTED"
             | "IDEMPOTENCY_KEY_INVALID"
@@ -309,6 +310,7 @@ mod tests {
             .oneshot(
                 Request::get("/api/v1/audit/events?limit=25")
                     .header("cookie", &cookie)
+                    .header("x-csrf-token", &csrf)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -337,6 +339,7 @@ mod tests {
             .oneshot(
                 Request::get(format!("/api/v1/audit/denial-summaries/{hash}"))
                     .header("cookie", cookie)
+                    .header("x-csrf-token", &csrf)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -359,6 +362,7 @@ mod tests {
             .oneshot(
                 Request::get("/api/v1/audit/events?limit=25&after_sequence=0")
                     .header("cookie", &cookie)
+                    .header("x-csrf-token", &csrf)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -374,6 +378,7 @@ mod tests {
             .oneshot(
                 Request::get(format!("/api/v1/audit/events?limit=26&cursor={cursor}"))
                     .header("cookie", &cookie)
+                    .header("x-csrf-token", &csrf)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -386,6 +391,7 @@ mod tests {
                     .oneshot(
                         Request::get(format!("/api/v1/audit/events?{query}"))
                             .header("cookie", &cookie)
+                            .header("x-csrf-token", &csrf)
                             .body(Body::empty())
                             .unwrap()
                     )
@@ -395,7 +401,7 @@ mod tests {
                 StatusCode::BAD_REQUEST
             );
         }
-        let crossed=app.clone().oneshot(Request::post("/mcp").header("cookie",&cookie).header("origin",ORIGIN).header("x-csrf-token",csrf)
+        let crossed=app.clone().oneshot(Request::post("/mcp").header("cookie",&cookie).header("origin",ORIGIN).header("x-csrf-token",&csrf)
             .header("idempotency-key",Uuid::new_v4().to_string()).body(Body::from(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_audit_events","arguments":{"cursor":cursor}}}).to_string())).unwrap()).await.unwrap();
         assert_eq!(value(crossed).await["result"]["isError"], true);
         s.store
@@ -408,6 +414,7 @@ mod tests {
                 .oneshot(
                     Request::get(format!("/api/v1/audit/events?cursor={cursor}"))
                         .header("cookie", &cookie)
+                        .header("x-csrf-token", &csrf)
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -490,11 +497,12 @@ mod tests {
             }
         }
         assert_eq!(s.store.count_audit(&s.tenant, 0).unwrap(), 2);
-        let (cookie, _) = login(&app).await;
+        let (cookie, csrf) = login(&app).await;
         let response = app
             .oneshot(
                 Request::get("/api/v1/audit/events?limit=25")
                     .header("cookie", cookie)
+                    .header("x-csrf-token", &csrf)
                     .body(Body::empty())
                     .unwrap(),
             )

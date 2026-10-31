@@ -12,6 +12,8 @@ Use an authority-owned database such as `authority.sqlite3`, separate from the
 controller database. Its schema identity rejects a controller or unrelated
 database instead of adding authority tables to it. SQLite foreign keys, WAL,
 FULL synchronous writes and a bounded busy timeout support local transactions.
+WAL initialization retries only SQLite busy/locked responses, with a five-second
+monotonic deadline; normal connections retain the five-second SQLite timeout.
 Canonical bytes preserve evidence; normalized columns, foreign keys and unique
 constraints enforce tenant, credential, membership and challenge relationships.
 On Unix, opening also requires a private regular single-link database file in a
@@ -40,8 +42,10 @@ the reproducible entry point is the library integration suite.
 An explicitly pinned credential starts pending. A separate persisted WebAuthn
 authentication ceremony proves possession before activation. The authority uses
 its own credential snapshot; registration or a controller session alone does not
-activate an authority credential. Revocation is permanent for that credential
-record. Scoped role grants carry validity bounds and a membership identity;
+activate an authority credential. Revocation retains the credential record and
+its public-key tombstone. Within the same authority tenant, the same public key
+cannot be pinned again under a different credential ID or principal, including
+after revocation. Scoped role grants carry validity bounds and a membership identity;
 revocation retains the original record. Security changes advance a project
 revision and append audit evidence.
 
@@ -49,6 +53,12 @@ The credential key fingerprint binds its principal, RP, credential ID, algorithm
 and public key. It excludes mutable counter and backup-state information so a
 later valid assertion does not change key identity. Counter and credential
 snapshot checks remain separate from fingerprint comparison.
+An additional `public_key_fingerprint()` hashes the domain
+`fw.webauthn-public-key.v1\0` followed by canonical DER SubjectPublicKeyInfo.
+It excludes identity labels. A separate append-only registry enforces its
+tenant-scoped uniqueness across active, pending and revoked credentials;
+critical reads recompute both fingerprints. Equivalent coordinate encodings
+therefore cannot bypass a public-key tombstone.
 Imported keys must satisfy the supported key policy: ES256 with P-256, or RS256
 with a 2048-bit odd modulus and a valid odd exponent. Padding a weaker modulus
 does not satisfy that check; an algorithm label cannot admit a different curve.
@@ -74,6 +84,37 @@ Authority-bootstrap manifests are supported by the lower-level challenge
 primitive, but this storage slice accepts plan decisions only. It does not
 produce bootstrap approval proofs, aggregate an `ApprovalSet`, count a quorum,
 reserve signing work, issue grants or dispatch policies.
+
+## Schema upgrade and private backup
+
+Fresh authority databases use schema version 2. The stable family identity
+`fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
+populated version 1 database returns `MigrationRequired` without adding tables
+or treating its keys as newly enrolled. The explicit maintenance operation is:
+
+```rust,ignore
+AuthorityStore::migrate_v1("authority.sqlite3", "private-backups/before-v2.sqlite3")?;
+let store = AuthorityStore::open("authority.sqlite3")?;
+```
+
+Use a protected existing backup directory and a new backup filename. The library
+holds an IMMEDIATE transaction against concurrent writers, copies the committed
+WAL-aware database through SQLite's online backup API, verifies the backup and
+fsyncs its private file and digest manifest before changing the source schema.
+Backup files and manifests contain restricted authority data and stay outside
+public logs and source commits. Restoring an old backup over live revocations,
+credential counters or executor authority requires a separate recovery procedure.
+
+The migration validates the exact known version 1 schema and credential
+projections, computes public-key fingerprints for all records including revoked
+ones, and commits the new registry, migration checksums and version switch
+atomically. Duplicate key material or invalid retained records aborts the
+migration without choosing or deleting a credential. The private pre-migration
+backup remains available. Existing decisions, assertions, consumption records,
+counters and audit rows retain their original bytes. A repeated migration call
+on a valid version 2 database makes no new backup or state change. Foreign and
+future versions, changed migration checksums and pre-existing backup filenames
+are rejected.
 
 ## Issuance and atomic decision admission
 
@@ -156,6 +197,10 @@ Record the exact reviewed commit and comparison base. A useful review report
 includes severity, path/line, reproduction, observed result, security impact and
 tests not run. Software-authenticator tests verify cryptographic and storage
 behavior; they do not establish human consent or platform qualification.
+
+`DecisionResult::decision()` and `RetainedDecision::decision()` expose the signed
+`Approve`/`Reject` enum. Inspect this value when consuming a successfully stored
+or verified decision; a rejection can be stored and verified successfully.
 
 For authorization and cryptography review, examine:
 

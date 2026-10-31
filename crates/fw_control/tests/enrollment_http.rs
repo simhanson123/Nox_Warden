@@ -280,7 +280,7 @@ async fn token_creation_requires_session_csrf_and_replays_without_plaintext_secr
     let key = Uuid::new_v4().to_string();
     for (cookie, csrf, expected) in [
         (None, None, StatusCode::UNAUTHORIZED),
-        (Some(cookie.as_str()), Some("bad"), StatusCode::FORBIDDEN),
+        (Some(cookie.as_str()), Some("bad"), StatusCode::UNAUTHORIZED),
     ] {
         assert_eq!(
             public(
@@ -372,7 +372,7 @@ async fn real_tls_enrollment_capability_and_revocation_remain_observe_only() {
         "/api/v1/targets",
         "GET",
         Some(&cookie),
-        None,
+        Some(&csrf),
         &Uuid::new_v4().to_string(),
         json!({}),
     )
@@ -417,7 +417,7 @@ async fn real_tls_enrollment_capability_and_revocation_remain_observe_only() {
         "/api/v1/targets",
         "GET",
         Some(&cookie),
-        None,
+        Some(&csrf),
         &Uuid::new_v4().to_string(),
         json!({}),
     )
@@ -462,7 +462,7 @@ async fn real_tls_enrollment_capability_and_revocation_remain_observe_only() {
         "/api/v1/status",
         "GET",
         Some(&cookie),
-        None,
+        Some(&csrf),
         &Uuid::new_v4().to_string(),
         json!({}),
     )

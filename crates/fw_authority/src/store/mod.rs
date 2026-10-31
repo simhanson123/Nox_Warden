@@ -6,6 +6,7 @@
 //! A different SQLite filename, on its own, does not establish that boundary.
 //! Decisions here do not create approval sets, grants or signing jobs.
 mod admission;
+mod migrations;
 mod provision;
 mod records;
 mod subject;
@@ -17,7 +18,11 @@ use fw_webauthn::{Credential, WebAuthn};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
-use std::{fs, path::Path, time::Duration};
+use std::{
+    fs,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 const SCHEMA: &str = "fw.authority-store/v1";
 const APPLICATION_ID: i64 = 0x46574155;
@@ -65,15 +70,27 @@ pub struct IssuedApproval {
 pub struct DecisionResult {
     pub approval: Value,
     pub replayed: bool,
+    decision: ApprovalDecision,
+}
+impl DecisionResult {
+    /// The recorded signed decision. Successful storage can record a rejection.
+    pub fn decision(&self) -> ApprovalDecision {
+        self.decision
+    }
 }
 /// A retained signature and its current authority registry checks succeeded.
 /// Rejections remain rejections. This is not a quorum or a dispatch grant.
 pub struct RetainedDecision {
     approval: Value,
+    decision: ApprovalDecision,
 }
 impl RetainedDecision {
     pub fn approval(&self) -> &Value {
         &self.approval
+    }
+    /// Proof verification does not turn a rejection into approval or a grant.
+    pub fn decision(&self) -> ApprovalDecision {
+        self.decision
     }
 }
 
@@ -99,38 +116,10 @@ impl AuthorityStore {
                 |r| r.get(0),
             )?;
             if tables == 0 && application == 0 && version == 0 {
-                tx.execute_batch(include_str!("schema.sql"))?;
-                for table in [
-                    "authority_metadata",
-                    "authority_principals",
-                    "authority_requirements",
-                    "authority_requirement_roles",
-                    "authority_plans",
-                    "authority_plan_retirements",
-                    "authority_evidence",
-                    "authority_decisions",
-                    "authority_audit",
-                ] {
-                    // Fixed compile-time identifiers, never interpolated input.
-                    tx.execute_batch(&format!(
-                        "CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'immutable authority record'); END;
-                         CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'immutable authority record'); END;"
-                    ))?;
-                }
-                for table in [
-                    "authority_credentials",
-                    "authority_roles",
-                    "authority_challenges",
-                    "authority_activations",
-                ] {
-                    tx.execute_batch(&format!(
-                        "CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained authority record'); END;"
-                    ))?;
-                }
-                tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-                tx.pragma_update(None, "user_version", 1)?;
+                migrations::initialize_v1(&tx)?;
+                migrations::apply_v2(&tx)?;
             } else {
-                if application != APPLICATION_ID || version != 1 {
+                if application != APPLICATION_ID || ![1, 2].contains(&version) {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -143,10 +132,17 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
+                if version == 1 {
+                    return Err(AuthorityError::MigrationRequired {
+                        found: 1,
+                        required: 2,
+                    });
+                }
+                migrations::validate_v2(&tx)?;
             }
             tx.commit()?;
         }
-        let journal: String = connection.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
+        let journal = enable_wal(&connection, Duration::from_secs(5))?;
         connection.pragma_update(None, "synchronous", "FULL")?;
         let foreign_keys: i64 = connection.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
         let sync: i64 = connection.query_row("PRAGMA synchronous", [], |r| r.get(0))?;
@@ -156,6 +152,32 @@ impl AuthorityStore {
         }
         Ok(Self { connection })
     }
+}
+
+// SQLite can return BUSY from journal-mode negotiation without invoking its busy
+// handler. Bound this one initialization operation explicitly; ordinary queries
+// keep the standard five-second SQLite busy timeout. Never retry other errors.
+fn enable_wal(connection: &Connection, timeout: Duration) -> Result<String> {
+    connection.busy_timeout(Duration::ZERO)?;
+    let deadline = Instant::now() + timeout;
+    let mut pause = Duration::from_millis(1);
+    let outcome = loop {
+        match connection.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0)) {
+            Ok(mode) => break Ok(mode),
+            Err(error) => {
+                let retryable = matches!(&error, rusqlite::Error::SqliteFailure(code, _)
+                    if matches!(code.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked));
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if !retryable || remaining.is_zero() {
+                    break Err(error.into());
+                }
+                std::thread::sleep(pause.min(remaining));
+                pause = (pause * 2).min(Duration::from_millis(25));
+            }
+        }
+    };
+    connection.busy_timeout(Duration::from_millis(5000))?;
+    outcome
 }
 
 fn private_path(path: &Path) -> Result<()> {
@@ -357,4 +379,88 @@ fn audit(
         ],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod wal_tests {
+    use super::*;
+    use rusqlite::OpenFlags;
+
+    #[test]
+    fn journal_mode_retries_a_real_reader_lock_and_restores_normal_timeout() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("authority.sqlite3");
+        let blocker = Connection::open(&path).unwrap();
+        blocker.execute_batch("PRAGMA journal_mode=DELETE; CREATE TABLE fixture(value INTEGER); INSERT INTO fixture VALUES(1); BEGIN; SELECT * FROM fixture;").unwrap();
+        let connection = Connection::open(&path).unwrap();
+        connection.busy_timeout(Duration::ZERO).unwrap();
+        assert!(
+            matches!(connection.query_row::<String,_,_>("PRAGMA journal_mode=WAL",[],|r|r.get(0)),
+            Err(rusqlite::Error::SqliteFailure(code,_)) if code.code==rusqlite::ErrorCode::DatabaseBusy)
+        );
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            blocker.execute_batch("COMMIT").unwrap();
+        });
+        assert_eq!(
+            enable_wal(&connection, Duration::from_secs(5)).unwrap(),
+            "wal"
+        );
+        release.join().unwrap();
+        assert_eq!(
+            connection
+                .query_row::<i64, _, _>("PRAGMA busy_timeout", [], |r| r.get(0))
+                .unwrap(),
+            5000
+        );
+        assert_eq!(
+            connection
+                .query_row::<String, _, _>("PRAGMA integrity_check", [], |r| r.get(0))
+                .unwrap(),
+            "ok"
+        );
+    }
+
+    #[test]
+    fn journal_mode_lock_has_a_monotonic_deadline() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("authority.sqlite3");
+        let blocker = Connection::open(&path).unwrap();
+        blocker.execute_batch("CREATE TABLE fixture(value INTEGER); INSERT INTO fixture VALUES(1); BEGIN; SELECT * FROM fixture;").unwrap();
+        let connection = Connection::open(&path).unwrap();
+        let started = Instant::now();
+        assert!(matches!(enable_wal(&connection,Duration::from_millis(40)),
+            Err(AuthorityError::Storage(rusqlite::Error::SqliteFailure(code,_))) if code.code==rusqlite::ErrorCode::DatabaseBusy));
+        assert!(started.elapsed() >= Duration::from_millis(40));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            connection
+                .query_row::<i64, _, _>("PRAGMA busy_timeout", [], |r| r.get(0))
+                .unwrap(),
+            5000
+        );
+        blocker.execute_batch("ROLLBACK").unwrap();
+    }
+
+    #[test]
+    fn journal_mode_does_not_retry_readonly_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("authority.sqlite3");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE fixture(value INTEGER)")
+            .unwrap();
+        let connection =
+            Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let started = Instant::now();
+        assert!(matches!(enable_wal(&connection,Duration::from_secs(5)),
+            Err(AuthorityError::Storage(rusqlite::Error::SqliteFailure(code,_))) if code.code==rusqlite::ErrorCode::ReadOnly));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(
+            connection
+                .query_row::<i64, _, _>("PRAGMA busy_timeout", [], |r| r.get(0))
+                .unwrap(),
+            5000
+        );
+    }
 }

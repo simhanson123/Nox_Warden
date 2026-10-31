@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import ssl
 import subprocess
 import tempfile
@@ -24,13 +25,33 @@ import jsonschema
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class BrowserUnavailable(Exception):
+    """A missing test prerequisite, with no external exception text."""
+
+
+def browser_executable(requested):
+    try:
+        from playwright.sync_api import sync_playwright
+    except ModuleNotFoundError as error:
+        raise BrowserUnavailable('Install requirements-browser.txt before using --browser.') from error
+    selected = requested or shutil.which('chromium') or shutil.which('chromium-browser')
+    if not selected:
+        with sync_playwright() as playwright:
+            selected = playwright.chromium.executable_path
+    if not Path(selected).is_file() or not os.access(selected, os.X_OK):
+        raise BrowserUnavailable(
+            'Chromium is unavailable. Install it with python -m playwright install chromium '
+            'or supply --browser-executable with an executable browser path.')
+    return selected
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--http-port', type=int, default=8792)
     parser.add_argument('--tls-port', type=int, default=8793)
     parser.add_argument('--report', type=Path, default=ROOT / 'reports/enrollment-smoke.json')
     parser.add_argument('--browser', action='store_true')
-    parser.add_argument('--browser-executable', default='/usr/bin/chromium')
+    parser.add_argument('--browser-executable', help='Chromium executable; defaults to PATH or Playwright Chromium')
     args = parser.parse_args()
     checks = []
     report = {'status': 'FAIL', 'checks': checks, 'native_firewall_changed': False,
@@ -50,6 +71,7 @@ def main():
 
     process = None
     try:
+        executable = browser_executable(args.browser_executable) if args.browser else None
         with tempfile.TemporaryDirectory(prefix='nox-enrollment-') as temporary:
             state = Path(temporary)
             api = f'http://127.0.0.1:{args.http_port}'
@@ -103,7 +125,7 @@ def main():
 
             def public(path, body=None):
                 session = json.loads(session_file.read_text())
-                headers = {'Cookie': session['cookie']}
+                headers = {'Cookie': session['cookie'], 'X-CSRF-Token': session['csrf_token']}
                 if body is not None:
                     headers.update({'Origin': api, 'X-CSRF-Token': session['csrf_token'],
                                     'Idempotency-Key': str(uuid.uuid4()), 'Content-Type': 'application/json'})
@@ -202,19 +224,23 @@ def main():
 
             if args.browser:
                 from playwright.sync_api import sync_playwright
+                # Use a real initial setup response to establish browser proof.
+                # Owner enrollment has not happened in this device-registration
+                # test, so a restart still issues a new one-use console token.
+                stop_controller(process)
+                process = start_controller()
                 with sync_playwright() as playwright:
-                    browser = playwright.chromium.launch(executable_path=args.browser_executable, headless=True, args=['--no-sandbox'])
+                    browser = playwright.chromium.launch(executable_path=executable, headless=True, args=['--no-sandbox'])
                     browser_context = browser.new_context(viewport={'width': 1440, 'height': 1000}, locale='ko-KR')
-                    cookie = session['cookie'].split('=', 1)[1]
-                    browser_context.add_cookies([{'name': 'fw_session', 'value': cookie, 'url': api,
-                                                 'httpOnly': True, 'sameSite': 'Strict'}])
                     page = browser_context.new_page()
                     errors = []
                     page.on('pageerror', lambda error: errors.append(type(error).__name__))
                     page.goto(api + '/targets')
+                    page.get_by_label('Console token', exact=True).fill((controller_dir / 'bootstrap-token').read_text())
+                    page.get_by_role('button', name='Start session', exact=True).click()
                     page.get_by_role('button', name='Registered test device', exact=True).wait_for()
                     check('live target page renders the genuinely enrolled device', page.locator('html').get_attribute('lang') == 'en')
-                    page.goto(api + '/services')
+                    page.get_by_role('link', name='Services', exact=True).click()
                     page.get_by_role('button', name='Register service', exact=True).click()
                     page.get_by_label('Service ID', exact=True).fill('browser-enrolled-https')
                     page.get_by_label('Display name', exact=True).fill('Browser registered HTTPS')
@@ -223,7 +249,9 @@ def main():
                     page.get_by_label('Registered targets', exact=True).select_option(target_id)
                     page.get_by_role('button', name='Save immutable revision', exact=True).click()
                     page.wait_for_url('**/services/browser-enrolled-https')
-                    page.reload()
+                    page.get_by_role('link', name='Targets', exact=True).click()
+                    page.get_by_role('link', name='Services', exact=True).click()
+                    page.get_by_role('button', name='Browser registered HTTPS', exact=True).click()
                     page.get_by_role('button', name='Create new revision', exact=True).wait_for()
                     check('browser service creation persists the actual registered target', not errors)
                     browser.close()
@@ -256,6 +284,9 @@ def main():
             report['status'] = 'PASS'
             stop_controller(process)
             process = None
+    except BrowserUnavailable as error:
+        report['status'] = 'NOT_RUN'
+        report['error'] = {'type': 'BrowserUnavailable', 'prerequisite': str(error)}
     except Exception as error:
         report['error'] = {'type': type(error).__name__}
         if isinstance(error, AssertionError):
@@ -276,7 +307,7 @@ def main():
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
-    return 0 if report['status'] == 'PASS' else 1
+    return 0 if report['status'] == 'PASS' else 2 if report['status'] == 'NOT_RUN' else 1
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 //! provide an independent signer's authority. Raw WebAuthn proof stays in storage.
 use super::*;
 use fw_store::passkeys::{
-    PasskeyAuthority, PasskeyChallenge, PasskeyChallengeInput, VerifiedPasskey,
+    PasskeyAuthority, PasskeyChallenge, PasskeyChallengeInput, PasskeyLoginInput, VerifiedPasskey,
 };
 use fw_webauthn::{
     AuthenticationResponse, AuthenticationState, Credential, RegistrationResponse,
@@ -80,22 +80,6 @@ fn write_headers<'a>(s: &AppState, h: &'a HeaderMap) -> Result<&'a str, Problem>
         return Err(Problem(StatusCode::UNSUPPORTED_MEDIA_TYPE, "JSON_REQUIRED"));
     }
     Ok(key)
-}
-fn ceremony_limit(s: &AppState) -> Result<(), Problem> {
-    let at = now();
-    let mut login = s.login.lock().map_err(|_| unavailable())?;
-    if at < login.ceremony_window || at - login.ceremony_window >= 60 {
-        login.ceremony_window = at;
-        login.ceremony_attempts = 0;
-    }
-    if login.ceremony_attempts >= 120 {
-        return Err(Problem(
-            StatusCode::TOO_MANY_REQUESTS,
-            "PASSKEY_RATE_LIMITED",
-        ));
-    }
-    login.ceremony_attempts += 1;
-    Ok(())
 }
 fn map_passkey(error: fw_store::StoreError) -> Problem {
     use fw_store::StoreError::*;
@@ -268,10 +252,16 @@ async fn registration_complete(
     Ok(response)
 }
 async fn login_options(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
-    let key = write_headers(&s, &h)?;
-    ceremony_limit(&s)?;
+    write_headers(&s, &h)?;
     let input: AuthenticationStart =
         fw_contracts::parse_strict(&b).map_err(|_| bad("INVALID_JSON"))?;
+    if !s
+        .store
+        .passkey_owner_enrolled(&s.tenant, PRINCIPAL)
+        .map_err(map_passkey)?
+    {
+        return Err(Problem(StatusCode::CONFLICT, "PASSKEY_OWNER_NOT_ENROLLED"));
+    }
     let mut candidates = credentials(&s)?;
     if let Some(id) = &input.credential_id {
         candidates.retain(|c| &c.id() == id);
@@ -283,25 +273,18 @@ async fn login_options(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -
         .filter(|v| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
         .map(str::to_owned)
         .unwrap_or_else(random_token);
-    let saved = s
-        .store
-        .begin_passkey_challenge(
-            &s.tenant,
-            PRINCIPAL,
-            &PasskeyChallengeInput {
-                kind: "authentication".into(),
-                session_binding: fw_contracts::hash_bytes(token.as_bytes()),
-                authority: None,
-                name: None,
-                request: serde_json::to_value(input).map_err(|_| unavailable())?,
-                options: ceremony.options,
-                state: serde_json::to_value(ceremony.state).map_err(|_| unavailable())?,
-            },
-            key,
+    let (ticket, expires_at) = s
+        .login_tickets
+        .issue(
+            &s.origin,
+            fw_contracts::hash_bytes(token.as_bytes()),
+            ceremony.state,
             now(),
         )
-        .map_err(map_passkey)?;
-    let mut response = public_challenge(saved)?;
+        .map_err(|_| unavailable())?;
+    let mut response = axum::Json(auth_envelope(json!({"ceremony_id":ticket,
+        "public_key":ceremony.options["publicKey"],"expires_at":timestamp(expires_at)})))
+    .into_response();
     response.headers_mut().append(
         "set-cookie",
         HeaderValue::from_str(&format!(
@@ -313,30 +296,37 @@ async fn login_options(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -
 }
 async fn login_complete(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
     let key = write_headers(&s, &h)?;
-    ceremony_limit(&s)?;
     let binding = flow_binding(&h)?;
     let input: AuthenticationFinish =
         fw_contracts::parse_strict(&b).map_err(|_| bad("INVALID_JSON"))?;
-    if !uuid(&input.ceremony_id) {
-        return Err(bad("CEREMONY_ID_INVALID"));
-    }
+    let authenticated_at = now();
+    let claims = s
+        .login_tickets
+        .open(&input.ceremony_id, &s.origin, &binding, authenticated_at)
+        .map_err(|_| {
+            s.record_authentication_denial("PASSKEY_VERIFICATION_FAILED");
+            Problem(StatusCode::UNAUTHORIZED, "PASSKEY_VERIFICATION_FAILED")
+        })?;
     let webauthn = engine(&s)?;
     let proof = serde_json::to_value(&input.credential).map_err(|_| unavailable())?;
-    let authenticated_at = now();
     let result = s
         .store
-        .finish_passkey_challenge(
+        .finish_passkey_login(
             &s.tenant,
             PRINCIPAL,
-            &input.ceremony_id,
-            "authentication",
-            &binding,
+            &PasskeyLoginInput {
+                challenge_id: claims.challenge_id,
+                session_binding: claims.session_binding,
+                created_at: claims.issued_at,
+                expires_at: claims.expires_at,
+                state: serde_json::to_value(claims.state).map_err(|_| unavailable())?,
+            },
             &proof,
             key,
             authenticated_at,
-            |challenge, current| {
+            |state, current| {
                 let state: AuthenticationState =
-                    serde_json::from_value(challenge.state.clone()).map_err(|_| proof_error())?;
+                    serde_json::from_value(state.clone()).map_err(|_| proof_error())?;
                 let current = current
                     .iter()
                     .find(|c| c.credential_id == input.credential.id && c.revoked_at.is_none())
@@ -355,7 +345,10 @@ async fn login_complete(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) 
                 })
             },
         )
-        .map_err(map_passkey)?;
+        .map_err(|error| {
+            s.record_authentication_denial("PASSKEY_VERIFICATION_FAILED");
+            map_passkey(error)
+        })?;
     if result.replayed {
         return Err(Problem(StatusCode::CONFLICT, "CEREMONY_ALREADY_USED"));
     }

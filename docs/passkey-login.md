@@ -65,7 +65,9 @@ console-token file. After enrollment:
 1. The terminal prints the exact local controller URL and an eight-character
    uppercase code.
 2. Open that URL, sign in or reauthenticate with a passkey, and type the code from
-   the terminal. Approve CLI login explicitly.
+   your own terminal. The browser request view does not return or display the
+   expected code; the server checks the value you enter. Approve CLI login
+   explicitly, and do not enter a code sent by someone else.
 3. The CLI exchanges a separate one-use polling secret for its own session and
    writes the existing private session file. The browser never receives this
    polling secret, and it is not placed in a URL or printed.
@@ -75,6 +77,11 @@ browser session before exchange cancels its authorization. A restart or lost
 exchange response requires a new CLI login request. Exchanging a CLI session
 preserves the original passkey authentication time; it cannot renew permission
 to add or revoke a key.
+
+Possession of a request URL does not supply its confirmation code or authorize
+the request. Someone who creates a request still knows that request's code and
+could try to persuade an owner to enter it. Manual terminal confirmation is not
+a complete defense against social engineering or a compromised local host.
 
 The controller retains at most 16 CLI login requests until their five-minute
 expiry, including requests already exchanged. Creation does not require an
@@ -98,18 +105,21 @@ for an enrolled owner. Other origins, remote HTTPS management and OIDC are not
 implemented by this profile. Use the built client served by the controller for
 real authentication; a separate Vite development origin is not allowlisted.
 
-Passkey-authenticated requests require both the HttpOnly/SameSite=Strict cookie
-and the session's `X-CSRF-Token`, including reads such as `/session`. The browser
-holds that second proof only in memory. Reloading or opening a new tab therefore
-requires passkey login again; a cookie alone cannot restore the session or fetch
-its proof. This prevents a different localhost-port service receiving the shared
-hostname's cookie from using that cookie alone to recover the session token.
-The CLI stores both values in its existing private session file.
+All authenticated requests, including initial bootstrap setup, require both the
+HttpOnly/SameSite=Strict cookie and the session's `X-CSRF-Token`, even for reads
+such as `/session`. The successful bootstrap or passkey login response supplies
+that second proof. The browser holds it only in memory; the CLI stores both
+values in its existing private session file. A cookie alone cannot restore the
+session or retrieve its proof, even when a local client supplies the configured
+Origin header. This prevents another localhost-port service receiving the shared
+hostname's cookie from using it to take over initial owner registration.
 
-Before owner enrollment, initial bootstrap setup retains the legacy cookie-only
-read behavior and requires trusted local services/processes. The additional
-proof requirement protects enrolled passkey sessions; it does not make initial
-bootstrap or a compromised host an independent security boundary.
+Reloading or opening a new tab requires passkey login again once an owner is
+enrolled. Before enrollment, keep the initial setup tab open until registration
+and the first signed login finish. If its memory proof is lost before any owner
+registration, restart the local controller to obtain a fresh console token.
+Registration reserves the durable owner immediately; afterward restart never
+reopens bootstrap, including while the first credential is still pending.
 
 Mutations additionally check the exact configured Origin. Loopback HTTP does not
 set the Secure cookie attribute. This remains a development profile and does not
@@ -118,9 +128,11 @@ establish isolation from software or administrators controlling the same host.
 The controller stores local-owner credentials and proof in its own database.
 That database is not an independently protected signer's source of authority.
 The [approval proof library](policy-approval-proofs.md) separately implements
-immutable subject challenges and bound WebAuthn verification. The authority still
-needs current-role resolution, trusted credential enrollment and durable one-use
-approval storage. A successful login does not satisfy those requirements. See the [implementation boundaries](implementation.md)
+immutable subject challenges and bound WebAuthn verification. The separate
+[authority store](authority-store.md) implements explicit credential pinning and
+activation, current scoped roles and durable one-use decision storage. Protected
+service deployment, production authority enrollment, quorum and signing still
+remain incomplete. Controller login never supplies those approvals. See the [implementation boundaries](implementation.md)
 and [WebAuthn dependency review](passkey-dependencies.md).
 
 ## Authentication API extension
@@ -139,8 +151,8 @@ envelope and bounded JSON handling.
 | `POST /auth/passkeys/login/complete` | `{ceremony_id, credential}`; actual signed browser assertion, current credential, challenge and browser binding. |
 | `POST /auth/passkeys/{id}/revocations` | `{}`; recent verified passkey session, with last-verified-key protection. |
 | `POST /auth/logout` | `{}`; authenticated session and CSRF. |
-| `POST /auth/cli/requests` | `{}`; bounded, expiring CLI request. Returns the polling secret only to the requesting CLI. |
-| `GET /auth/cli/requests/{id}` | Authenticated view of the request and display code; never the polling secret. |
+| `POST /auth/cli/requests` | `{}`; bounded, expiring CLI request. Returns the confirmation code and polling secret only to the initiating client. |
+| `GET /auth/cli/requests/{id}` | Authenticated request ID, controller origin, expiry and state; neither the confirmation code nor polling secret. |
 | `POST /auth/cli/requests/{id}/authorize` | `{user_code}`; explicit matching code, recent verified passkey session and CSRF. |
 | `POST /auth/cli/requests/{id}/exchange` | `{poll_token}`; pending response or one-use credential-bound session transfer. |
 
@@ -151,11 +163,54 @@ return `{ceremony_id, public_key, expires_at}`. Browser credential responses use
 base64url-encoded binary fields, and the signed `clientDataJSON` bytes are
 preserved exactly.
 
-Ceremonies expire after five minutes. Verification runs against current stored
-credentials inside the same bounded transaction that consumes a successful
-challenge, updates credential state and records proof/audit. Failed assertions
-cannot become successful consumption, and attempt/creation limits bound retries.
-Concurrent stale credential snapshots require a fresh ceremony.
+Ceremonies expire after five minutes. Protected registration ceremonies remain
+in the database with their existing creation and failure budgets. Anonymous login
+options allocate no pending database row or global admission slot, so unrelated
+requests cannot exhaust a five-minute login quota or the registration budget.
+Each options request returns a fresh challenge, including repeated idempotency
+keys; issuance has no persistent side effect.
+
+For login only, `ceremony_id` is an opaque encrypted ticket, not a UUID. The
+server serializes its private verification state into an AES-256-GCM envelope
+using a random 32-byte process key, fresh 12-byte nonce and 16-byte tag. The
+authenticated context binds the configured origin, login purpose/version,
+server-selected owner and tenant, browser cookie hash, random challenge ID and
+issuance/expiry times. The browser holds this encrypted ticket only in memory;
+plaintext verification state is never accepted from clients. Tickets must not
+be put in URLs, logs or browser storage. Restart rotates the key and rejects
+pending tickets; it does not reopen bootstrap.
+
+Verification runs against current stored credentials inside an IMMEDIATE SQLite
+transaction. A successful signature atomically updates the credential, records
+one-use challenge consumption and retains original verification state, assertion
+and audit evidence. Current owner/principal, key revocation and counter state are
+rechecked. Zero-counter authenticators still receive durable replay protection.
+Failed assertions create no per-attempt challenge/proof rows; denial samples and
+counts use the existing bounded audit aggregation. Concurrent stale credential
+snapshots require a fresh ceremony.
+
+All public requests retain the 64 KiB limit. Tickets are bounded to 26,000
+encoded bytes before decoding. The server compresses bounded state before AEAD
+encryption, then authenticates before decompression; a fixed 64 KiB + 1 KiB
+output buffer rejects oversized output, incomplete streams and trailing data.
+Plaintext verification state contains public credential material and challenges,
+never authenticator private keys. Stored state and assertions each retain their
+64 KiB bounds and individual assertion field limits are unchanged. A regression
+uses eight independent RSA keys and random maximum-size credential IDs together
+with maximum permitted assertion field sizes to check the whole request bound.
+Bounded parsing and cryptographic work do not guarantee availability under
+sustained CPU or network saturation; there is no shared anonymous history quota
+that can lock out successful completion.
+
+This development login extension explicitly departs from F_02's ordinary POST
+idempotency contract: public issuance has no persistent result to replay. Only
+authenticated encrypted server state travels through the browser, which also
+differs from the upstream library's recommendation to keep all serialized
+ceremony state server-side. Registration and policy approval retain that
+recommendation, and F_01's 64 KiB public request bound remains enforced.
+The exception prevents public
+requests from reserving every owner's authentication slot; it does not establish
+full specification compliance or independent policy authority.
 
 Authentication completion and CLI exchange are intentionally one-use, unlike
 idempotent catalogue writes: replaying successful proof does not return or mint
@@ -171,6 +226,7 @@ From the repository root, after building `fw_control`, `fw_cli` and `web/dist`:
 python -m pip install -r scripts/requirements-browser.txt
 python -m playwright install --with-deps chromium
 python scripts/smoke_passkeys.py
+python scripts/smoke_login_admission.py
 ```
 
 Use `--browser-executable /usr/bin/chromium` to select an installed browser.
@@ -178,6 +234,9 @@ The suite starts real controller and CLI processes with private temporary state.
 Chromium executes actual `navigator.credentials.create/get` against a CDP virtual
 CTAP2 authenticator; the controller verifies the resulting cryptographic proof.
 Tests cover restart, bootstrap closure, credentials and CLI transfer/revocation.
+The login-admission suite sends 1,005 anonymous options requests, checks that no
+pending database rows accumulate, completes an earlier genuine browser proof,
+checks replay and registration availability, and verifies restart key rotation.
 Generated reports identify this virtual-authenticator scope and omit credentials,
 private keys and proof bytes. They remain ignored local output or bounded CI
 artifacts. This does not verify a physical security key, a human consent decision,

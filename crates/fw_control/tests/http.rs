@@ -13,7 +13,7 @@ fn app() -> axum::Router {
         Arc::new(
             AppState::new(
                 Store::in_memory().unwrap(),
-                "http://127.0.0.1:8787".into(),
+                "http://localhost:8787".into(),
                 "unit-test-token",
             )
             .unwrap(),
@@ -26,7 +26,7 @@ async fn login(app: &axum::Router) -> (String, String) {
         .clone()
         .oneshot(
             Request::post("/api/v1/session/bootstrap")
-                .header("origin", "http://127.0.0.1:8787")
+                .header("origin", "http://localhost:8787")
                 .header("idempotency-key", Uuid::new_v4().to_string())
                 .body(Body::from(r#"{"token":"unit-test-token"}"#))
                 .unwrap(),
@@ -59,10 +59,78 @@ fn post(path: &str, cookie: &str, csrf: &str, key: &str, body: String) -> Reques
         .header("cookie", cookie)
         .header("x-csrf-token", csrf)
         .header("idempotency-key", key)
-        .header("origin", "http://127.0.0.1:8787")
+        .header("origin", "http://localhost:8787")
         .body(Body::from(body))
         .unwrap()
 }
+
+#[tokio::test]
+async fn bootstrap_cookie_alone_cannot_recover_proof_or_begin_owner_registration() {
+    let app = app();
+    let (cookie, proof) = login(&app).await;
+    // A service on another localhost port receives the host-scoped cookie and
+    // can send an Origin header itself. Neither fact proves possession of the
+    // independently returned bootstrap response kept in browser memory.
+    for path in ["/api/v1/session", "/api/v1/status", "/api/v1/auth/passkeys"] {
+        for presented in [None, Some("incorrect-proof")] {
+            let mut request = Request::get(path)
+                .header("cookie", &cookie)
+                .header("origin", "http://localhost:8787");
+            if let Some(presented) = presented {
+                request = request.header("x-csrf-token", presented);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+            let body = to_bytes(response.into_body(), 65536).await.unwrap();
+            assert!(!String::from_utf8_lossy(&body).contains(&proof));
+        }
+    }
+    let response = app
+        .clone()
+        .oneshot(post(
+            "/api/v1/auth/passkeys/registration/options",
+            &cookie,
+            "incorrect-proof",
+            &Uuid::new_v4().to_string(),
+            json!({"name":"Untrusted local service"}).to_string(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // The refused cookie probes must not destroy the legitimate setup session.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/session")
+                .header("cookie", &cookie)
+                .header("x-csrf-token", &proof)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let session: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap()).unwrap();
+    assert_eq!(session["data"]["owner_enrolled"], false);
+    let response = app
+        .oneshot(post(
+            "/api/v1/auth/passkeys/registration/options",
+            &cookie,
+            &proof,
+            &Uuid::new_v4().to_string(),
+            json!({"name":"Initial owner"}).to_string(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn protected_reads_and_single_use_bootstrap() {
     let app = app();
@@ -72,12 +140,13 @@ async fn protected_reads_and_single_use_bootstrap() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
-    let (cookie, _) = login(&app).await;
+    let (cookie, csrf) = login(&app).await;
     let r = app
         .clone()
         .oneshot(
             Request::get("/api/v1/status")
                 .header("cookie", cookie)
+                .header("x-csrf-token", &csrf)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -88,7 +157,7 @@ async fn protected_reads_and_single_use_bootstrap() {
     let r = app
         .oneshot(
             Request::post("/api/v1/session/bootstrap")
-                .header("origin", "http://127.0.0.1:8787")
+                .header("origin", "http://localhost:8787")
                 .header("idempotency-key", Uuid::new_v4().to_string())
                 .body(Body::from(r#"{"token":"unit-test-token"}"#))
                 .unwrap(),
@@ -113,7 +182,7 @@ async fn csrf_and_native_admission_are_enforced() {
         ))
         .await
         .unwrap();
-    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
     let r = app
         .oneshot(post(
             "/api/v1/deployments",
@@ -180,6 +249,7 @@ async fn request_idempotency_persists_without_authorizing_network() {
         .oneshot(
             Request::get(format!("/api/v1/access-requests/{request_id}"))
                 .header("cookie", &cookie)
+                .header("x-csrf-token", &csrf)
                 .body(Body::empty())
                 .unwrap(),
         )

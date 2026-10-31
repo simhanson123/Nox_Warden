@@ -1,8 +1,8 @@
 # Control interface
 
 A static React/TypeScript client for the local controller. It uses same-origin
-`/api/v1` requests, HttpOnly sessions and session-bound CSRF. Passkey-authenticated
-reads also require the CSRF proof, which is kept only in memory. A reload or new
+`/api/v1` requests, HttpOnly sessions and session-bound CSRF. All authenticated
+reads, including initial setup, require the CSRF proof, which is kept only in memory. A reload or new
 tab asks for passkey login again; its cookie alone cannot restore the proof.
 No credentials, policy data or API responses are written to browser storage;
 only the selected locale is persisted. No external fonts, analytics, scripts or CDN resources are
@@ -105,6 +105,9 @@ python scripts/smoke_enrollment.py --browser
 ```
 
 This check uses temporary private state and does not alter the host firewall.
+It selects Chromium from PATH or the Playwright installation; an explicit
+`--browser-executable` overrides discovery. A missing browser is reported as
+`NOT_RUN` with exit code 2 before any controller is started.
 Browser and component tests remain distinct from native platform qualification.
 
 The passkey integration suite creates its own disposable controller state and

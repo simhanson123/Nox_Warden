@@ -46,6 +46,8 @@ pub enum AuthorityError {
     Conflict,
     #[error("authority storage failure")]
     Storage(#[from] rusqlite::Error),
+    #[error("authority database schema {found} requires a backed-up migration to {required}")]
+    MigrationRequired { found: i64, required: i64 },
 }
 pub type Result<T> = std::result::Result<T, AuthorityError>;
 

@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix='nox-http-') as tmp:
             headers={}
             if body is not None or raw is not None:
                 headers={'Content-Type':'application/json','Origin':BASE,'Idempotency-Key':key or str(uuid.uuid4())}
-                if csrf: headers['X-CSRF-Token']=csrf
+            if csrf: headers['X-CSRF-Token']=csrf
             headers.update(extra_headers or {})
             data=raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
             try:

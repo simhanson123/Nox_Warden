@@ -6,7 +6,7 @@ license = "Apache-2.0"
 
 [features]
 default = ["approval-proofs"]
-approval-proofs = ["dep:fw_webauthn", "dep:fw_domain", "dep:openssl", "dep:sha2"]
+approval-proofs = ["dep:fw_webauthn", "dep:fw_domain", "dep:openssl", "dep:sha2", "rusqlite/backup"]
 
 [dependencies]
 fw_contracts = { path = "../fw_contracts" }

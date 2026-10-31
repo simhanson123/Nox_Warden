@@ -146,7 +146,10 @@ async fn view(State(s): State<Arc<AppState>>, h: HeaderMap, Path(id): Path<Strin
     let mut state = s.cli_login.lock().map_err(|_| unavailable())?;
     let r = request(&mut state, &id, now())?;
     Ok(axum::Json(envelope(json!({
-        "request_id":id,"user_code":r.user_code,"expires_at":timestamp(r.expires),
+        // The confirmation code is returned only to the initiating terminal.
+        // Returning it here would let a URL recipient copy it from the page
+        // without having started the CLI request they are about to approve.
+        "request_id":id,"expires_at":timestamp(r.expires),
         "state":if r.consumed {"consumed"} else if r.approval.is_some() {"approved"} else {"pending"},
         "api_origin":s.origin
     }))).into_response())
@@ -390,11 +393,70 @@ mod tests {
         .await
     }
     #[tokio::test]
+    async fn browser_request_view_never_discloses_the_terminal_confirmation_code() {
+        let s = setup();
+        let f = flow(&s).await;
+        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let viewed = data(
+            view(
+                State(s.clone()),
+                headers(&s, Some((&token, &session))),
+                Path(f["request_id"].as_str().unwrap().into()),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert!(viewed.get("user_code").is_none());
+        assert!(viewed.get("poll_token").is_none());
+        let serialized = serde_json::to_string(&viewed).unwrap();
+        assert!(!serialized.contains(f["user_code"].as_str().unwrap()));
+        assert!(!serialized.contains(f["poll_token"].as_str().unwrap()));
+        assert_eq!(viewed["state"], "pending");
+        assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::ACCEPTED);
+        assert!(
+            !f["verification_uri"]
+                .as_str()
+                .unwrap()
+                .contains(f["user_code"].as_str().unwrap())
+        );
+        assert!(
+            !f["verification_uri"]
+                .as_str()
+                .unwrap()
+                .contains(f["poll_token"].as_str().unwrap())
+        );
+    }
+    #[tokio::test]
     async fn cli_handoff_requires_fresh_explicit_authorization_and_one_use_secret() {
         let s = setup();
         let f = flow(&s).await;
         assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::ACCEPTED);
+        let unauthenticated = authorize(
+            State(s.clone()),
+            headers(&s, None),
+            Path(f["request_id"].as_str().unwrap().into()),
+            bytes(json!({"user_code":f["user_code"]})),
+        )
+        .await;
+        assert!(matches!(
+            unauthenticated,
+            Err(Problem(StatusCode::UNAUTHORIZED, "AUTHENTICATION_REQUIRED"))
+        ));
+        assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::ACCEPTED);
         let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let missing = authorize(
+            State(s.clone()),
+            headers(&s, Some((&token, &session))),
+            Path(f["request_id"].as_str().unwrap().into()),
+            bytes(json!({})),
+        )
+        .await;
+        assert!(matches!(
+            missing,
+            Err(Problem(StatusCode::BAD_REQUEST, "INVALID_JSON"))
+        ));
+        assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::ACCEPTED);
         let bad = authorize(
             State(s.clone()),
             headers(&s, Some((&token, &session))),
@@ -450,7 +512,10 @@ mod tests {
                     authenticated_at: at,
                 },
                 &Uuid::new_v4().to_string(),
-                at,
+                // Request/approval audit events may cross a clock second after
+                // the authentication time captured above. Revocation uses the
+                // current operation time, preserving the monotonic audit head.
+                now(),
             )
             .unwrap();
         assert!(matches!(

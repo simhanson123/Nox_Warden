@@ -27,12 +27,12 @@ function validList(value: PasskeyList): PasskeyList {
 function reason(error: ApiError): string {
   // The public Problem contract uses a generic code and a bounded reason in
   // detail. Match only known reasons; never interpret arbitrary detail as code.
-  return ['PASSKEY_REAUTHENTICATION_REQUIRED', 'LAST_PASSKEY_REQUIRED', 'CLI_LOGIN_EXPIRED'].includes(error.detail) ? error.detail : error.code;
+  return ['PASSKEY_REAUTHENTICATION_REQUIRED', 'LAST_PASSKEY_REQUIRED', 'CLI_LOGIN_EXPIRED', 'CLI_CODE_MISMATCH'].includes(error.detail) ? error.detail : error.code;
 }
 function Failure({ error, t }: { error?: ApiError; t: Translate }) {
   if (!error) return null;
   const code = reason(error);
-  const key = code === 'PASSKEY_CANCELLED' ? 'passkey.cancelled' : code === 'PASSKEY_ALREADY_REGISTERED' ? 'passkey.alreadyRegistered' : code === 'PASSKEY_REAUTHENTICATION_REQUIRED' ? 'passkey.reauthenticate' : code === 'LAST_PASSKEY_REQUIRED' ? 'passkey.keepAccess' : code === 'PASSKEY_BROWSER_UNAVAILABLE' ? 'passkey.browserUnavailable' : null;
+  const key = code === 'PASSKEY_CANCELLED' ? 'passkey.cancelled' : code === 'PASSKEY_ALREADY_REGISTERED' ? 'passkey.alreadyRegistered' : code === 'PASSKEY_REAUTHENTICATION_REQUIRED' ? 'passkey.reauthenticate' : code === 'LAST_PASSKEY_REQUIRED' ? 'passkey.keepAccess' : code === 'PASSKEY_BROWSER_UNAVAILABLE' ? 'passkey.browserUnavailable' : code === 'CLI_CODE_MISMATCH' ? 'cli.codeMismatch' : null;
   return key ? <p className="notice warning" role="alert">{t(key)}</p> : <ErrorNotice error={error} t={t}/>;
 }
 function Unavailable({ status, t }: { status: AuthStatus; t: Translate }) {
@@ -139,17 +139,17 @@ export function PasskeysPage({ t, locale, session, onSession, onSignedOut, onReg
   </div></section>;
 }
 
-interface CliRequest { request_id: string; user_code: string; expires_at: string; state: 'pending' | 'approved' | 'consumed'; api_origin: string }
+interface CliRequest { request_id: string; expires_at: string; state: 'pending' | 'approved' | 'consumed'; api_origin: string }
 export function CliLoginPage({ requestId, t, locale, session, onSession, onSignedOut }: { requestId: string; t: Translate; locale: Locale; session: Session; onSession: AcceptSession; onSignedOut: () => void }) {
   const [request, setRequest] = useState<CliRequest>(); const [error, setError] = useState<ApiError>();
-  const [code, setCode] = useState(''); const [pending, setPending] = useState(false); const [mismatch, setMismatch] = useState(false);
+  const [code, setCode] = useState(''); const [pending, setPending] = useState(false);
   const [forceVerification, setForceVerification] = useState(false); const operation = useRef<AbortController | null>(null);
   const fresh = !forceVerification && session.authentication_method === 'passkey' && typeof session.authenticated_at === 'number' && Date.now() / 1000 - session.authenticated_at < 300;
   useEffect(() => {
     const controller = new AbortController();
     void api<CliRequest>('/auth/cli/requests/' + encodeURIComponent(requestId), { signal: controller.signal }).then(result => {
       const data = result.data;
-      if (!data || data.request_id !== requestId || !/^[0-9A-F]{8}$/.test(data.user_code) || !['pending', 'approved', 'consumed'].includes(data.state) || typeof data.api_origin !== 'string') throw new ApiError(0, 'INVALID_RESPONSE', '');
+      if (!data || data.request_id !== requestId || !['pending', 'approved', 'consumed'].includes(data.state) || typeof data.api_origin !== 'string') throw new ApiError(0, 'INVALID_RESPONSE', '');
       setRequest(data);
     }).catch((err: unknown) => { if (!controller.signal.aborted) setError(passkeyError(err)); });
     return () => { controller.abort(); operation.current?.abort(); };
@@ -163,7 +163,7 @@ export function CliLoginPage({ requestId, t, locale, session, onSession, onSigne
   }
   async function authorize(event: FormEvent) {
     event.preventDefault(); if (pending || !fresh || request?.state !== 'pending') return;
-    if (code !== request.user_code) { setMismatch(true); return; }
+    if (!/^[0-9A-F]{8}$/.test(code)) return;
     setPending(true); setError(undefined);
     try {
       const result = await api<{ request_id: string; state: string }>('/auth/cli/requests/' + encodeURIComponent(requestId) + '/authorize', { body: { user_code: code } });
@@ -179,9 +179,9 @@ export function CliLoginPage({ requestId, t, locale, session, onSession, onSigne
   return <section className="panel security-panel"><div className="section-heading"><h2>{t('cli.title')}</h2><Icon name="security"/></div><div className="security-content">
     <p className="muted-text">{t('cli.description')}</p><Failure error={error} t={t}/>
     {!request ? !error && <Loader t={t}/> : request.state !== 'pending' ? <p className="notice success" role="status">{t('cli.approved')}</p> : <>
-      <dl className="cli-request-details"><div><dt>{t('cli.controller')}</dt><dd><code>{request.api_origin}</code></dd></div><div><dt>{t('cli.requestCode')}</dt><dd><code>{request.user_code}</code></dd></div><div><dt>{t('list.time')}</dt><dd>{formatTime(request.expires_at, locale)}</dd></div></dl>
+      <dl className="cli-request-details"><div><dt>{t('cli.controller')}</dt><dd><code>{request.api_origin}</code></dd></div><div><dt>{t('list.time')}</dt><dd>{formatTime(request.expires_at, locale)}</dd></div></dl>
       {!fresh && <div className="passkey-verify"><p>{t('passkey.reauthenticate')}</p><button className="button" disabled={pending || !passkeysSupported()} onClick={() => void verify()}>{t('passkey.verify')}</button></div>}
-      <form onSubmit={event => void authorize(event)}><fieldset disabled={pending || !fresh}><label>{t('cli.codeLabel')}<input required autoComplete="off" spellCheck={false} maxLength={8} pattern="[0-9A-F]{8}" value={code} onChange={event => { setCode(event.target.value.toUpperCase()); setMismatch(false); }}/></label>{mismatch && <p className="error-text" role="alert">{t('cli.codeMismatch')}</p>}<button className="button primary" disabled={code.length !== 8}>{t('cli.approve')}</button></fieldset></form>
+      <form onSubmit={event => void authorize(event)}><fieldset disabled={pending || !fresh}><label>{t('cli.codeLabel')}<input required autoComplete="off" spellCheck={false} maxLength={8} pattern="[0-9A-F]{8}" value={code} onChange={event => { setCode(event.target.value.toUpperCase()); setError(undefined); }}/></label><button className="button primary" disabled={code.length !== 8}>{t('cli.approve')}</button></fieldset></form>
     </>}
   </div></section>;
 }

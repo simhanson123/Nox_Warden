@@ -421,6 +421,7 @@ fn reject_decision_stays_reject_across_restart_and_proof_review() {
     let response = f.key.assertion(&issued.options, 2, 0x05, ORIGIN);
     let result = f.submit(&issued, &response, IDEMPOTENCY, NOW + 1).unwrap();
     assert_eq!(result.approval["decision"], "reject");
+    assert_eq!(result.decision(), ApprovalDecision::Reject);
     f.restart();
     let retained = f
         .store
@@ -433,6 +434,153 @@ fn reject_decision_stays_reject_across_restart_and_proof_review() {
         .unwrap();
     assert_eq!(retained.approval(), &result.approval);
     assert_eq!(retained.approval()["decision"], "reject");
+    assert_eq!(retained.decision(), ApprovalDecision::Reject);
+}
+
+// Test-only reconstruction of the previous published schema. Product code has
+// no downgrade operation; all v1 tables, original bytes and counters are kept.
+fn restore_v1_fixture(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch(
+        "DROP TRIGGER authority_public_key_registry_no_update;
+        DROP TRIGGER authority_public_key_registry_no_delete;
+        DROP TABLE authority_public_key_registry;
+        DROP TRIGGER authority_schema_migrations_no_update;
+        DROP TRIGGER authority_schema_migrations_no_delete;
+        DROP TABLE authority_schema_migrations;
+        PRAGMA user_version=1;",
+    )
+    .unwrap();
+}
+
+#[test]
+fn backed_up_v1_migration_preserves_original_decisions_proofs_and_exact_retries() {
+    let mut f = Fixture::new();
+    let issued = f.issue(ApprovalDecision::Approve, NOW);
+    let assertion = f.key.assertion(&issued.options, 2, 0x05, ORIGIN);
+    let decision = f.submit(&issued, &assertion, IDEMPOTENCY, NOW + 1).unwrap();
+    drop(f.store);
+    restore_v1_fixture(&f.path);
+    let original = snapshot(&f.path);
+    assert!(matches!(
+        AuthorityStore::open(&f.path),
+        Err(fw_authority::AuthorityError::MigrationRequired {
+            found: 1,
+            required: 2
+        })
+    ));
+    assert_eq!(snapshot(&f.path), original);
+    let backup = f.path.with_file_name("before-v2.sqlite3");
+    AuthorityStore::migrate_v1(&f.path, &backup).unwrap();
+    assert_eq!(snapshot(&backup), original);
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(backup.with_extension("manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        manifest["database_hash"],
+        fw_contracts::hash_bytes(&std::fs::read(&backup).unwrap())
+    );
+    for old in &original {
+        assert_eq!(
+            snapshot(&f.path)
+                .into_iter()
+                .find(|row| row.0 == old.0)
+                .as_ref(),
+            Some(old)
+        );
+    }
+    f.store = AuthorityStore::open(&f.path).unwrap();
+    let replay = f
+        .submit(&issued, &assertion, IDEMPOTENCY, NOW + 600)
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.approval, decision.approval);
+    f.store
+        .verify_retained_decision(
+            &f.tenant,
+            decision.approval["approval_id"].as_str().unwrap(),
+            &f.verifier,
+            NOW + 600,
+        )
+        .unwrap();
+    let second = f.path.with_file_name("unnecessary-backup.sqlite3");
+    AuthorityStore::migrate_v1(&f.path, &second).unwrap();
+    assert!(!second.exists());
+}
+
+#[test]
+fn duplicate_public_keys_abort_v1_migration_without_changing_original_records() {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let mut f = Fixture::new();
+    f.store
+        .revoke_credential(&f.tenant, &f.credential.id(), NOW + 1)
+        .unwrap();
+    drop(f.store);
+    restore_v1_fixture(&f.path);
+    let mut value = serde_json::to_value(&f.credential).unwrap();
+    value["passkey"]["cred"]["cred_id"] = json!(URL_SAFE_NO_PAD.encode([0x42; 32]));
+    let renamed: Credential = serde_json::from_value(value).unwrap();
+    let fingerprint = renamed.key_fingerprint().unwrap();
+    let fingerprint: Vec<u8> = (7..71)
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&fingerprint[i..i + 2], 16).unwrap())
+        .collect();
+    let db = rusqlite::Connection::open(&f.path).unwrap();
+    db.execute("INSERT INTO authority_credentials(org_id,project_id,credential_id,principal_id,key_fingerprint,credential_bytes,revision,state,not_before,not_after,pinned_at)
+        VALUES(?,?,?,?,?,?,1,'pending',?,?,?)",rusqlite::params![ORG,PROJECT,renamed.id(),PRINCIPAL,fingerprint,
+        fw_contracts::canonical_bytes(&renamed).unwrap(),NOW,NOW+7200,NOW+1]).unwrap();
+    drop(db);
+    let original = snapshot(&f.path);
+    let backup = f.path.with_file_name("duplicates-before-v2.sqlite3");
+    assert!(AuthorityStore::migrate_v1(&f.path, &backup).is_err());
+    assert_eq!(snapshot(&f.path), original);
+    assert_eq!(snapshot(&backup), original);
+    assert_eq!(
+        rusqlite::Connection::open(&f.path)
+            .unwrap()
+            .query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap(),
+        1
+    );
+    assert!(matches!(
+        AuthorityStore::open(&f.path),
+        Err(fw_authority::AuthorityError::MigrationRequired { .. })
+    ));
+}
+
+#[test]
+fn migration_refuses_unknown_schema_and_never_overwrites_backup_files() {
+    let f = Fixture::new();
+    drop(f.store);
+    restore_v1_fixture(&f.path);
+    let backup = f.path.with_file_name("existing-backup.sqlite3");
+    std::fs::write(&backup, b"existing-private-backup").unwrap();
+    let original = snapshot(&f.path);
+    assert!(AuthorityStore::migrate_v1(&f.path, &backup).is_err());
+    assert_eq!(std::fs::read(&backup).unwrap(), b"existing-private-backup");
+    assert_eq!(snapshot(&f.path), original);
+    let db = rusqlite::Connection::open(&f.path).unwrap();
+    db.execute_batch("DROP TRIGGER authority_credentials_no_delete;")
+        .unwrap();
+    drop(db);
+    let unexpected = f.path.with_file_name("unexpected-schema.sqlite3");
+    assert!(AuthorityStore::migrate_v1(&f.path, &unexpected).is_err());
+    assert!(!unexpected.exists());
+}
+
+#[test]
+fn migrated_database_requires_its_exact_migration_checksum() {
+    let f = Fixture::new();
+    let db = rusqlite::Connection::open(&f.path).unwrap();
+    db.execute_batch(
+        "DROP TRIGGER authority_schema_migrations_no_update;
+        UPDATE authority_schema_migrations SET checksum=zeroblob(32) WHERE version=2;",
+    )
+    .unwrap();
+    drop(db);
+    let before = snapshot(&f.path);
+    assert!(AuthorityStore::open(&f.path).is_err());
+    assert_eq!(snapshot(&f.path), before);
 }
 
 #[test]
