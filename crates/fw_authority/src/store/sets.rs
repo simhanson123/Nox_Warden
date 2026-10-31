@@ -5,6 +5,62 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_CANDIDATES: usize = 64;
+const MAX_CANDIDATE_QUERY_OPERATIONS: u32 = 1_000_000;
+#[cfg(test)]
+std::thread_local! {
+    static TEST_QUERY_OPERATIONS: std::cell::Cell<u32> = const { std::cell::Cell::new(MAX_CANDIDATE_QUERY_OPERATIONS) };
+}
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../../tests/support/approval_authenticator.rs"]
+mod budget_authenticator;
+
+// AuthorityStore exclusively owns this connection and installs no other progress
+// handler. Always remove this scoped handler, including errors and unwinding.
+struct QueryBudget<'a>(&'a Connection);
+impl Drop for QueryBudget<'_> {
+    fn drop(&mut self) {
+        self.0.progress_handler(0, None::<fn() -> bool>);
+    }
+}
+fn bounded_query<T>(
+    connection: &Connection,
+    max_operations: u32,
+    query: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let exhausted = Arc::new(AtomicBool::new(false));
+    let interrupted = exhausted.clone();
+    let interval = max_operations.clamp(1, 1000);
+    let mut remaining = max_operations.div_ceil(interval);
+    connection.progress_handler(
+        interval as i32,
+        Some(move || {
+            remaining = remaining.saturating_sub(1);
+            if remaining == 0 {
+                interrupted.store(true, Ordering::Relaxed);
+                true
+            } else {
+                false
+            }
+        }),
+    );
+    let guard = QueryBudget(connection);
+    let result = query();
+    drop(guard);
+    match result {
+        Err(AuthorityError::Storage(rusqlite::Error::SqliteFailure(code, _)))
+            if code.code == rusqlite::ErrorCode::OperationInterrupted
+                && exhausted.load(Ordering::Relaxed) =>
+        {
+            Err(AuthorityError::Quota)
+        }
+        other => other,
+    }
+}
 
 /// Trusted local registry input. It is never populated from a plan's claims and
 /// does not attest that a production bootstrap/manifest signature was checked.
@@ -334,6 +390,50 @@ impl AuthorityStore {
         if tx.execute("INSERT OR IGNORE INTO authority_decision_revocations VALUES(?,?,?,?,'operator_withdrawal',?)",
             params![tenant.org_id,tenant.project_id,approval_id,actor,now])?==1 {
             bump_security(&tx,tenant)?; audit(&tx,tenant,"approval_decision_revoked",approval_id,now)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Trusted local withdrawal of this exact immutable set, including an expired
+    /// historical set. Actor identity is attribution; the embedding administrator
+    /// must authorize this privileged call. This does not withdraw other sets,
+    /// their individual decisions, the plan, or already applied network policy.
+    pub fn revoke_approval_set(
+        &mut self,
+        tenant: &AuthorityTenant,
+        approval_set_id: &str,
+        actor: &str,
+        now: i64,
+    ) -> Result<()> {
+        identifier(approval_set_id)?;
+        identifier(actor)?;
+        time(now)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        records::principal(&tx, tenant, actor, now)?;
+        let row: (i64,Vec<u8>,Vec<u8>) = tx.query_row(
+            "SELECT created_at,content_hash,canonical_bytes FROM authority_approval_sets WHERE org_id=? AND project_id=? AND approval_set_id=?",
+            params![tenant.org_id,tenant.project_id,approval_set_id], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))
+            .optional()?.ok_or(AuthorityError::Binding)?;
+        let content: Value = decode(&row.2)?;
+        if row.1 != hash(&hash_bytes(&row.2))?
+            || content["schema_version"] != "f.approval-set/v1"
+            || content["approval_set_id"] != approval_set_id
+            || content["org_id"] != tenant.org_id
+            || content["project_id"] != tenant.project_id
+            || content["created_at"] != at(row.0)?
+        {
+            return Err(invalid("approval set withdrawal binding"));
+        }
+        if now < row.0 {
+            return Err(AuthorityError::Time);
+        }
+        if tx.execute("INSERT OR IGNORE INTO authority_set_revocations VALUES(?,?,?,?,'operator_withdrawal',?)",
+            params![tenant.org_id,tenant.project_id,approval_set_id,actor,now])?==1 {
+            bump_security(&tx,tenant)?;
+            audit(&tx,tenant,"approval_set_revoked",approval_set_id,now)?;
         }
         tx.commit()?;
         Ok(())
@@ -676,21 +776,40 @@ pub(super) fn aggregate(
             approval_set_hash: existing.hash,
         });
     }
-    let mut statement=tx.prepare("SELECT approval_id FROM authority_decisions WHERE org_id=? AND project_id=? AND plan_id=? AND decision='approve'
-        AND created_at<=? AND expires_at>? ORDER BY approval_id LIMIT ?")?;
-    let ids = statement
-        .query_map(
-            params![
-                tenant.org_id,
-                tenant.project_id,
-                plan_id,
-                now,
-                now,
-                (MAX_CANDIDATES + 1) as i64
-            ],
+    let author = human(tx, tenant, &subject.author_id, now)?.ok_or(AuthorityError::Binding)?;
+    #[cfg(not(test))]
+    let query_operations = MAX_CANDIDATE_QUERY_OPERATIONS;
+    #[cfg(test)]
+    let query_operations = TEST_QUERY_OPERATIONS.with(std::cell::Cell::get);
+    let ids = bounded_query(tx, query_operations, || {
+        // Reduce only currently eligible records to one deterministic vote per
+        // canonical human/role BEFORE applying the meaningful-candidate bound.
+        // No original proof/history is deleted, and each representative is still
+        // independently reverified below in this same write transaction.
+        let mut statement=tx.prepare("SELECT MIN(d.approval_id) FROM authority_decisions d
+            INDEXED BY authority_plan_decision_lookup
+            JOIN authority_credentials c ON c.org_id=d.org_id AND c.project_id=d.project_id AND c.credential_id=d.credential_id AND c.principal_id=d.principal_id
+            JOIN authority_roles r ON r.org_id=d.org_id AND r.project_id=d.project_id AND r.membership_id=d.membership_id AND r.principal_id=d.principal_id
+            JOIN authority_principals p ON p.org_id=d.org_id AND p.project_id=d.project_id AND p.principal_id=d.principal_id
+            JOIN authority_human_bindings h ON h.org_id=d.org_id AND h.project_id=d.project_id AND h.principal_id=d.principal_id
+            JOIN authority_requirement_roles required ON required.org_id=d.org_id AND required.project_id=d.project_id AND required.requirements_hash=:requirements AND required.role=r.role
+            WHERE d.org_id=:org AND d.project_id=:project AND d.plan_id=:plan AND d.decision='approve' AND d.created_at<=:now AND d.expires_at>:now
+            AND c.state='active' AND c.revoked_at IS NULL AND c.not_before<=:now AND c.not_after>:now AND c.pinned_at<=:now AND c.activated_at<=:now
+            AND r.revoked_at IS NULL AND r.not_before<=:now AND r.not_after>:now AND r.granted_at<=:now
+            AND p.created_at<=:now AND h.bound_at<=:now AND (:author_may_approve OR h.human_id!=:author)
+            AND NOT EXISTS(SELECT 1 FROM authority_decision_revocations v WHERE v.org_id=d.org_id AND v.project_id=d.project_id AND v.approval_id=d.approval_id)
+            GROUP BY h.human_id,r.role ORDER BY h.human_id,r.role LIMIT :limit")?;
+        let rows = statement.query_map(
+            rusqlite::named_params! {
+                ":org":tenant.org_id, ":project":tenant.project_id, ":plan":plan_id,
+                ":requirements":hash(&subject.requirements_hash)?, ":now":now,
+                ":author_may_approve":subject.author_may_approve, ":author":author,
+                ":limit":(MAX_CANDIDATES+1) as i64,
+            },
             |r| r.get::<_, String>(0),
-        )?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+        )?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    })?;
     if ids.len() > MAX_CANDIDATES {
         return Err(AuthorityError::Quota);
     }
@@ -808,4 +927,259 @@ pub(super) fn retained_result(
         return Err(invalid("historical aggregation result hash"));
     }
     decode(&canonical)
+}
+
+#[cfg(test)]
+mod query_budget_tests {
+    use super::*;
+
+    const EXPENSIVE: &str = "WITH RECURSIVE n(v) AS (VALUES(0) UNION ALL SELECT v+1 FROM n WHERE v<10000) SELECT SUM(v) FROM n";
+
+    #[test]
+    fn interrupted_candidate_selection_rolls_back_real_proof_counter_consumption_and_audit() {
+        use budget_authenticator::{Authenticator, ORIGIN, PRINCIPAL};
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../docs/specs/F_기준자료/F_개발계약/F_계약_예제.json"
+        ))
+        .unwrap();
+        let mut plan = fixture["plan"].clone();
+        let requirements = json!({"schema_version":"f.approval-requirements/v1","profile":"lab_owner",
+            "minimum_humans":1,"required_roles":["owner"],"distinct_principals":true,"author_may_approve":true,
+            "max_approval_age_seconds":300,"require_webauthn":true,"role_policy_hash":hash_bytes(b"query budget fixture")});
+        plan["principal_id"] = PRINCIPAL.into();
+        plan["approval_requirements_hash"] = canonical_hash(&requirements).unwrap().into();
+        plan["request_patch_hash"] = canonical_hash(&plan["requested_policies"]).unwrap().into();
+        let now = crate::timestamp(plan["created_at"].as_str().unwrap()).unwrap();
+        let tenant = AuthorityTenant::new(
+            plan["org_id"].as_str().unwrap(),
+            plan["project_id"].as_str().unwrap(),
+        )
+        .unwrap();
+        let mut directory_builder = tempfile::Builder::new();
+        directory_builder.prefix("nox-budget-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            directory_builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = directory_builder.tempdir().unwrap();
+        let path = directory.path().join("authority.sqlite3");
+        let mut store = AuthorityStore::open(&path).unwrap();
+        let verifier = WebAuthn::new(ORIGIN).unwrap();
+        let key = Authenticator::new(PRINCIPAL);
+        let registration = verifier
+            .begin_registration(PRINCIPAL, "Budget fixture", &[])
+            .unwrap();
+        let credential = verifier
+            .finish_registration(
+                &registration.state,
+                &key.registration(&registration.options),
+            )
+            .unwrap();
+        store
+            .provision_principal(
+                &tenant,
+                PRINCIPAL,
+                "https://fixture.example",
+                "budget-person",
+                now,
+            )
+            .unwrap();
+        store
+            .pin_credential(&tenant, &credential, now, now + 3600, now)
+            .unwrap();
+        let activation = store
+            .begin_credential_activation(&tenant, &credential.id(), &verifier, now)
+            .unwrap();
+        store
+            .finish_credential_activation(
+                &tenant,
+                &activation.activation_id,
+                &key.assertion(&activation.options, 1, 5, ORIGIN),
+                &verifier,
+                now,
+            )
+            .unwrap();
+        store
+            .grant_role(
+                &tenant,
+                PRINCIPAL,
+                ApprovalRole::Owner,
+                now,
+                now + 3600,
+                now,
+            )
+            .unwrap();
+        store
+            .bind_human_identity(&tenant, PRINCIPAL, PRINCIPAL, now)
+            .unwrap();
+        store
+            .provision_authority_basis(
+                &tenant,
+                &AuthorityBasis {
+                    epoch: plan["authority_epoch"].as_str().unwrap().parse().unwrap(),
+                    role_policy_hash: requirements["role_policy_hash"].as_str().unwrap().into(),
+                    not_before: now,
+                    not_after: now + 3600,
+                },
+                now,
+            )
+            .unwrap();
+        store
+            .register_plan(&tenant, &plan, &requirements, now)
+            .unwrap();
+        let issued = store
+            .issue_challenge(
+                &tenant,
+                PRINCIPAL,
+                &credential.id(),
+                plan["plan_id"].as_str().unwrap(),
+                ApprovalRole::Owner,
+                ApprovalDecision::Approve,
+                &verifier,
+                now,
+            )
+            .unwrap();
+        let assertion = key.assertion(&issued.options, 2, 5, ORIGIN);
+        fn snapshot(connection: &Connection) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
+            let tables:Vec<String>=connection.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'authority_%' ORDER BY name").unwrap()
+                .query_map([],|r|r.get(0)).unwrap().collect::<std::result::Result<_,_>>().unwrap();
+            tables
+                .into_iter()
+                .map(|name| {
+                    let mut statement = connection
+                        .prepare(&format!("SELECT * FROM {name} ORDER BY rowid"))
+                        .unwrap();
+                    let columns = statement.column_count();
+                    let rows = statement
+                        .query_map([], |r| (0..columns).map(|i| r.get(i)).collect())
+                        .unwrap()
+                        .collect::<std::result::Result<_, _>>()
+                        .unwrap();
+                    (name, rows)
+                })
+                .collect()
+        }
+        let before = snapshot(&store.connection);
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                TEST_QUERY_OPERATIONS.with(|limit| limit.set(MAX_CANDIDATE_QUERY_OPERATIONS));
+            }
+        }
+        {
+            let _reset = Reset;
+            TEST_QUERY_OPERATIONS.with(|limit| limit.set(1));
+            assert!(matches!(
+                store.admit_decision(
+                    &tenant,
+                    PRINCIPAL,
+                    issued.challenge.challenge_id(),
+                    PRINCIPAL,
+                    &assertion,
+                    &verifier,
+                    now
+                ),
+                Err(AuthorityError::Quota)
+            ));
+        }
+        assert_eq!(before, snapshot(&store.connection));
+        let accepted = store
+            .admit_decision(
+                &tenant,
+                PRINCIPAL,
+                issued.challenge.challenge_id(),
+                PRINCIPAL,
+                &assertion,
+                &verifier,
+                now,
+            )
+            .unwrap();
+        assert!(matches!(
+            accepted.aggregation,
+            AggregationOutcome::Approved { .. }
+        ));
+        assert!(!accepted.replayed);
+        assert_eq!(
+            store
+                .connection
+                .query_row::<i64, _, _>(EXPENSIVE, [], |r| r.get(0))
+                .unwrap(),
+            50_005_000
+        );
+        assert!(
+            store
+                .admit_decision(
+                    &tenant,
+                    PRINCIPAL,
+                    issued.challenge.challenge_id(),
+                    PRINCIPAL,
+                    &assertion,
+                    &verifier,
+                    now
+                )
+                .unwrap()
+                .replayed
+        );
+    }
+
+    #[test]
+    fn exhausted_query_budget_rolls_back_work_and_does_not_poison_next_transaction() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch("CREATE TABLE work(value INTEGER); INSERT INTO work VALUES(1)")
+            .unwrap();
+        {
+            let tx = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .unwrap();
+            tx.execute("UPDATE work SET value=2", []).unwrap();
+            let result = bounded_query(&tx, 1000, || {
+                Ok(tx.query_row::<i64, _, _>(EXPENSIVE, [], |r| r.get(0))?)
+            });
+            assert!(matches!(result, Err(AuthorityError::Quota)));
+        }
+        assert_eq!(
+            connection
+                .query_row::<i64, _, _>("SELECT value FROM work", [], |r| r.get(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row::<i64, _, _>(EXPENSIVE, [], |r| r.get(0))
+                .unwrap(),
+            50_005_000
+        );
+        let tx = connection.transaction().unwrap();
+        tx.execute("UPDATE work SET value=3", []).unwrap();
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn foreign_interrupt_storage_error_and_panic_do_not_leak_the_scoped_handler() {
+        let connection = Connection::open_in_memory().unwrap();
+        let foreign = bounded_query::<()>(&connection, 1000, || {
+            Err(AuthorityError::Storage(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERRUPT),
+                None,
+            )))
+        });
+        assert!(matches!(foreign, Err(AuthorityError::Storage(_))));
+        let invalid = bounded_query::<()>(&connection, 1000, || {
+            connection.execute("INSERT INTO missing_table VALUES(1)", [])?;
+            Ok(())
+        });
+        assert!(matches!(invalid, Err(AuthorityError::Storage(_))));
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            bounded_query::<()>(&connection, 1000, || panic!("fixture unwind"))
+        }));
+        assert!(panic.is_err());
+        assert_eq!(
+            connection
+                .query_row::<i64, _, _>(EXPENSIVE, [], |r| r.get(0))
+                .unwrap(),
+            50_005_000
+        );
+    }
 }

@@ -37,10 +37,11 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **498 workspace Rust tests, 23 authority
+The integrated repository check passes **542 workspace Rust tests, 23 authority
 tests without default features, and 89 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
-52 core and 28 extended contract fixtures, nine Linux runner regressions and
+52 core and 28 extended contract fixtures, nine Linux runner regressions,
+six catalogue-diagnostic regressions and
 vendored-source verification. English remains the default. Eight controller
 catalogues have 229 messages each; eight authority catalogues have 58, with
 complete key and placeholder parity. Human translation acceptance is pending.
@@ -49,7 +50,7 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | --- | ---: | --- |
 | Controller HTTP | 24 | Actual HTTP routes and original OpenAPI contracts |
 | CLI / separate protocol fixture | 13 / 5 | Login, bounded list continuation and hostile-server refusal |
-| Passkey browser | 56 | Durable owner enrollment, login, key lifecycle, logout and CLI authorization |
+| Passkey browser | 71 | Durable owner enrollment, key lifecycle, logout, CLI handoff and delegated-session restrictions |
 | Login admission browser | 14 | 1,005 anonymous options requests, valid earlier proof, replay refusal and restart |
 | Audit HTTP/MCP/browser | 21 | Bounded denial evidence and stable snapshot pagination |
 | Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
@@ -67,6 +68,17 @@ focused authority/service fixture suite passed under `0002`, `0022` and an actua
 inherited default ACL; CI separately reruns it under `0002`. Deliberately unsafe
 permission, symlink and hardlink rejection cases remain active.
 
+Five startup regressions cover fixed stage/code diagnostics, including actual
+executable arguments, non-UTF8 arguments, unsafe/missing UI and an occupied port.
+A disposable POSIX default-ACL reproduction created an actual `0646` UI file:
+startup rejected it with the fixed `ui_assets` code and left its mode unchanged.
+The [installation guide](../docs/authority-review-service.md#file-modes-inherited-acls-and-startup-diagnostics)
+describes required modes and ACL inspection. Catalogue smoke reports closed
+failure phases/categories without exception text or private paths; six Python
+tests cover sanitization and report-write failure. Explicit locator deadlines
+and save/detail readiness do not establish the original intermittent failure's
+cause.
+
 Controller bootstrap reads require a separate in-memory session proof; a cookie
 alone cannot disclose that proof or register the owner. CLI browser views withhold
 the terminal confirmation code and polling secret. Public login options use
@@ -75,6 +87,19 @@ successful proof verification, durable consumption, counters and mandatory audit
 commit atomically. Tampering, bounded decompression, maximum sizes, zero-counter
 replay, independent connections and injected failures are covered. This is
 bounded admission testing, not sustained CPU/network saturation qualification.
+
+Server-owned session provenance prevents an exchanged CLI session from adding or
+revoking owner keys or authorizing another terminal, even during the original UV
+freshness window. Ordinary controller reads/writes remain available. Tests cover
+borrowed registration proofs, spoofed type headers, logout/expiry/revocation and
+promotion only after a new verified WebAuthn login.
+
+Controller login tickets and authority envelopes use non-clonable, checked nonce
+allocators and domain-separated epoch keys, with at most 65,536 encryptions per
+derived key. Old unexpired tickets remain decryptable across issuance epochs;
+there is no flood-evicted key cache. Tests cover rollover, concurrent allocation,
+exhaustion, tampering, purpose/origin separation and restart. This bounds issued
+encryption usage, not arbitrary failed-verification attempts or CPU saturation.
 
 [Audit snapshots](../docs/audit-log.md) and [catalogue snapshots](../docs/catalogue-pagination.md)
 bind continuation to the session, tenant, filters, limit and original deadline.
@@ -89,6 +114,14 @@ they never infer trusted epochs or human identities from plans. The tests cover
 real P-256 signatures, restart, exact retries, aliases, current revocation,
 retained proofs after counter advancement and atomic rollback. A separate
 first-open stress run passed 1,600 fresh-database races after bounded WAL retries.
+
+Migration preflight rejects source/backup/manifest and SQLite sidecar collisions
+before opening either database. It also rejects preexisting destination sidecars.
+Tests preserve source schema/history on refusal and cover case variants, parent
+aliases, reverse/manifest collisions and the documented ASCII maintenance-name
+profile. Unicode parent directories remain usable. Expired device reservations
+retain retry/replay bindings; a reopened-store regression confirms they cannot
+issue certificates and do not block a separately authorized new invitation.
 
 Authority audit checks include rollback of a genuine zero-counter activation
 when audit time moves backward, plus restart, independent tenants, exact retries,
@@ -107,6 +140,15 @@ head, historical receipt and audit commit in one transaction. Current reads
 revalidate the head; historical receipts never renew authority. A current read
 is a snapshot, not reserved permission for a future signing transaction.
 
+Candidate aggregation excludes withdrawn or currently ineligible votes and
+deduplicates canonical human/role pairs before the 64-candidate bound. Original
+proofs are reverified, while a scoped SQLite instruction budget bounds historical
+lookup cost. Tests reproduce 64 duplicate votes followed by 63 withdrawals and an
+independent final vote, distinct-candidate overflow, and full admission rollback
+and exact retry after query interruption. Named-set withdrawal commits a retained
+tombstone and audit atomically; withdrawing an old set cannot invalidate a
+different current head, and an unchanged selection cannot silently be reminted.
+
 The [independent review service](../docs/authority-review-service.md) has 23
 HTTP/P-256 regressions plus five review-adapter tests. It requires separately
 pinned private authority trust and a distinct origin. Tests cover exact
@@ -114,6 +156,16 @@ Host/Origin, cookie plus memory proof, tenant isolation, bounded requests,
 anonymous admission floods, counter/revision replay, mandatory-audit rollback,
 complete immutable before/after evidence and refusal of missing or oversized
 review content. Runtime routes never provision keys, roles, epochs or human maps.
+
+Nine executable TCP/P-256 tests and two connection-phase/race tests cover fresh
+login and verified requests with 64 idle sockets, verified requests with 64 slow
+public bodies, forged/missing proof, revoked/missing/revision-stale cached
+sessions, logout, absolute deadlines, recovery and disconnected blocking-job
+permit retention. The original idle/socket and shared-public-body starvation
+cases were reproduced against the previous executable before the fix.
+The 8+8 work reservation protects admission capacity; shared runtime work and
+fresh public sign-in still have no availability guarantee under sustained local
+TCP/CPU/database saturation. No protected OS deployment is inferred.
 
 The [authority UI](../docs/authority-review-ui.md) has a separate build and 35
 unit/catalogue tests within the UI total. It requires explicit consent, a current

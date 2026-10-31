@@ -4,9 +4,17 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use flate2::{Compression, Decompress, FlushDecompress, Status, write::DeflateEncoder};
 use fw_webauthn::AuthenticationState;
-use openssl::symm::{Cipher, decrypt_aead, encrypt_aead};
+use openssl::{
+    hash::MessageDigest,
+    pkey::PKey,
+    sign::Signer,
+    symm::{Cipher, decrypt_aead, encrypt_aead},
+};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::{
+    io::Write,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use subtle::ConstantTimeEq;
 
 const PURPOSE: &str = "fw.local-login-ticket/v1";
@@ -15,9 +23,19 @@ const MAX_PLAINTEXT: usize = 65536 + 1024;
 const MAX_ENCODED: usize = 26000;
 const NONCE_BYTES: usize = 12;
 const TAG_BYTES: usize = 16;
+const NONCE_VERSION: &[u8; 4] = b"FWT2";
+const MAX_CIPHERTEXT: usize = (MAX_ENCODED - PREFIX.len()) * 3 / 4 - NONCE_BYTES - TAG_BYTES;
+const MAX_AAD: usize = 4096;
+const EPOCH_BITS: u32 = 16;
 const SECONDS: i64 = 300;
 
-pub(super) struct LoginTickets([u8; 32]);
+// Never Clone: one allocator belongs to each boot-random master. Every derived
+// AES key encrypts at most 2^16 tickets and fewer than 2^27 GHASH input blocks
+// (ciphertext + AAD + length block). Failed verification attempts are separate.
+pub(super) struct LoginTickets {
+    master: [u8; 32],
+    next: AtomicU64,
+}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -38,7 +56,47 @@ impl LoginTickets {
     pub fn new() -> Result<Self, openssl::error::ErrorStack> {
         let mut key = [0; 32];
         openssl::rand::rand_bytes(&mut key)?;
-        Ok(Self(key))
+        Ok(Self {
+            master: key,
+            next: AtomicU64::new(0),
+        })
+    }
+    fn epoch_key(&self, sequence: u64) -> Result<[u8; 32], ()> {
+        let master = PKey::hmac(&self.master).map_err(|_| ())?;
+        let mut signer = Signer::new(MessageDigest::sha256(), &master).map_err(|_| ())?;
+        signer
+            .update(b"fw.local-login-ticket/aes-gcm-epoch/v2\0")
+            .map_err(|_| ())?;
+        signer
+            .update(&(sequence >> EPOCH_BITS).to_be_bytes())
+            .map_err(|_| ())?;
+        signer
+            .sign_to_vec()
+            .map_err(|_| ())?
+            .try_into()
+            .map_err(|_| ())
+    }
+    fn next_nonce(&self) -> Result<[u8; NONCE_BYTES], ()> {
+        let sequence = self
+            .next
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .map_err(|_| ())?;
+        let mut nonce = [0; NONCE_BYTES];
+        nonce[..4].copy_from_slice(NONCE_VERSION);
+        nonce[4..].copy_from_slice(&sequence.to_be_bytes());
+        Ok(nonce)
+    }
+    fn opening_key(&self, nonce: &[u8]) -> Result<[u8; 32], ()> {
+        if nonce.len() != NONCE_BYTES || &nonce[..4] != NONCE_VERSION {
+            return Err(());
+        }
+        let sequence = u64::from_be_bytes(nonce[4..].try_into().map_err(|_| ())?);
+        if sequence >= self.next.load(Ordering::Relaxed) {
+            return Err(());
+        }
+        self.epoch_key(sequence)
     }
     pub fn issue(
         &self,
@@ -73,14 +131,18 @@ impl LoginTickets {
         let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
         encoder.write_all(&plaintext).map_err(|_| ())?;
         let compressed = encoder.finish().map_err(|_| ())?;
-        let mut nonce = [0; NONCE_BYTES];
-        openssl::rand::rand_bytes(&mut nonce).map_err(|_| ())?;
+        let aad = associated_data(origin);
+        if compressed.len() > MAX_CIPHERTEXT || aad.len() > MAX_AAD {
+            return Err(());
+        }
+        let nonce = self.next_nonce()?;
+        let key = self.opening_key(&nonce)?;
         let mut tag = [0; TAG_BYTES];
         let ciphertext = encrypt_aead(
             Cipher::aes_256_gcm(),
-            &self.0,
+            &key,
             Some(&nonce),
-            &associated_data(origin),
+            &aad,
             &compressed,
             &mut tag,
         )
@@ -116,17 +178,22 @@ impl LoginTickets {
         let envelope = URL_SAFE_NO_PAD.decode(encoded).map_err(|_| ())?;
         if URL_SAFE_NO_PAD.encode(&envelope) != encoded
             || envelope.len() <= NONCE_BYTES + TAG_BYTES
-            || envelope.len() > MAX_PLAINTEXT + NONCE_BYTES + TAG_BYTES
+            || envelope.len() > MAX_CIPHERTEXT + NONCE_BYTES + TAG_BYTES
         {
             return Err(());
         }
         let (nonce, rest) = envelope.split_at(NONCE_BYTES);
         let (ciphertext, tag) = rest.split_at(rest.len() - TAG_BYTES);
+        let aad = associated_data(origin);
+        if aad.len() > MAX_AAD {
+            return Err(());
+        }
+        let key = self.opening_key(nonce)?;
         let compressed = decrypt_aead(
             Cipher::aes_256_gcm(),
-            &self.0,
+            &key,
             Some(nonce),
-            &associated_data(origin),
+            &aad,
             ciphertext,
             tag,
         )
@@ -243,6 +310,139 @@ mod tests {
     }
 
     #[test]
+    fn ticket_nonces_have_a_checked_unique_sequence() {
+        let key = LoginTickets::new().unwrap();
+        let state = state(false);
+        for sequence in 0u64..2 {
+            let (token, _) = key.issue(ORIGIN, binding(), state.clone(), NOW).unwrap();
+            let envelope = URL_SAFE_NO_PAD
+                .decode(token.strip_prefix(PREFIX).unwrap())
+                .unwrap();
+            assert_eq!(&envelope[..4], b"FWT2");
+            assert_eq!(&envelope[4..12], &sequence.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn epoch_rollovers_preserve_pending_tickets_and_exhaustion_never_wraps() {
+        let key = LoginTickets::new().unwrap();
+        let state = state(false);
+        let mut tokens = vec![key.issue(ORIGIN, binding(), state.clone(), NOW).unwrap().0];
+        assert_eq!(
+            key.epoch_key(0).unwrap(),
+            key.epoch_key((1 << EPOCH_BITS) - 1).unwrap()
+        );
+        assert_ne!(
+            key.epoch_key(0).unwrap(),
+            key.epoch_key(1 << EPOCH_BITS).unwrap()
+        );
+        for sequence in [
+            (1 << EPOCH_BITS) - 1,
+            1 << EPOCH_BITS,
+            (2 << EPOCH_BITS) - 1,
+            2 << EPOCH_BITS,
+            u64::MAX - 1,
+        ] {
+            // Jump to the boundary; no requirement for 2^64 real issuances.
+            key.next.store(sequence, Ordering::Relaxed);
+            tokens.push(key.issue(ORIGIN, binding(), state.clone(), NOW).unwrap().0);
+        }
+        assert!(key.issue(ORIGIN, binding(), state, NOW).is_err());
+        assert_eq!(key.next.load(Ordering::Relaxed), u64::MAX);
+        for token in tokens {
+            assert!(
+                key.open(&token, ORIGIN, &binding(), NOW + SECONDS - 1)
+                    .is_ok()
+            );
+            assert!(key.open(&token, ORIGIN, &binding(), NOW + SECONDS).is_err());
+            assert!(
+                LoginTickets::new()
+                    .unwrap()
+                    .open(&token, ORIGIN, &binding(), NOW)
+                    .is_err()
+            );
+            let envelope = URL_SAFE_NO_PAD
+                .decode(token.strip_prefix(PREFIX).unwrap())
+                .unwrap();
+            assert!(
+                decrypt_aead(
+                    Cipher::aes_256_gcm(),
+                    &key.master,
+                    Some(&envelope[..12]),
+                    &associated_data(ORIGIN),
+                    &envelope[12..envelope.len() - 16],
+                    &envelope[envelope.len() - 16..]
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn concurrent_ticket_issuance_allocates_each_nonce_once() {
+        let key = std::sync::Arc::new(LoginTickets::new().unwrap());
+        let state = state(false);
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let key = key.clone();
+                let state = state.clone();
+                std::thread::spawn(move || {
+                    (0..32)
+                        .map(|_| {
+                            let (token, _) =
+                                key.issue(ORIGIN, binding(), state.clone(), NOW).unwrap();
+                            assert!(key.open(&token, ORIGIN, &binding(), NOW).is_ok());
+                            let envelope = URL_SAFE_NO_PAD
+                                .decode(token.strip_prefix(PREFIX).unwrap())
+                                .unwrap();
+                            u64::from_be_bytes(envelope[4..12].try_into().unwrap())
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut sequences: Vec<_> = workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap())
+            .collect();
+        sequences.sort_unstable();
+        assert_eq!(sequences, (0..256).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn future_nonce_epochs_and_oversized_associated_data_are_rejected() {
+        let key = LoginTickets::new().unwrap();
+        let (token, _) = key.issue(ORIGIN, binding(), state(false), NOW).unwrap();
+        let mut envelope = URL_SAFE_NO_PAD
+            .decode(token.strip_prefix(PREFIX).unwrap())
+            .unwrap();
+        for sequence in [1, 1 << EPOCH_BITS, u64::MAX] {
+            envelope[4..12].copy_from_slice(&sequence.to_be_bytes());
+            assert!(key.opening_key(&envelope[..12]).is_err());
+            assert!(
+                key.open(
+                    &format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(&envelope)),
+                    ORIGIN,
+                    &binding(),
+                    NOW
+                )
+                .is_err()
+            );
+        }
+        let claims = key.open(&token, ORIGIN, &binding(), NOW).unwrap();
+        assert!(key.seal(&claims, &"x".repeat(MAX_AAD)).is_err());
+        assert!(
+            key.open(&token, &"x".repeat(MAX_AAD), &binding(), NOW)
+                .is_err()
+        );
+        assert_eq!(key.next.load(Ordering::Relaxed), 1);
+        assert!(
+            (MAX_CIPHERTEXT.div_ceil(16) + MAX_AAD.div_ceil(16) + 1) * (1 << EPOCH_BITS)
+                < (1 << 27)
+        );
+    }
+
+    #[test]
     fn encrypted_ticket_rejects_tampering_wrong_context_and_another_server_key() {
         let key = LoginTickets::new().unwrap();
         let (token, _) = key.issue(ORIGIN, binding(), state(false), NOW).unwrap();
@@ -260,12 +460,11 @@ mod tests {
             )
             .is_err()
         );
-        assert!(
-            LoginTickets::new()
-                .unwrap()
-                .open(&token, ORIGIN, &binding(), NOW)
-                .is_err()
-        );
+        let restarted = LoginTickets::new().unwrap();
+        restarted
+            .issue(ORIGIN, binding(), state(false), NOW)
+            .unwrap();
+        assert!(restarted.open(&token, ORIGIN, &binding(), NOW).is_err());
         let original = URL_SAFE_NO_PAD
             .decode(token.strip_prefix(PREFIX).unwrap())
             .unwrap();

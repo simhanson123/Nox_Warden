@@ -15,7 +15,14 @@ npm test -- --run
 npm run build:authority
 ```
 
-Install the complete `web/dist-authority` directory with the authority, and set
+Install the complete `web/dist-authority` directory using the explicit
+[file mode and ACL procedure](authority-review-service.md#file-modes-inherited-acls-and-startup-diagnostics).
+UI files must be regular, single-link and not group/other writable (`0644` is
+appropriate); directories should be `0755` or private `0700`, with protected
+ownership and ancestor ACLs. A checkout/build can inherit unsafe default ACLs,
+so inspect the installed files rather than assuming the build or umask made
+them acceptable. The service refuses unsafe inputs and never automatically
+changes their permissions. Set
 its `ui_directory` to that directory. The directory contains `index.html` and
 hashed `assets/` files; it is separate from the controller's `web/dist`. No Node
 server or external CDN is required. Serve this bundle only through the authority

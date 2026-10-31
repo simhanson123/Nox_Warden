@@ -1,8 +1,11 @@
 //! Bounded, loopback-only review service for a separately provisioned authority.
 //! No public enrollment, controller credential import, signer or host writes.
+mod admission;
 mod auth;
 mod evidence;
 mod files;
+mod listener;
+mod startup;
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -20,6 +23,8 @@ use fw_webauthn::{AuthenticationResponse, WebAuthn};
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
+use startup::at;
+pub use startup::{StartupError, StartupStage};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -63,7 +68,7 @@ pub struct ServiceConfig {
 pub struct Service {
     inner: Arc<Mutex<Runtime>>,
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
-    requests: Arc<tokio::sync::Semaphore>,
+    admission: Arc<admission::Admission>,
     origin: String,
     host: String,
 }
@@ -75,7 +80,7 @@ struct Runtime {
     sessions: BTreeMap<String, Session>,
     assets: BTreeMap<String, (String, Vec<u8>)>,
     evidence: BTreeMap<String, ReviewEvidence>,
-    envelope_key: [u8; 32],
+    envelope_key: auth::EnvelopeKeys,
     failure_samples: BTreeMap<String, i64>,
     next_session_serial: u64,
 }
@@ -139,89 +144,122 @@ impl Service {
         key: [u8; 32],
         clock: impl Fn() -> i64 + Send + Sync + 'static,
     ) -> Result<Self> {
-        if !cfg!(unix)
-            || key == [0; 32]
-            || config.origin == config.controller_origin
-            || !config.origin.starts_with("http://localhost:")
-            || config.profiles.is_empty()
-            || config.profiles.len() > 32
-            || config.review_evidence.len() > 100
-        {
-            return Err(Failure::Invalid);
-        }
-        let verifier = WebAuthn::new(&config.origin).map_err(|_| Failure::Invalid)?;
-        WebAuthn::new(&config.controller_origin).map_err(|_| Failure::Invalid)?;
-        let host = config
-            .origin
-            .strip_prefix("http://")
-            .ok_or(Failure::Invalid)?
-            .to_owned();
-        if host
-            .strip_prefix("localhost:")
-            .and_then(|p| p.parse::<u16>().ok())
-            .is_none_or(|p| p == 0)
-        {
-            return Err(Failure::Invalid);
-        }
-        files::private_file(&config.database, false)?;
-        if std::fs::metadata(&config.database)
-            .map_err(|_| Failure::Invalid)?
-            .len()
-            == 0
-        {
-            return Err(Failure::Invalid);
-        }
-        let mut store = AuthorityStore::open(&config.database)?;
-        let now = clock();
-        for (alias, profile) in &config.profiles {
-            if alias.is_empty()
-                || alias.len() > 64
-                || !alias
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+        Self::open_for_startup(config, key, clock).map_err(|error| error.failure)
+    }
+    fn open_for_startup(
+        config: ServiceConfig,
+        key: [u8; 32],
+        clock: impl Fn() -> i64 + Send + Sync + 'static,
+    ) -> std::result::Result<Self, StartupError> {
+        at(StartupStage::Config, || {
+            if !cfg!(unix)
+                || config.profiles.is_empty()
+                || config.profiles.len() > 32
+                || config.review_evidence.len() > 100
             {
                 return Err(Failure::Invalid);
             }
-            let p = store
-                .review_profile(
-                    &profile.tenant()?,
-                    &profile.principal_id,
-                    &profile.credential_id,
-                    now,
-                )
-                .map_err(|_| Failure::Invalid)?;
-            if p.state != "pending" && p.state != "active" {
+            Ok(())
+        })?;
+        if key == [0; 32] {
+            return Err(StartupError::new(StartupStage::SessionKey));
+        }
+        let (verifier, host) = at(StartupStage::Origin, || {
+            if config.origin == config.controller_origin
+                || !config.origin.starts_with("http://localhost:")
+            {
                 return Err(Failure::Invalid);
             }
-        }
-        let assets = files::load_ui(&config.ui_directory)?;
-        let mut evidence = BTreeMap::new();
-        for (id, path) in &config.review_evidence {
-            if uuid::Uuid::parse_str(id).is_err() {
+            let verifier = WebAuthn::new(&config.origin).map_err(|_| Failure::Invalid)?;
+            WebAuthn::new(&config.controller_origin).map_err(|_| Failure::Invalid)?;
+            let host = config
+                .origin
+                .strip_prefix("http://")
+                .ok_or(Failure::Invalid)?
+                .to_owned();
+            if host
+                .strip_prefix("localhost:")
+                .and_then(|p| p.parse::<u16>().ok())
+                .is_none_or(|p| p == 0)
+            {
                 return Err(Failure::Invalid);
             }
-            let bytes = files::read_private(path, 2 * 1024 * 1024)?;
-            let bundle = parse_strict_with_limit::<ReviewEvidence>(&bytes, 2 * 1024 * 1024)
-                .map_err(|_| Failure::Invalid)?;
-            evidence.insert(id.clone(), bundle);
-        }
+            Ok((verifier, host))
+        })?;
+        let mut store = at(StartupStage::Database, || {
+            files::private_file(&config.database, false)?;
+            if std::fs::metadata(&config.database)
+                .map_err(|_| Failure::Invalid)?
+                .len()
+                == 0
+            {
+                return Err(Failure::Invalid);
+            }
+            AuthorityStore::open(&config.database).map_err(Failure::from)
+        })?;
+        let now = clock();
+        at(StartupStage::Trust, || {
+            for (alias, profile) in &config.profiles {
+                if alias.is_empty()
+                    || alias.len() > 64
+                    || !alias
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+                {
+                    return Err(Failure::Invalid);
+                }
+                let p = store
+                    .review_profile(
+                        &profile.tenant()?,
+                        &profile.principal_id,
+                        &profile.credential_id,
+                        now,
+                    )
+                    .map_err(|_| Failure::Invalid)?;
+                if p.state != "pending" && p.state != "active" {
+                    return Err(Failure::Invalid);
+                }
+            }
+            Ok(())
+        })?;
+        let assets = at(StartupStage::UiAssets, || {
+            files::load_ui(&config.ui_directory)
+        })?;
+        let evidence = at(StartupStage::ReviewEvidence, || {
+            let mut evidence = BTreeMap::new();
+            for (id, path) in &config.review_evidence {
+                if uuid::Uuid::parse_str(id).is_err() {
+                    return Err(Failure::Invalid);
+                }
+                let bytes = files::read_private(path, 2 * 1024 * 1024)?;
+                let bundle = parse_strict_with_limit::<ReviewEvidence>(&bytes, 2 * 1024 * 1024)
+                    .map_err(|_| Failure::Invalid)?;
+                evidence.insert(id.clone(), bundle);
+            }
+            Ok(evidence)
+        })?;
         let origin = config.origin.clone();
-        let mut boot_nonce = [0; 32];
-        openssl::rand::rand_bytes(&mut boot_nonce).map_err(|_| Failure::Unavailable)?;
-        let hmac = PKey::hmac(&key).map_err(|_| Failure::Unavailable)?;
-        let mut signer =
-            Signer::new(MessageDigest::sha256(), &hmac).map_err(|_| Failure::Unavailable)?;
-        signer
-            .update(b"fw.authority-review/envelopes/v1")
-            .map_err(|_| Failure::Unavailable)?;
-        signer
-            .update(&boot_nonce)
-            .map_err(|_| Failure::Unavailable)?;
-        let envelope_key = signer
-            .sign_to_vec()
-            .map_err(|_| Failure::Unavailable)?
-            .try_into()
-            .map_err(|_| Failure::Unavailable)?;
+        let envelope_key = at(StartupStage::RuntimeKey, || {
+            let mut boot_nonce = [0; 32];
+            openssl::rand::rand_bytes(&mut boot_nonce).map_err(|_| Failure::Unavailable)?;
+            let hmac = PKey::hmac(&key).map_err(|_| Failure::Unavailable)?;
+            let mut signer =
+                Signer::new(MessageDigest::sha256(), &hmac).map_err(|_| Failure::Unavailable)?;
+            signer
+                .update(b"fw.authority-review/envelopes/v1")
+                .map_err(|_| Failure::Unavailable)?;
+            signer
+                .update(&boot_nonce)
+                .map_err(|_| Failure::Unavailable)?;
+            signer
+                .sign_to_vec()
+                .map_err(|_| Failure::Unavailable)?
+                .try_into()
+                .map_err(|_| Failure::Unavailable)
+        })?;
+        let admission = Arc::new(at(StartupStage::Database, || {
+            admission::Admission::new(&config.database, key)
+        })?);
         Ok(Self {
             inner: Arc::new(Mutex::new(Runtime {
                 config,
@@ -231,24 +269,30 @@ impl Service {
                 sessions: BTreeMap::new(),
                 assets,
                 evidence,
-                envelope_key,
+                envelope_key: auth::EnvelopeKeys::new(envelope_key),
                 failure_samples: BTreeMap::new(),
                 next_session_serial: 0,
             })),
             clock: Arc::new(clock),
-            requests: Arc::new(tokio::sync::Semaphore::new(16)),
+            admission,
             origin,
             host,
         })
     }
-    pub fn from_files(config_path: &std::path::Path, key_path: &std::path::Path) -> Result<Self> {
-        let config: ServiceConfig =
+    pub fn from_files(
+        config_path: &std::path::Path,
+        key_path: &std::path::Path,
+    ) -> std::result::Result<Self, StartupError> {
+        let config = at(StartupStage::Config, || {
             parse_strict_with_limit(&files::read_private(config_path, 65536)?, 65536)
-                .map_err(|_| Failure::Invalid)?;
-        let key: [u8; 32] = files::read_private(key_path, 32)?
-            .try_into()
-            .map_err(|_| Failure::Invalid)?;
-        Self::open(config, key, || chrono::Utc::now().timestamp())
+                .map_err(|_| Failure::Invalid)
+        })?;
+        let key = at(StartupStage::SessionKey, || {
+            files::read_private(key_path, 32)?
+                .try_into()
+                .map_err(|_| Failure::Invalid)
+        })?;
+        Self::open_for_startup(config, key, || chrono::Utc::now().timestamp())
     }
     /// The origin is configured before binding; headers never select authority.
     pub fn loopback_address(&self) -> Result<std::net::SocketAddr> {
@@ -311,11 +355,6 @@ async fn handle(State(service): State<Service>, request: Request) -> Response {
     secure_headers(response)
 }
 async fn handle_inner(service: Service, request: Request) -> Result<Response> {
-    let permit = service
-        .requests
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| Failure::Limited)?;
     let (parts, body) = request.into_parts();
     let path = parts.uri.path().to_owned();
     if parts.uri.query().is_some() || parts.uri.scheme().is_some() || path.len() > 256 {
@@ -330,6 +369,14 @@ async fn handle_inner(service: Service, request: Request) -> Result<Response> {
     if method == "POST" && one(&parts.headers, "content-type")? != Some("application/json") {
         return Err(Failure::Invalid);
     }
+    let permit = service
+        .admission
+        .reserve(
+            &parts.headers,
+            service.clock.clone(),
+            parts.extensions.get::<listener::Phase>(),
+        )
+        .await?;
     let bytes = tokio::time::timeout(Duration::from_secs(3), to_bytes(body, MAX_BODY))
         .await
         .map_err(|_| Failure::Invalid)?
@@ -344,7 +391,9 @@ async fn handle_inner(service: Service, request: Request) -> Result<Response> {
         let mut runtime = service.inner.lock().map_err(|_| Failure::Unavailable)?;
         // Queueing behind another database operation must not freeze freshness.
         let now = (service.clock)();
-        runtime.dispatch(&method, &path, &parts.headers, &bytes, now)
+        let result = runtime.dispatch(&method, &path, &parts.headers, &bytes, now);
+        service.admission.synchronize(&runtime.sessions)?;
+        result
     })
     .await
     .map_err(|_| Failure::Unavailable)?

@@ -24,22 +24,87 @@ pub(super) struct BrowserBinding {
     cookie: String,
     csrf: String,
 }
-impl Runtime {
-    fn seal<T: Serialize>(&self, domain: &[u8], value: &T) -> Result<String> {
-        let bytes = serde_json::to_vec(value).map_err(|_| Failure::Unavailable)?;
-        if bytes.len() > 24548 {
+// One non-clonable allocator per boot master. At most 2^16 encryptions and
+// fewer than 2^27 GHASH input blocks (ciphertext, AAD and length) per derived
+// key. Derive old epochs on demand so issuance never evicts unexpired tickets.
+// These bounds do not count attacker-controlled failed verification attempts.
+pub(super) struct EnvelopeKeys {
+    master: [u8; 32],
+    next: std::sync::atomic::AtomicU64,
+}
+const NONCE_VERSION: &[u8; 4] = b"FWA2";
+const MAX_CIPHERTEXT: usize = 24548;
+const MAX_AAD: usize = 4096;
+const EPOCH_BITS: u32 = 16;
+impl EnvelopeKeys {
+    pub(super) fn new(master: [u8; 32]) -> Self {
+        Self {
+            master,
+            next: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+    fn key(&self, domain: &[u8], sequence: u64) -> Result<[u8; 32]> {
+        if domain != ANON_DOMAIN && domain != LOGIN_DOMAIN {
+            return Err(Failure::Unauthorized);
+        }
+        let master = PKey::hmac(&self.master).map_err(|_| Failure::Unavailable)?;
+        let mut signer =
+            Signer::new(MessageDigest::sha256(), &master).map_err(|_| Failure::Unavailable)?;
+        signer
+            .update(b"fw.authority-review/aes-gcm-epoch/v2\0")
+            .map_err(|_| Failure::Unavailable)?;
+        signer
+            .update(&(domain.len() as u64).to_be_bytes())
+            .map_err(|_| Failure::Unavailable)?;
+        signer.update(domain).map_err(|_| Failure::Unavailable)?;
+        signer
+            .update(&(sequence >> EPOCH_BITS).to_be_bytes())
+            .map_err(|_| Failure::Unavailable)?;
+        signer
+            .sign_to_vec()
+            .map_err(|_| Failure::Unavailable)?
+            .try_into()
+            .map_err(|_| Failure::Unavailable)
+    }
+    fn nonce(&self) -> Result<[u8; 12]> {
+        use std::sync::atomic::Ordering;
+        let sequence = self
+            .next
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .map_err(|_| Failure::Unavailable)?;
+        let mut nonce = [0; 12];
+        nonce[..4].copy_from_slice(NONCE_VERSION);
+        nonce[4..].copy_from_slice(&sequence.to_be_bytes());
+        Ok(nonce)
+    }
+    fn opening_key(&self, domain: &[u8], nonce: &[u8]) -> Result<[u8; 32]> {
+        use std::sync::atomic::Ordering;
+        if nonce.len() != 12 || &nonce[..4] != NONCE_VERSION {
+            return Err(Failure::Unauthorized);
+        }
+        let sequence =
+            u64::from_be_bytes(nonce[4..].try_into().map_err(|_| Failure::Unauthorized)?);
+        if sequence >= self.next.load(Ordering::Relaxed) {
+            return Err(Failure::Unauthorized);
+        }
+        self.key(domain, sequence)
+    }
+    fn seal(&self, domain: &[u8], origin: &str, bytes: &[u8]) -> Result<String> {
+        let aad = [domain, b"\0", origin.as_bytes()].concat();
+        if bytes.len() > MAX_CIPHERTEXT || aad.len() > MAX_AAD {
             return Err(Failure::Unavailable);
         }
-        let aad = [domain, b"\0", self.config.origin.as_bytes()].concat();
-        let mut nonce = [0; 12];
+        let nonce = self.nonce()?;
+        let key = self.opening_key(domain, &nonce)?;
         let mut tag = [0; 16];
-        openssl::rand::rand_bytes(&mut nonce).map_err(|_| Failure::Unavailable)?;
         let ciphertext = encrypt_aead(
             Cipher::aes_256_gcm(),
-            &self.envelope_key,
+            &key,
             Some(&nonce),
             &aad,
-            &bytes,
+            bytes,
             &mut tag,
         )
         .map_err(|_| Failure::Unavailable)?;
@@ -48,26 +113,41 @@ impl Runtime {
         sealed.extend(tag);
         Ok(URL_SAFE_NO_PAD.encode(sealed))
     }
-    fn unseal<T: DeserializeOwned>(&self, domain: &[u8], sealed: &str) -> Result<T> {
+    fn unseal(&self, domain: &[u8], origin: &str, sealed: &str) -> Result<Vec<u8>> {
         if sealed.len() > 32768 {
             return Err(Failure::Unauthorized);
         }
         let bytes = URL_SAFE_NO_PAD
             .decode(sealed)
             .map_err(|_| Failure::Unauthorized)?;
-        if bytes.len() < 28 {
+        if bytes.len() < 28 || bytes.len() > MAX_CIPHERTEXT + 28 {
             return Err(Failure::Unauthorized);
         }
-        let aad = [domain, b"\0", self.config.origin.as_bytes()].concat();
-        let plaintext = decrypt_aead(
+        let aad = [domain, b"\0", origin.as_bytes()].concat();
+        if aad.len() > MAX_AAD {
+            return Err(Failure::Unauthorized);
+        }
+        let key = self.opening_key(domain, &bytes[..12])?;
+        decrypt_aead(
             Cipher::aes_256_gcm(),
-            &self.envelope_key,
+            &key,
             Some(&bytes[..12]),
             &aad,
             &bytes[12..bytes.len() - 16],
             &bytes[bytes.len() - 16..],
         )
-        .map_err(|_| Failure::Unauthorized)?;
+        .map_err(|_| Failure::Unauthorized)
+    }
+}
+impl Runtime {
+    fn seal<T: Serialize>(&self, domain: &[u8], value: &T) -> Result<String> {
+        let bytes = serde_json::to_vec(value).map_err(|_| Failure::Unavailable)?;
+        self.envelope_key.seal(domain, &self.config.origin, &bytes)
+    }
+    fn unseal<T: DeserializeOwned>(&self, domain: &[u8], sealed: &str) -> Result<T> {
+        let plaintext = self
+            .envelope_key
+            .unseal(domain, &self.config.origin, sealed)?;
         parse_strict_with_limit(&plaintext, 24576).map_err(|_| Failure::Unauthorized)
     }
     fn token_hash(&self, token: &str) -> Result<String> {
@@ -373,4 +453,163 @@ fn cookie_header(token: &str) -> String {
     format!(
         "{COOKIE}={token}; Path=/; Max-Age={SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, atomic::Ordering};
+    const ORIGIN: &str = "https://authority.example.test";
+    fn keys() -> EnvelopeKeys {
+        let mut master = [0; 32];
+        openssl::rand::rand_bytes(&mut master).unwrap();
+        EnvelopeKeys::new(master)
+    }
+    #[test]
+    fn old_tickets_survive_multiple_epoch_rollovers_and_sequence_exhaustion() {
+        let keys = keys();
+        let mut tickets = vec![keys.seal(LOGIN_DOMAIN, ORIGIN, b"pending login").unwrap()];
+        assert_eq!(
+            keys.key(LOGIN_DOMAIN, 0).unwrap(),
+            keys.key(LOGIN_DOMAIN, (1 << EPOCH_BITS) - 1).unwrap()
+        );
+        assert_ne!(
+            keys.key(LOGIN_DOMAIN, 0).unwrap(),
+            keys.key(LOGIN_DOMAIN, 1 << EPOCH_BITS).unwrap()
+        );
+        assert_ne!(
+            keys.key(LOGIN_DOMAIN, 0).unwrap(),
+            keys.key(ANON_DOMAIN, 0).unwrap()
+        );
+        for sequence in [
+            (1 << EPOCH_BITS) - 1,
+            1 << EPOCH_BITS,
+            (2 << EPOCH_BITS) - 1,
+            2 << EPOCH_BITS,
+            u64::MAX - 1,
+        ] {
+            keys.next.store(sequence, Ordering::Relaxed);
+            tickets.push(keys.seal(LOGIN_DOMAIN, ORIGIN, b"pending login").unwrap());
+        }
+        assert!(keys.seal(ANON_DOMAIN, ORIGIN, b"new binding").is_err());
+        assert_eq!(keys.next.load(Ordering::Relaxed), u64::MAX);
+        for ticket in tickets {
+            assert_eq!(
+                keys.unseal(LOGIN_DOMAIN, ORIGIN, &ticket).unwrap(),
+                b"pending login"
+            );
+            // Even retaining the master without its allocator is not a restart:
+            // a real runtime restart also derives a fresh boot master.
+            assert!(
+                EnvelopeKeys::new(keys.master)
+                    .unseal(LOGIN_DOMAIN, ORIGIN, &ticket)
+                    .is_err()
+            );
+            let bytes = URL_SAFE_NO_PAD.decode(&ticket).unwrap();
+            assert!(
+                decrypt_aead(
+                    Cipher::aes_256_gcm(),
+                    &keys.master,
+                    Some(&bytes[..12]),
+                    &[LOGIN_DOMAIN, b"\0", ORIGIN.as_bytes()].concat(),
+                    &bytes[12..bytes.len() - 16],
+                    &bytes[bytes.len() - 16..]
+                )
+                .is_err()
+            );
+        }
+    }
+    #[test]
+    fn tampered_nonce_epoch_purpose_origin_and_restarted_runtime_cannot_open_ticket() {
+        let keys = keys();
+        let ticket = keys.seal(LOGIN_DOMAIN, ORIGIN, b"pending login").unwrap();
+        let bytes = URL_SAFE_NO_PAD.decode(&ticket).unwrap();
+        assert_eq!(&bytes[..4], NONCE_VERSION);
+        assert_eq!(&bytes[4..12], &0u64.to_be_bytes());
+        assert!(keys.unseal(ANON_DOMAIN, ORIGIN, &ticket).is_err());
+        assert!(
+            keys.unseal(LOGIN_DOMAIN, "https://other.example.test", &ticket)
+                .is_err()
+        );
+        let restarted = super::tests::keys();
+        restarted.seal(LOGIN_DOMAIN, ORIGIN, b"new login").unwrap();
+        assert!(restarted.unseal(LOGIN_DOMAIN, ORIGIN, &ticket).is_err());
+        for index in [0, 4, 11, 12, bytes.len() - 1] {
+            let mut changed = bytes.clone();
+            changed[index] ^= 1;
+            assert!(
+                keys.unseal(LOGIN_DOMAIN, ORIGIN, &URL_SAFE_NO_PAD.encode(changed))
+                    .is_err()
+            );
+        }
+        for sequence in [1u64, 1 << EPOCH_BITS, u64::MAX] {
+            let mut changed = bytes.clone();
+            changed[4..12].copy_from_slice(&sequence.to_be_bytes());
+            assert!(keys.opening_key(LOGIN_DOMAIN, &changed[..12]).is_err());
+            assert!(
+                keys.unseal(LOGIN_DOMAIN, ORIGIN, &URL_SAFE_NO_PAD.encode(changed))
+                    .is_err()
+            );
+        }
+    }
+    #[test]
+    fn concurrent_domains_share_one_unique_allocator_and_remain_isolated() {
+        let keys = Arc::new(keys());
+        let workers: Vec<_> = (0..8)
+            .map(|worker| {
+                let keys = keys.clone();
+                std::thread::spawn(move || {
+                    let domain = if worker % 2 == 0 {
+                        ANON_DOMAIN
+                    } else {
+                        LOGIN_DOMAIN
+                    };
+                    (0..64)
+                        .map(|_| {
+                            let ticket = keys.seal(domain, ORIGIN, b"state").unwrap();
+                            assert_eq!(keys.unseal(domain, ORIGIN, &ticket).unwrap(), b"state");
+                            let bytes = URL_SAFE_NO_PAD.decode(ticket).unwrap();
+                            u64::from_be_bytes(bytes[4..12].try_into().unwrap())
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut sequences: Vec<_> = workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap())
+            .collect();
+        sequences.sort_unstable();
+        assert_eq!(sequences, (0..512).collect::<Vec<_>>());
+    }
+    #[test]
+    fn ciphertext_and_aad_bounds_limit_blocks_without_spending_issuance_capacity() {
+        let keys = keys();
+        let aad_origin = "x".repeat(MAX_AAD - LOGIN_DOMAIN.len() - 1);
+        let body = vec![42; MAX_CIPHERTEXT];
+        let ticket = keys.seal(LOGIN_DOMAIN, &aad_origin, &body).unwrap();
+        assert_eq!(ticket.len(), 32768);
+        assert_eq!(
+            keys.unseal(LOGIN_DOMAIN, &aad_origin, &ticket).unwrap(),
+            body
+        );
+        assert!(
+            keys.seal(LOGIN_DOMAIN, ORIGIN, &vec![0; MAX_CIPHERTEXT + 1])
+                .is_err()
+        );
+        assert!(
+            keys.seal(LOGIN_DOMAIN, &(aad_origin.clone() + "x"), b"state")
+                .is_err()
+        );
+        assert!(
+            keys.unseal(LOGIN_DOMAIN, &(aad_origin + "x"), &ticket)
+                .is_err()
+        );
+        assert!(keys.unseal(LOGIN_DOMAIN, ORIGIN, &(ticket + "A")).is_err());
+        assert_eq!(keys.next.load(Ordering::Relaxed), 1);
+        assert!(
+            (MAX_CIPHERTEXT.div_ceil(16) + MAX_AAD.div_ceil(16) + 1) * (1 << EPOCH_BITS)
+                < (1 << 27)
+        );
+    }
 }

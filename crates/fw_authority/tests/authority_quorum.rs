@@ -1210,12 +1210,56 @@ fn set_bytes_members_and_head_are_guarded_and_tenant_bound() {
 }
 
 #[test]
-fn bounded_candidate_lookup_fails_atomically_instead_of_silently_truncating() {
+fn withdrawn_duplicate_votes_do_not_block_an_independent_final_reviewer() {
     let mut f = Fixture::dual();
+    let mut votes = Vec::new();
     for _ in 0..64 {
+        let result = f.vote(
+            ALICE,
+            ApprovalRole::NetworkReviewer,
+            ApprovalDecision::Approve,
+            NOW + 1,
+        );
+        assert_eq!(result.aggregation, AggregationOutcome::Pending);
+        votes.push(result.approval["approval_id"].as_str().unwrap().to_owned());
+    }
+    for approval in &votes[..63] {
+        f.store
+            .revoke_decision(&f.tenant, approval, AUTHOR, NOW + 2)
+            .unwrap();
+    }
+    let result = f.vote(
+        BOB,
+        ApprovalRole::ServiceReviewer,
+        ApprovalDecision::Approve,
+        NOW + 3,
+    );
+    assert!(matches!(
+        result.aggregation,
+        AggregationOutcome::Approved { .. }
+    ));
+    assert_eq!(f.count("authority_decisions"), 65);
+    assert_eq!(f.count("authority_decision_revocations"), 63);
+    let current = f.current(NOW + 3).unwrap();
+    assert_eq!(current["approvals"].as_array().unwrap().len(), 2);
+    assert!(
+        current["approvals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["approval_id"] == votes[63])
+    );
+}
+
+#[test]
+fn active_duplicate_votes_and_identity_aliases_count_as_one_human_role() {
+    let mut f = Fixture::dual();
+    f.add(DAVE, &[ApprovalRole::NetworkReviewer], Some(ALICE));
+    for index in 0..64 {
+        let principal = if index % 2 == 0 { ALICE } else { DAVE };
         assert_eq!(
             f.vote(
-                ALICE,
+                principal,
                 ApprovalRole::NetworkReviewer,
                 ApprovalDecision::Approve,
                 NOW + 1
@@ -1224,13 +1268,101 @@ fn bounded_candidate_lookup_fails_atomically_instead_of_silently_truncating() {
             AggregationOutcome::Pending
         );
     }
+    assert!(matches!(
+        f.vote(
+            BOB,
+            ApprovalRole::ServiceReviewer,
+            ApprovalDecision::Approve,
+            NOW + 2
+        )
+        .aggregation,
+        AggregationOutcome::Approved { .. }
+    ));
+    assert_eq!(f.count("authority_decisions"), 65);
+    assert_eq!(
+        f.current(NOW + 2).unwrap()["approvals"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn revoked_keys_and_memberships_are_filtered_before_the_meaningful_candidate_limit() {
+    for revoke_key in [true, false] {
+        let mut f = Fixture::dual();
+        f.add(DAVE, &[ApprovalRole::NetworkReviewer], Some(ALICE));
+        for _ in 0..64 {
+            f.vote(
+                DAVE,
+                ApprovalRole::NetworkReviewer,
+                ApprovalDecision::Approve,
+                NOW + 1,
+            );
+        }
+        if revoke_key {
+            f.store
+                .revoke_credential(&f.tenant, &f.people[DAVE].credential.id(), NOW + 2)
+                .unwrap();
+        } else {
+            let membership = &f.memberships[&(
+                DAVE.into(),
+                serde_json::to_string(&ApprovalRole::NetworkReviewer).unwrap(),
+            )];
+            f.store.revoke_role(&f.tenant, membership, NOW + 2).unwrap();
+        }
+        f.vote(
+            ALICE,
+            ApprovalRole::NetworkReviewer,
+            ApprovalDecision::Approve,
+            NOW + 3,
+        );
+        assert!(matches!(
+            f.vote(
+                BOB,
+                ApprovalRole::ServiceReviewer,
+                ApprovalDecision::Approve,
+                NOW + 4
+            )
+            .aggregation,
+            AggregationOutcome::Approved { .. }
+        ));
+        let set = f.current(NOW + 4).unwrap();
+        assert!(
+            set["approvals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|a| a["principal"]["principal_id"] != DAVE)
+        );
+    }
+}
+
+#[test]
+fn more_than_64_distinct_current_human_roles_rolls_back_the_new_admission() {
+    let mut f = Fixture::dual();
+    let people: Vec<_> = (0..64)
+        .map(|i| uuid::Uuid::from_u128(0x10000000000040008000000000000000 + i).to_string())
+        .collect();
+    for person in &people {
+        f.add(person, &[ApprovalRole::NetworkReviewer], Some(person));
+    }
+    for person in &people {
+        f.vote(
+            person,
+            ApprovalRole::NetworkReviewer,
+            ApprovalDecision::Approve,
+            NOW + 1,
+        );
+    }
     let (issued, assertion, key) = f.prepare(
         BOB,
         ApprovalRole::ServiceReviewer,
         ApprovalDecision::Approve,
         NOW + 2,
     );
-    let original = snapshot(&f.path);
+    let before = snapshot(&f.path);
     assert!(matches!(
         f.store.admit_decision(
             &f.tenant,
@@ -1243,8 +1375,167 @@ fn bounded_candidate_lookup_fails_atomically_instead_of_silently_truncating() {
         ),
         Err(fw_authority::AuthorityError::Quota)
     ));
-    assert_eq!(snapshot(&f.path), original);
+    assert_eq!(before, snapshot(&f.path));
     assert_eq!(f.count("authority_approval_sets"), 0);
+}
+
+#[test]
+fn set_withdrawal_is_scoped_idempotent_and_never_falls_back_to_older_authority() {
+    let mut f = Fixture::new("lab_owner", &[ApprovalRole::Owner], true);
+    f.vote(
+        AUTHOR,
+        ApprovalRole::Owner,
+        ApprovalDecision::Approve,
+        NOW + 1,
+    );
+    let old = f.current(NOW + 1).unwrap();
+    let (issued, assertion, key) = f.prepare(
+        AUTHOR,
+        ApprovalRole::Owner,
+        ApprovalDecision::Approve,
+        NOW + 182,
+    );
+    let latest = f
+        .store
+        .admit_decision(
+            &f.tenant,
+            AUTHOR,
+            issued.challenge.challenge_id(),
+            &key,
+            &assertion,
+            &f.verifier,
+            NOW + 182,
+        )
+        .unwrap();
+    let current = f.current(NOW + 182).unwrap();
+    let old_id = old["approval_set_id"].as_str().unwrap();
+    let current_id = current["approval_set_id"].as_str().unwrap();
+    f.store
+        .revoke_approval_set(&f.tenant, old_id, AUTHOR, NOW + 183)
+        .unwrap();
+    assert_eq!(f.current(NOW + 183), Some(current.clone()));
+    let before = snapshot(&f.path);
+    assert!(
+        f.store
+            .revoke_approval_set(
+                &AuthorityTenant::new(ORG, OTHER).unwrap(),
+                current_id,
+                AUTHOR,
+                NOW + 184
+            )
+            .is_err()
+    );
+    assert!(
+        f.store
+            .revoke_approval_set(&f.tenant, current_id, AUTHOR, NOW + 181)
+            .is_err()
+    );
+    assert_eq!(snapshot(&f.path), before);
+    f.store
+        .revoke_approval_set(&f.tenant, current_id, AUTHOR, NOW + 184)
+        .unwrap();
+    assert!(f.current(NOW + 184).is_none());
+    assert_eq!(
+        f.store
+            .approval_review_status(&f.tenant, PLAN, &f.verifier, NOW + 184)
+            .unwrap()
+            .0,
+        AggregationOutcome::Stale
+    );
+    let before = snapshot(&f.path);
+    f.store
+        .revoke_approval_set(&f.tenant, current_id, AUTHOR, NOW + 185)
+        .unwrap();
+    let replay = f
+        .store
+        .admit_decision(
+            &f.tenant,
+            AUTHOR,
+            issued.challenge.challenge_id(),
+            &key,
+            &assertion,
+            &f.verifier,
+            NOW + 185,
+        )
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.aggregation, latest.aggregation);
+    assert_eq!(snapshot(&f.path), before);
+    assert_eq!(f.count("authority_approval_sets"), 2);
+    assert_eq!(f.count("authority_set_revocations"), 2);
+}
+
+#[test]
+fn set_withdrawal_audit_failure_rolls_back_tombstone_and_security_revision() {
+    let mut f = Fixture::new("lab_owner", &[ApprovalRole::Owner], true);
+    f.vote(
+        AUTHOR,
+        ApprovalRole::Owner,
+        ApprovalDecision::Approve,
+        NOW + 1,
+    );
+    let original = f.current(NOW + 1).unwrap();
+    let id = original["approval_set_id"].as_str().unwrap();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_set_revoke BEFORE INSERT ON authority_audit WHEN NEW.kind='approval_set_revoked' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;").unwrap();
+    let before = snapshot(&f.path);
+    assert!(
+        f.store
+            .revoke_approval_set(&f.tenant, id, AUTHOR, NOW + 2)
+            .is_err()
+    );
+    assert_eq!(snapshot(&f.path), before);
+    assert_eq!(f.current(NOW + 2), Some(original.clone()));
+    db.execute_batch("DROP TRIGGER fail_set_revoke").unwrap();
+    f.store = AuthorityStore::open(&f.path).unwrap();
+    f.store
+        .revoke_approval_set(&f.tenant, id, AUTHOR, NOW + 2)
+        .unwrap();
+    assert!(f.current(NOW + 2).is_none());
+}
+
+#[test]
+fn set_withdrawal_does_not_remint_an_unchanged_deterministic_selection() {
+    let mut f = Fixture::new("lab_owner", &[ApprovalRole::Owner], true);
+    f.add(BOB, &[ApprovalRole::Owner], Some(BOB));
+    let original = f.vote(
+        AUTHOR,
+        ApprovalRole::Owner,
+        ApprovalDecision::Approve,
+        NOW + 1,
+    );
+    let set = f.current(NOW + 1).unwrap();
+    f.store
+        .revoke_approval_set(
+            &f.tenant,
+            set["approval_set_id"].as_str().unwrap(),
+            AUTHOR,
+            NOW + 2,
+        )
+        .unwrap();
+    // The earlier canonical human still supplies the deterministic owner seat.
+    // A fresh different person's vote does not silently renew that old selection.
+    assert_eq!(
+        f.vote(BOB, ApprovalRole::Owner, ApprovalDecision::Approve, NOW + 3)
+            .aggregation,
+        AggregationOutcome::Stale
+    );
+    assert!(f.current(NOW + 3).is_none());
+    f.store
+        .revoke_decision(
+            &f.tenant,
+            original.approval["approval_id"].as_str().unwrap(),
+            AUTHOR,
+            NOW + 4,
+        )
+        .unwrap();
+    assert!(f.current(NOW + 4).is_none());
+    assert!(matches!(
+        f.vote(BOB, ApprovalRole::Owner, ApprovalDecision::Approve, NOW + 5)
+            .aggregation,
+        AggregationOutcome::Approved { .. }
+    ));
+    assert_eq!(f.count("authority_approval_sets"), 2);
 }
 
 #[test]

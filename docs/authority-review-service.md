@@ -91,6 +91,71 @@ is not implemented; this local service refuses non-Unix startup until that
 private-file adapter exists. Native Windows/macOS production qualification is
 not established by the Unix development profile.
 
+## File modes, inherited ACLs and startup diagnostics
+
+The authority build output is an input to protected installation. Vite's output
+can inherit a default ACL from a developer checkout; `umask 022` alone does not
+remove inherited ACL entries. In particular, an output file with mode `0646`
+(other-writable) is refused. The service does not change file modes or ACLs to
+make an existing input acceptable.
+
+| Input | Suggested Unix mode | Required checks |
+| --- | --- | --- |
+| Configuration, session key, database, review bundles | `0600` | Regular single-link file; no group/other access |
+| Authority private state directory | `0700` | Protected ownership/ancestors; immediate parent is not a symlink or group/other writable |
+| Installed UI files (`index.html`, hashed assets) | `0644` or `0600` | Regular single-link file; no group/other write |
+| Installed UI directory and `assets/` | `0755` or `0700` | No group/other write; no symlink immediate parent |
+
+Use the deployment account to inspect `stat` and `getfacl` output on the selected
+inputs and their ancestors. Named ACL entries and directory defaults need an
+operator review as well as the numeric mode; the startup checks do not prove
+ownership or a complete protected ancestor chain. On systems with POSIX ACLs,
+install the `getfacl`/`setfacl` tools before following this example. This recipe
+creates a **new**, authority-owned release directory below an already protected
+parent; `mkdir` deliberately fails if the destination exists. It removes ACLs
+only from the new directories that this command just created. It never repairs
+or recursively changes an existing untrusted path.
+
+```sh
+set -eu
+# Set these to an independently verified release and protected authority parent.
+release=/verified/release/web/dist-authority
+new_ui=/protected/authority/ui-release-unique
+umask 022
+mkdir -m 0755 -- "$new_ui"
+setfacl -b -k -- "$new_ui"
+mkdir -m 0755 -- "$new_ui/assets"
+setfacl -b -k -- "$new_ui/assets"
+test -f "$release/index.html" && test ! -L "$release/index.html"
+install -m 0644 -- "$release/index.html" "$new_ui/index.html"
+for asset in "$release"/assets/*; do
+  test -f "$asset" && test ! -L "$asset"
+  case "$asset" in *.js|*.css|*.svg) ;; *) exit 1 ;; esac
+  install -m 0644 -- "$asset" "$new_ui/assets/"
+done
+stat -c '%a %n' -- "$new_ui" "$new_ui/assets" "$new_ui/index.html" "$new_ui"/assets/*
+getfacl -p -- "$new_ui" "$new_ui/assets" "$new_ui/index.html" "$new_ui"/assets/*
+```
+
+Point the private configuration's `ui_directory` at the reviewed installation,
+then start the service. Artifact provenance and protected OS account deployment
+are separate requirements; copying files and clearing inherited ACLs does not
+establish either.
+
+Refused startup emits one bounded line to stderr, for example
+`AUTHORITY_STARTUP stage=ui_assets code=AUTHORITY_UI_ASSETS_REJECTED`.
+Stages distinguish `arguments`, `config`, `session_key`, `origin`, `database`,
+`trust`, `ui_assets`, `review_evidence`, `runtime_key`, and `bind`. A stopped
+listener reports `listener`. Only fixed stage/code pairs are printed: no raw
+OS, JSON, database or cryptographic error, input value, key, assertion or private
+path is included. For `ui_assets`, inspect the chosen installation's existence,
+modes/ACLs, regular-file/link policy and documented asset count/size/type limits.
+A `database` failure may require trusted migration or permissions repair; a
+`trust` failure requires reviewing the preprovisioned profile, key and role
+records. A `bind` failure means the configured loopback listener could not be
+opened, including an occupied port. These diagnostics identify a stage, not the
+specific private cause. They do not log configuration or weaken the refusal.
+
 ## Authoritative review content
 
 A review bundle is closed JSON containing `before` and `after`, both complete
@@ -183,22 +248,56 @@ All protected requests recheck active credential, current scoped roles and the
 session's project security revision. Role/key changes invalidate existing
 sessions. Authenticated session state remains server memory. Anonymous bindings and login
 ceremonies use opaque AES-256-GCM envelopes with independent purpose/origin AAD,
-fresh nonces and a runtime-key-derived boot key. The browser receives no plaintext
+unique nonces and a runtime-key-derived boot master. The browser receives no plaintext
 private verification state and persists no ticket or session proof. Restart
 invalidates old anonymous envelopes, login tickets and authenticated sessions. Approval challenges, decisions and original proofs
 remain durable in `AuthorityStore`. A browser reload starts a fresh passkey login.
+
+A non-clonable checked 64-bit sequence supplies the nonce. Separate HMAC-SHA256
+domains derive anonymous and login AES keys, changing them every 65,536 sequence
+values. Payload/context limits keep each derived key below 2^27 GHASH input
+blocks. Old epochs remain derivable without a key cache, so further issuance
+never evicts unexpired tickets. Exhaustion stops new issuance while preserving
+old decryption; restart replaces the boot master. This bounds encryption use,
+not failed verification attempts or sustained request saturation.
 
 Errors contain only `{error,reason}` with stable codes. `AUTHORITY_STATE_CHANGED`
 is a conservative conflict response for a stale, expired or ineligible store
 operation; it does not disclose another tenant's state. No assertion, private
 state, session secret or configuration path is logged or placed in a URL.
 
-The executable limits active connections to 64, request work to 16, headers to
-48 and 16 KiB of parsing buffer, API header content to 8 KiB, JSON bodies to
-64 KiB, body reads to three seconds, initial header reads to five seconds and
-connection lifetime to 30 seconds. SQLite has its existing five-second busy
-bound. A timed-out/disconnected response does not imply a rolled-back admission;
-use the same assertion/idempotency key to reconcile. Sessions last 15 minutes and login ceremonies five minutes. Public anonymous
+The executable serves at most 64 connection tasks plus one just-accepted socket.
+When full, it can evict the oldest unverified connection still reading headers
+or sending a completed response. It does not evict in-progress request work or
+connections promoted after current session verification. Atomic phase transitions
+prevent an evicted connection from beginning or promoting a request; a completed
+task is joined before a replacement starts. Headers remain limited to 48 and a
+16 KiB parsing buffer, API header content to 8 KiB, JSON bodies to 64 KiB, body
+reads to three seconds, initial header reads to one second and connection
+lifetime to 30 seconds. Dripping bytes does not renew these deadlines.
+
+Request admission reserves eight work slots for public requests and eight for
+verified authenticated requests, before reading bodies. A bounded mirror of the
+existing 128-session registry checks the exact cookie, memory-only CSRF proof
+and expiry. Only a matching proof can enter a separate eight-slot current-state
+checking lane. One additional authority database connection rechecks the active
+key, scoped roles and project security revision, followed by fresh expiry and
+mirror checks, before authenticated capacity is granted. Missing, forged,
+revoked, removed or revision-stale sessions cannot borrow that capacity. The
+mirror is published after dispatch on both success and error, including logout;
+it is routing evidence only. Runtime dispatch still independently rechecks the
+actual session and current authorization. Blocking jobs retain their permits
+until completion even when a client disconnects or its response times out.
+
+These bounds mitigate the reproduced 64-idle-connection and public slow-body
+starvation cases. They reserve admission capacity, not CPU priority or a latency
+guarantee: public and authenticated dispatch still serialize on the runtime lock.
+Fresh sign-in remains public work. Sustained TCP, public-work, authenticated,
+CPU or database saturation can still deny service; protected OS accounts,
+authenticated IPC and deployment resource controls remain required. SQLite has
+its existing five-second busy bound. A timed-out/disconnected response does not
+imply a rolled-back admission; use the same assertion/idempotency key to reconcile.
+Sessions last 15 minutes and login ceremonies five minutes. Public anonymous
 bindings and login options allocate no session slots or durable credential
 reservations. At most four proven sessions per configured key and 128 total are
 retained; a fresh valid proof evicts the oldest session for that same key only.

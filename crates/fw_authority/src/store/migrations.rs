@@ -13,6 +13,90 @@ use std::{
 const MIGRATION_2: &str = include_str!("migration_002.sql");
 const MIGRATION_3: &str = include_str!("migration_003.sql");
 
+fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let name = path
+        .file_name()
+        .ok_or_else(|| invalid("authority backup filename"))?;
+    // A deliberately narrow maintenance profile: do not approximate a volume's
+    // Unicode normalization/case rules when a destination does not exist yet.
+    if !name.as_encoded_bytes().is_ascii() {
+        return Err(invalid("authority migration requires ASCII filenames"));
+    }
+    Ok(fs::canonicalize(parent)
+        .map_err(|_| invalid("authority backup directory"))?
+        .join(name))
+}
+
+fn collides(left: &Path, right: &Path) -> Result<bool> {
+    if !left
+        .file_name()
+        .unwrap()
+        .as_encoded_bytes()
+        .eq_ignore_ascii_case(right.file_name().unwrap().as_encoded_bytes())
+    {
+        return Ok(false);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let left = fs::metadata(left.parent().unwrap())
+            .map_err(|_| invalid("authority backup directory"))?;
+        let right = fs::metadata(right.parent().unwrap())
+            .map_err(|_| invalid("authority backup directory"))?;
+        Ok(left.dev() == right.dev() && left.ino() == right.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        // Until a native directory-identity adapter exists, reject matching
+        // basenames across directories too rather than guess alias identity.
+        Ok(true)
+    }
+}
+
+fn database_files(path: &Path) -> Vec<std::path::PathBuf> {
+    let mut paths = vec![path.to_path_buf()];
+    for suffix in ["-journal", "-wal", "-shm"] {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(suffix);
+        paths.push(name.into());
+    }
+    paths
+}
+
+// Run before opening either SQLite connection: recovery can change a sidecar
+// even without an explicit application write. The destination's own sidecars
+// must also be new; stale journal bytes must never control its first open.
+fn backup_paths(path: &Path, backup: &Path) -> Result<()> {
+    let source = database_files(&normalized_path(path)?);
+    let mut destination = database_files(&normalized_path(backup)?);
+    destination.push(normalized_path(&backup.with_extension("manifest.json"))?);
+    for (index, candidate) in destination.iter().enumerate() {
+        for other in source.iter().chain(&destination[..index]) {
+            if collides(candidate, other)? {
+                return Err(invalid("authority backup overlaps database files"));
+            }
+        }
+    }
+    // Reject all existing destination files, including dangling final symlinks,
+    // before SQLite can recover the source or we create an orphan backup.
+    // create_new below still enforces no-overwrite if a name appears afterward.
+    for path in &destination {
+        match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => {
+                return Err(invalid(
+                    "authority backup destination already exists or unavailable",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn initialize_v1(tx: &Transaction<'_>) -> Result<()> {
     tx.execute_batch(include_str!("schema.sql"))?;
     for table in [
@@ -356,6 +440,7 @@ impl AuthorityStore {
     /// old authority state over a live deployment's revocations/counters.
     pub fn migrate(path: impl AsRef<Path>, backup_path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
+        backup_paths(path, backup_path.as_ref())?;
         private_path(path)?;
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(Duration::from_millis(5000))?;

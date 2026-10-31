@@ -49,8 +49,9 @@ owner marker already closes bootstrap, and no verified spare exists yet. That
 state has no supported recovery workflow. Keep a verified spare once enrollment
 and the first login succeed.
 
-Credential additions and revocations require a passkey authentication less than
-five minutes old. The server checks freshness and current credential state;
+Credential additions and revocations require a direct browser passkey session
+authenticated less than five minutes ago. The server checks its own session
+provenance, freshness and current credential state;
 a displayed UI action is not authorization. A pending spare cannot authorize
 credential changes or permit revocation of the last verified credential.
 Revocation retains its record and invalidates sessions bound to that credential
@@ -75,8 +76,18 @@ console-token file. After enrollment:
 The request expires after five minutes. Logging out or replacing the authorizing
 browser session before exchange cancels its authorization. A restart or lost
 exchange response requires a new CLI login request. Exchanging a CLI session
-preserves the original passkey authentication time; it cannot renew permission
-to add or revoke a key.
+preserves the original passkey authentication time and creates a delegated
+session. It retains ordinary controller API reads and writes, but cannot add or
+revoke owner credentials or authorize another CLI, even within the browser's
+five-minute authentication window. The server selects this session type; client
+headers and stored session-file fields cannot change it. The initial bootstrap
+enrollment path remains as described above.
+
+Public passkey login still requires a new, bound, one-use WebAuthn assertion. A
+valid fresh assertion may replace a CLI session with a direct browser session;
+requesting options, replaying an old proof or submitting an invalid assertion
+does not promote it. Logout ends the selected session, expiry ends access, and
+credential revocation invalidates all sessions bound to that credential.
 
 Possession of a request URL does not supply its confirmation code or authorize
 the request. Someone who creates a request still knows that request's code and
@@ -145,15 +156,15 @@ envelope and bounded JSON handling.
 | --- | --- |
 | `GET /auth/status` | Public local origin support, owner-enrollment and bootstrap availability; no credential keys or proof. |
 | `GET /auth/passkeys` | Authenticated credential metadata, including pending/verified/revoked status and current key. |
-| `POST /auth/passkeys/registration/options` | `{name}`; initial bootstrap session or recent verified passkey session. |
-| `POST /auth/passkeys/registration/complete` | `{ceremony_id, credential}`; exact browser registration response and bound authenticated session. Returns registration status and ends that session, not a signed login. |
+| `POST /auth/passkeys/registration/options` | `{name}`; initial bootstrap session or recent direct browser passkey session. |
+| `POST /auth/passkeys/registration/complete` | `{ceremony_id, credential}`; exact browser registration response and bound bootstrap or recent direct browser session. Returns registration status and ends that session, not a signed login. |
 | `POST /auth/passkeys/login/options` | `{}` or an optional `credential_id`; creates a browser-bound authentication challenge. |
 | `POST /auth/passkeys/login/complete` | `{ceremony_id, credential}`; actual signed browser assertion, current credential, challenge and browser binding. |
-| `POST /auth/passkeys/{id}/revocations` | `{}`; recent verified passkey session, with last-verified-key protection. |
+| `POST /auth/passkeys/{id}/revocations` | `{}`; recent direct browser passkey session, with last-verified-key protection. |
 | `POST /auth/logout` | `{}`; authenticated session and CSRF. |
 | `POST /auth/cli/requests` | `{}`; bounded, expiring CLI request. Returns the confirmation code and polling secret only to the initiating client. |
 | `GET /auth/cli/requests/{id}` | Authenticated request ID, controller origin, expiry and state; neither the confirmation code nor polling secret. |
-| `POST /auth/cli/requests/{id}/authorize` | `{user_code}`; explicit matching code, recent verified passkey session and CSRF. |
+| `POST /auth/cli/requests/{id}/authorize` | `{user_code}`; explicit matching code, recent direct browser passkey session and CSRF. |
 | `POST /auth/cli/requests/{id}/exchange` | `{poll_token}`; pending response or one-use credential-bound session transfer. |
 
 Mutations require a UUID `Idempotency-Key`, exact Origin and JSON content type;
@@ -172,13 +183,21 @@ keys; issuance has no persistent side effect.
 
 For login only, `ceremony_id` is an opaque encrypted ticket, not a UUID. The
 server serializes its private verification state into an AES-256-GCM envelope
-using a random 32-byte process key, fresh 12-byte nonce and 16-byte tag. The
+using a random 32-byte process master, a unique 12-byte nonce and 16-byte tag. The
 authenticated context binds the configured origin, login purpose/version,
 server-selected owner and tenant, browser cookie hash, random challenge ID and
 issuance/expiry times. The browser holds this encrypted ticket only in memory;
 plaintext verification state is never accepted from clients. Tickets must not
 be put in URLs, logs or browser storage. Restart rotates the key and rejects
 pending tickets; it does not reopen bootstrap.
+
+Each process has one checked 64-bit nonce sequence. HMAC-SHA256 derives a
+separate AES key for each block of 65,536 issuances; ciphertext and authenticated
+context bounds keep each key below 2^27 GHASH input blocks. Earlier keys remain
+derivable until process exit, so issuance floods do not evict unexpired tickets.
+Sequence exhaustion refuses new issuance without disabling existing tickets.
+These encryption-use bounds do not bound attacker-controlled failed verification
+attempts or promise availability under sustained request saturation.
 
 Verification runs against current stored credentials inside an IMMEDIATE SQLite
 transaction. A successful signature atomically updates the credential, records
@@ -234,6 +253,8 @@ The suite starts real controller and CLI processes with private temporary state.
 Chromium executes actual `navigator.credentials.create/get` against a CDP virtual
 CTAP2 authenticator; the controller verifies the resulting cryptographic proof.
 Tests cover restart, bootstrap closure, credentials and CLI transfer/revocation.
+They also exercise delegated CLI management denials, borrowed registration proof,
+normal catalogue reads/writes, and replacement only after a new signed login.
 The login-admission suite sends 1,005 anonymous options requests, checks that no
 pending database rows accumulate, completes an earlier genuine browser proof,
 checks replay and registration availability, and verifies restart key rotation.
