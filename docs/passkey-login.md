@@ -161,11 +161,54 @@ return `{ceremony_id, public_key, expires_at}`. Browser credential responses use
 base64url-encoded binary fields, and the signed `clientDataJSON` bytes are
 preserved exactly.
 
-Ceremonies expire after five minutes. Verification runs against current stored
-credentials inside the same bounded transaction that consumes a successful
-challenge, updates credential state and records proof/audit. Failed assertions
-cannot become successful consumption, and attempt/creation limits bound retries.
-Concurrent stale credential snapshots require a fresh ceremony.
+Ceremonies expire after five minutes. Protected registration ceremonies remain
+in the database with their existing creation and failure budgets. Anonymous login
+options allocate no pending database row or global admission slot, so unrelated
+requests cannot exhaust a five-minute login quota or the registration budget.
+Each options request returns a fresh challenge, including repeated idempotency
+keys; issuance has no persistent side effect.
+
+For login only, `ceremony_id` is an opaque encrypted ticket, not a UUID. The
+server serializes its private verification state into an AES-256-GCM envelope
+using a random 32-byte process key, fresh 12-byte nonce and 16-byte tag. The
+authenticated context binds the configured origin, login purpose/version,
+server-selected owner and tenant, browser cookie hash, random challenge ID and
+issuance/expiry times. The browser holds this encrypted ticket only in memory;
+plaintext verification state is never accepted from clients. Tickets must not
+be put in URLs, logs or browser storage. Restart rotates the key and rejects
+pending tickets; it does not reopen bootstrap.
+
+Verification runs against current stored credentials inside an IMMEDIATE SQLite
+transaction. A successful signature atomically updates the credential, records
+one-use challenge consumption and retains original verification state, assertion
+and audit evidence. Current owner/principal, key revocation and counter state are
+rechecked. Zero-counter authenticators still receive durable replay protection.
+Failed assertions create no per-attempt challenge/proof rows; denial samples and
+counts use the existing bounded audit aggregation. Concurrent stale credential
+snapshots require a fresh ceremony.
+
+All public requests retain the 64 KiB limit. Tickets are bounded to 26,000
+encoded bytes before decoding. The server compresses bounded state before AEAD
+encryption, then authenticates before decompression; a fixed 64 KiB + 1 KiB
+output buffer rejects oversized output, incomplete streams and trailing data.
+Plaintext verification state contains public credential material and challenges,
+never authenticator private keys. Stored state and assertions each retain their
+64 KiB bounds and individual assertion field limits are unchanged. A regression
+uses eight independent RSA keys and random maximum-size credential IDs together
+with maximum permitted assertion field sizes to check the whole request bound.
+Bounded parsing and cryptographic work do not guarantee availability under
+sustained CPU or network saturation; there is no shared anonymous history quota
+that can lock out successful completion.
+
+This development login extension explicitly departs from F_02's ordinary POST
+idempotency contract: public issuance has no persistent result to replay. Only
+authenticated encrypted server state travels through the browser, which also
+differs from the upstream library's recommendation to keep all serialized
+ceremony state server-side. Registration and policy approval retain that
+recommendation, and F_01's 64 KiB public request bound remains enforced.
+The exception prevents public
+requests from reserving every owner's authentication slot; it does not establish
+full specification compliance or independent policy authority.
 
 Authentication completion and CLI exchange are intentionally one-use, unlike
 idempotent catalogue writes: replaying successful proof does not return or mint
@@ -181,6 +224,7 @@ From the repository root, after building `fw_control`, `fw_cli` and `web/dist`:
 python -m pip install -r scripts/requirements-browser.txt
 python -m playwright install --with-deps chromium
 python scripts/smoke_passkeys.py
+python scripts/smoke_login_admission.py
 ```
 
 Use `--browser-executable /usr/bin/chromium` to select an installed browser.
@@ -188,6 +232,9 @@ The suite starts real controller and CLI processes with private temporary state.
 Chromium executes actual `navigator.credentials.create/get` against a CDP virtual
 CTAP2 authenticator; the controller verifies the resulting cryptographic proof.
 Tests cover restart, bootstrap closure, credentials and CLI transfer/revocation.
+The login-admission suite sends 1,005 anonymous options requests, checks that no
+pending database rows accumulate, completes an earlier genuine browser proof,
+checks replay and registration availability, and verifies restart key rotation.
 Generated reports identify this virtual-authenticator scope and omit credentials,
 private keys and proof bytes. They remain ignored local output or bounded CI
 artifacts. This does not verify a physical security key, a human consent decision,

@@ -884,3 +884,278 @@ fn anonymous_login_attempts_do_not_claim_an_authenticated_audit_actor() {
     assert_eq!(events[4]["reason_code"], "PASSKEY_AUTHENTICATED");
     assert_eq!(events[4]["actor_id"], p);
 }
+
+fn ticket() -> PasskeyLoginInput {
+    PasskeyLoginInput {
+        challenge_id: id(),
+        session_binding: binding(),
+        created_at: NOW,
+        expires_at: NOW + 300,
+        state: json!({"test_only":"authenticated decrypted login state"}),
+    }
+}
+
+#[test]
+fn ticket_login_stores_only_success_and_consumption_survives_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("controller.sqlite3");
+    let store = Store::open(&path).unwrap();
+    let (tenant, principal) = setup(&store);
+    enroll(&store, &tenant, &principal, "key-one", NOW);
+    let input = ticket();
+    let audit_before = store.count_audit(&tenant, 0).unwrap();
+    let raw = rusqlite::Connection::open(&path).unwrap();
+    let count = || {
+        raw.query_row("SELECT count(*) FROM passkey_challenges", [], |r| {
+            r.get::<_, u64>(0)
+        })
+        .unwrap()
+    };
+    let before = count();
+    for _ in 0..1005 {
+        conflict(
+            store.finish_passkey_login(
+                &tenant,
+                &principal,
+                &input,
+                &json!({}),
+                &id(),
+                NOW,
+                |_, _| Err(StoreError::InvalidInput("test invalid signature")),
+            ),
+            "PASSKEY_PROOF_REJECTED",
+        );
+    }
+    assert_eq!(count(), before);
+    assert_eq!(store.count_audit(&tenant, 0).unwrap(), audit_before);
+    assert_eq!(
+        store.list_passkeys(&tenant, &principal).unwrap()[0].revision,
+        1
+    );
+    let result = store
+        .finish_passkey_login(
+            &tenant,
+            &principal,
+            &input,
+            &json!({"test_only":"signed"}),
+            &id(),
+            NOW,
+            |_, _| Ok(verified("key-one", 0)),
+        )
+        .unwrap();
+    assert!(!result.replayed);
+    assert_eq!(count(), before + 1);
+    assert_eq!(store.count_audit(&tenant, 0).unwrap(), audit_before + 1);
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    conflict(
+        store.finish_passkey_login(
+            &tenant,
+            &principal,
+            &input,
+            &json!({"test_only":"signed"}),
+            &id(),
+            NOW + 1,
+            |_, _| panic!("completed tickets cannot invoke verification again"),
+        ),
+        "CEREMONY_ALREADY_USED",
+    );
+    assert_eq!(
+        store.list_passkeys(&tenant, &principal).unwrap()[0].revision,
+        2
+    );
+}
+
+#[test]
+fn ticket_login_write_failures_roll_back_counter_proof_consumption_and_audit() {
+    for (table, action) in [
+        ("passkey_credentials", "UPDATE"),
+        ("passkey_challenges", "INSERT"),
+        ("audit_events", "INSERT"),
+        ("audit_heads", "UPDATE"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("controller.sqlite3");
+        let store = Store::open(&path).unwrap();
+        let (tenant, principal) = setup(&store);
+        enroll(&store, &tenant, &principal, "key-one", NOW);
+        let input = ticket();
+        let raw = rusqlite::Connection::open(&path).unwrap();
+        let count = || {
+            raw.query_row("SELECT count(*) FROM passkey_challenges", [], |r| {
+                r.get::<_, u64>(0)
+            })
+            .unwrap()
+        };
+        let before = count();
+        let audit_before = store.verify_audit_chain(&tenant).unwrap();
+        raw.execute_batch(&format!("CREATE TRIGGER injected_login_failure BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT,'injected'); END;")).unwrap();
+        assert!(
+            store
+                .finish_passkey_login(
+                    &tenant,
+                    &principal,
+                    &input,
+                    &json!({}),
+                    &id(),
+                    NOW,
+                    |_, _| Ok(verified("key-one", 0))
+                )
+                .is_err(),
+            "{table}"
+        );
+        assert_eq!(count(), before, "{table}");
+        assert_eq!(
+            store.verify_audit_chain(&tenant).unwrap(),
+            audit_before,
+            "{table}"
+        );
+        let credential = &store.list_passkeys(&tenant, &principal).unwrap()[0];
+        assert_eq!(credential.revision, 1, "{table}");
+        assert!(credential.verified_at.is_none(), "{table}");
+        raw.execute_batch("DROP TRIGGER injected_login_failure;")
+            .unwrap();
+        store
+            .finish_passkey_login(
+                &tenant,
+                &principal,
+                &input,
+                &json!({}),
+                &id(),
+                NOW,
+                |_, _| Ok(verified("key-one", 0)),
+            )
+            .unwrap();
+    }
+}
+
+#[test]
+fn ticket_login_rechecks_revocation_and_time_before_changing_a_credential() {
+    let store = Store::in_memory().unwrap();
+    let (tenant, principal) = setup(&store);
+    enroll(&store, &tenant, &principal, "key-one", NOW);
+    authenticate(&store, &tenant, &principal, "key-one", NOW);
+    add(&store, &tenant, &principal, "key-one", "key-two", NOW);
+    authenticate(&store, &tenant, &principal, "key-two", NOW);
+    let input = ticket();
+    for now in [NOW - 1, NOW + 300] {
+        conflict(
+            store.finish_passkey_login(
+                &tenant,
+                &principal,
+                &input,
+                &json!({}),
+                &id(),
+                now,
+                |_, _| panic!("expired ticket must not verify"),
+            ),
+            "PASSKEY_CHALLENGE_EXPIRED",
+        );
+    }
+    store
+        .revoke_passkey(
+            &tenant,
+            &principal,
+            "key-one",
+            &authority("key-two", NOW),
+            &id(),
+            NOW,
+        )
+        .unwrap();
+    assert!(store
+        .finish_passkey_login(
+            &tenant,
+            &principal,
+            &input,
+            &json!({}),
+            &id(),
+            NOW,
+            |_, current| {
+                assert!(current.iter().all(|c| c.credential_id != "key-one"));
+                Ok(verified("key-one", 0))
+            }
+        )
+        .is_err());
+}
+
+#[test]
+fn completed_ticket_logins_do_not_spend_registration_quota() {
+    let store = Store::in_memory().unwrap();
+    let (tenant, principal) = setup(&store);
+    enroll(&store, &tenant, &principal, "key-one", NOW);
+    for counter in 0..25 {
+        store
+            .finish_passkey_login(
+                &tenant,
+                &principal,
+                &ticket(),
+                &json!({}),
+                &id(),
+                NOW,
+                |_, _| Ok(verified("key-one", counter)),
+            )
+            .unwrap();
+    }
+    assert!(store
+        .begin_passkey_challenge(
+            &tenant,
+            &principal,
+            &input("registration", Some(authority("key-one", NOW))),
+            &id(),
+            NOW
+        )
+        .is_ok());
+}
+
+#[test]
+fn simultaneous_ticket_logins_on_separate_connections_consume_only_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("controller.sqlite3");
+    let store = Store::open(&path).unwrap();
+    let (tenant, principal) = setup(&store);
+    enroll(&store, &tenant, &principal, "key-one", NOW);
+    let input = Arc::new(ticket());
+    let barrier = Arc::new(Barrier::new(2));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let threads: Vec<_> = (0..2)
+        .map(|_| {
+            let (path, tenant, principal, input, barrier, calls) = (
+                path.clone(),
+                tenant.clone(),
+                principal.clone(),
+                input.clone(),
+                barrier.clone(),
+                calls.clone(),
+            );
+            std::thread::spawn(move || {
+                let store = Store::open(path).unwrap();
+                barrier.wait();
+                store.finish_passkey_login(
+                    &tenant,
+                    &principal,
+                    &input,
+                    &json!({}),
+                    &id(),
+                    NOW,
+                    |_, _| {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(verified("key-one", 0))
+                    },
+                )
+            })
+        })
+        .collect();
+    let mut accepted = 0;
+    for thread in threads {
+        match thread.join().unwrap() {
+            Ok(_) => accepted += 1,
+            other => conflict(other, "CEREMONY_ALREADY_USED"),
+        }
+    }
+    assert_eq!(accepted, 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        store.list_passkeys(&tenant, &principal).unwrap()[0].revision,
+        2
+    );
+}

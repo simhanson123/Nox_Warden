@@ -84,6 +84,16 @@ pub struct PasskeyCompletion {
     pub replayed: bool,
 }
 
+/// Login-only state authenticated and decrypted by the trusted HTTP boundary.
+/// This value is never deserialized directly from an unauthenticated request.
+pub struct PasskeyLoginInput {
+    pub challenge_id: String,
+    pub session_binding: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+    pub state: Value,
+}
+
 impl Store {
     /// Audit only the public handoff identifier and fixed lifecycle event. The
     /// device code, bearer token, browser assertion and credential remain private.
@@ -218,8 +228,8 @@ impl Store {
             }
         }
         let recent: u64 = tx.query_row(
-            "SELECT count(*) FROM passkey_challenges WHERE org_id=?1 AND project_id=?2 AND principal_id=?3 AND created_at>?4",
-            params![t.org_id,t.project_id,principal,now - 300], |row| row.get(0),
+            "SELECT count(*) FROM passkey_challenges WHERE org_id=?1 AND project_id=?2 AND principal_id=?3 AND kind=?4 AND created_at>?5",
+            params![t.org_id,t.project_id,principal,input.kind,now - 300], |row| row.get(0),
         )?;
         if recent >= MAX_CEREMONIES_PER_WINDOW {
             return Err(StoreError::Conflict("PASSKEY_CHALLENGE_LIMIT"));
@@ -257,6 +267,108 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(value)
+    }
+
+    /// Admit a successful login whose state came from an authenticated encrypted
+    /// ticket. Public issuance creates no database rows. Verification, the
+    /// current credential update, durable replay marker, original proof and audit
+    /// commit together. Failed proofs leave no persistent per-request state;
+    /// the HTTP boundary records bounded denial summaries instead.
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_passkey_login<F>(
+        &self,
+        t: &Tenant,
+        principal: &str,
+        input: &PasskeyLoginInput,
+        proof: &Value,
+        key: &str,
+        now: i64,
+        verify: F,
+    ) -> Result<PasskeyCompletion>
+    where
+        F: FnOnce(&Value, &[PasskeyCredential]) -> Result<VerifiedPasskey>,
+    {
+        valid_uuid(&input.challenge_id)?;
+        valid_uuid(key)?;
+        valid_time(now)?;
+        valid_time(input.created_at)?;
+        valid_time(input.expires_at)?;
+        binding(&input.session_binding)?;
+        if input.expires_at.checked_sub(input.created_at) != Some(300)
+            || now < input.created_at
+            || now >= input.expires_at
+        {
+            return Err(StoreError::Conflict("PASSKEY_CHALLENGE_EXPIRED"));
+        }
+        bounded(&input.state)?;
+        let proof_bytes = bounded(proof)?;
+        let mut c = self.connection()?;
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        human(&tx, t, principal)?;
+        if owner(&tx, t)?.as_deref() != Some(principal) {
+            return Err(StoreError::Conflict("PASSKEY_OWNER_NOT_ENROLLED"));
+        }
+        let consumed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM passkey_challenges WHERE org_id=?1 AND project_id=?2 AND principal_id=?3 AND challenge_id=?4)",
+            params![t.org_id,t.project_id,principal,input.challenge_id], |row| row.get(0),
+        )?;
+        if consumed {
+            return Err(StoreError::Conflict("CEREMONY_ALREADY_USED"));
+        }
+        let active: Vec<_> = credentials(&tx, t, principal)?
+            .into_iter()
+            .filter(|credential| credential.revoked_at.is_none())
+            .collect();
+        // A registered pending key still needs this first real signed login.
+        let verified = verify(&input.state, &active)
+            .map_err(|_| StoreError::Conflict("PASSKEY_PROOF_REJECTED"))?;
+        credential_id(&verified.credential_id)?;
+        let current = active
+            .iter()
+            .find(|c| c.credential_id == verified.credential_id)
+            .ok_or(StoreError::NotFound)?;
+        if current.revision >= i32::MAX as u64 {
+            return Err(StoreError::Conflict("PASSKEY_REVISION_EXHAUSTED"));
+        }
+        let credential_bytes = bounded(&verified.credential)?;
+        let challenge = PasskeyChallenge {
+            challenge_id: input.challenge_id.clone(),
+            kind: "authentication".into(),
+            options: json!({}),
+            state: input.state.clone(),
+            created_at: input.created_at,
+            expires_at: input.expires_at,
+            session_binding: input.session_binding.clone(),
+            name: None,
+            authority: None,
+            org_id: t.org_id.clone(),
+            project_id: t.project_id.clone(),
+            principal_id: principal.into(),
+        };
+        let challenge_bytes = canonical_bytes(&challenge)?;
+        if tx.execute(
+            "UPDATE passkey_credentials SET credential_bytes=?2,credential_hash=?3,revision=revision+1,verified_at=COALESCE(verified_at,?4),last_used_at=?4 WHERE credential_id=?1 AND revoked_at IS NULL AND revision=?5",
+            params![verified.credential_id,credential_bytes,sha256(&credential_bytes).as_slice(),now,current.revision],
+        )? != 1 { return Err(StoreError::Conflict("PASSKEY_CREDENTIAL_STALE")); }
+        tx.execute(
+            "INSERT INTO passkey_challenges(org_id,project_id,principal_id,challenge_id,kind,idempotency_key,request_hash,challenge_bytes,challenge_hash,created_at,expires_at,completed_at,completion_key,proof_bytes,proof_hash,credential_id) VALUES(?1,?2,?3,?4,'authentication',?4,?5,?6,?5,?7,?8,?9,?10,?11,?12,?13)",
+            params![t.org_id,t.project_id,principal,input.challenge_id,sha256(&challenge_bytes).as_slice(),challenge_bytes,
+                input.created_at,input.expires_at,now,key,proof_bytes,sha256(&proof_bytes).as_slice(),verified.credential_id],
+        )?;
+        audit(
+            &tx,
+            t,
+            Some(principal),
+            "success",
+            "PASSKEY_AUTHENTICATED",
+            now,
+        )?;
+        tx.commit()?;
+        Ok(PasskeyCompletion {
+            credential_id: verified.credential_id,
+            kind: "authentication".into(),
+            replayed: false,
+        })
     }
 
     /// Verification and challenge consumption share the same write transaction.

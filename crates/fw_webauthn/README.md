@@ -6,8 +6,12 @@ The initial relying party is exactly `localhost`; the configured HTTP origin,
 including its port, must match. IP addresses, subdomains and remote deployment
 are outside this local profile.
 
-Credential public keys and library ceremony states can be serialized only for
-protected server-side storage. Private authenticator keys stay in the user's
+Credential public keys and plaintext library ceremony states require protected
+server-side storage. The controller's login-only exception transports state in
+a bounded AES-256-GCM ticket authenticated with a process-only key; it never
+accepts client-chosen plaintext state. Registration and policy approval retain
+server-side pending state. See the [login protocol](../../docs/passkey-login.md).
+Private authenticator keys stay in the user's
 authenticator. Browser responses are bounded and closed; original encoded
 `clientDataJSON` bytes are retained for signature verification. Unsigned browser
 extension outputs do not establish trust.
@@ -25,5 +29,5 @@ needs its own domain-separated immutable subject challenge and current-role
 verification; a successful login alone never constitutes policy approval.
 
 `webauthn-rs` is MPL-2.0; its cryptographic implementation uses system OpenSSL.
-Its state-serialization feature is enabled for the server database, never for
-untrusted browser-supplied ceremony state.
+Its state-serialization feature supports the server database and authenticated
+encrypted login tickets, never untrusted browser-supplied ceremony state.

@@ -24,6 +24,7 @@ impl AppState {
             | "SESSION_PROOF_REQUIRED"
             | "PASSKEY_SESSION_REVOKED"
             | "PASSKEY_AUTHENTICATION_REQUIRED"
+            | "PASSKEY_VERIFICATION_FAILED"
             | "ORIGIN_REJECTED"
             | "CSRF_REJECTED"
             | "IDEMPOTENCY_KEY_INVALID"

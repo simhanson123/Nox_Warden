@@ -1,6 +1,8 @@
 //! Local-owner passkey ceremonies using the maintained `webauthn-rs` verifier.
 //!
-//! Serialized ceremony state belongs only in protected server storage. This
+//! Plaintext ceremony state belongs only in protected server storage. The
+//! controller may transport login state in its authenticated encrypted ticket;
+//! client-supplied plaintext state is never trusted. This
 //! adapter does not consume challenges, assign roles, establish sessions or
 //! authorize policy approval: its caller must perform those atomic checks.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};

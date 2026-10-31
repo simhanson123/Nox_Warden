@@ -24,6 +24,7 @@ python scripts/smoke_cli.py
 python crates/fw_cli/tests/smoke_login.py
 # Browser prerequisites: docs/passkey-login.md
 python scripts/smoke_passkeys.py
+python scripts/smoke_login_admission.py
 python scripts/smoke_audit.py
 python scripts/smoke_enrollment.py
 python scripts/linux-lab.py --report reports/linux-lab.json
@@ -42,6 +43,19 @@ live target selection and persisted service creation. Its nonbrowser CI subset
 contains 23 checks. The suite uses real Ed25519 certificates, pinned TLS, mutual
 authentication, durable retries, conservative capability reports and credential
 revocation. Reports do not record private keys or credential values.
+
+The login-admission change passes **137 controller/store Rust tests**, including
+15 new regressions for encrypted tickets, tampering, bounded decompression,
+maximum credential/assertion sizes, current revocation/counter checks, zero-counter
+replay, separate database connections and four injected write failures. Its
+real-controller Chromium suite passes **14 checks**: 1,005 anonymous options
+requests create no pending database rows, an earlier legitimate proof still
+authenticates, protected registration remains available, replay fails and restart
+rotates the ticket key. The flood regression was observed failing before the fix.
+Run `cargo test --locked -p fw_control -p fw_store` and
+`python scripts/smoke_login_admission.py`; both require localhost socket access.
+The new browser report is an ignored local output or a seven-day CI artifact.
+This is bounded admission testing, not a sustained network/CPU saturation claim.
 
 The isolated compiler/readback suite passes **66 checks, including 40 actual
 packet probes**.

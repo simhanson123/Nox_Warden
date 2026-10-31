@@ -21,8 +21,12 @@ checks. This change adds or replaces no external dependency versions.
 The adapter requires user verification and enables only the library's
 `danger-allow-state-serialisation` feature. That feature permits protected
 server-side ceremony persistence. It does not make browser-provided state
-trustworthy: the API stores state itself and never accepts replacement ceremony
-state from a client. The separate bound-authentication state cannot be replaced
+trustworthy: registration and approval state stays on the server. For login only,
+the controller transports state in an AES-256-GCM ticket with a process-only key
+and validates its origin, browser, purpose, owner and lifetime before use. This
+explicit [login protocol exception](passkey-login.md) accepts no plaintext
+replacement state and records successful consumption durably. The separate
+bound-authentication state cannot be replaced
 with ordinary login state. Hardware attestation and a complete production policy
 approval service are not claimed by these library primitives.
 

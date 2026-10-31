@@ -4,6 +4,7 @@ mod audit_cursor;
 mod bootstrap_file;
 mod cli_auth;
 mod enrollment;
+mod login_ticket;
 mod passkeys;
 mod registry;
 pub mod tls;
@@ -48,8 +49,6 @@ struct LoginState {
     failures: u32,
     failure_window: std::time::Instant,
     sessions: HashMap<[u8; 32], Session>,
-    ceremony_window: i64,
-    ceremony_attempts: u32,
 }
 pub struct AppState {
     pub store: Store,
@@ -61,6 +60,7 @@ pub struct AppState {
     cli_login: Mutex<cli_auth::CliLoginState>,
     denial_audit: Mutex<audit::DenialState>,
     audit_cursor_key: [u8; 32],
+    login_tickets: login_ticket::LoginTickets,
     bootstrap_file: Option<bootstrap_file::BootstrapFile>,
 }
 fn now() -> i64 {
@@ -210,14 +210,13 @@ impl AppState {
                 failures: 0,
                 failure_window: std::time::Instant::now(),
                 sessions: HashMap::new(),
-                ceremony_window: now(),
-                ceremony_attempts: 0,
             }),
             enrollment: None,
             webauthn,
             cli_login: Mutex::new(cli_auth::CliLoginState::default()),
             denial_audit: Mutex::new(audit::DenialState::default()),
             audit_cursor_key,
+            login_tickets: login_ticket::LoginTickets::new()?,
             bootstrap_file: None,
         })
     }
