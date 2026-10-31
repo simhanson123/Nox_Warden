@@ -30,7 +30,7 @@ initialization. The command prints the public CA path and `trust_bundle_hash`.
 Record that hash through a trusted channel. CA and server private keys stay with
 the controller; only the public CA file is shared with a device.
 
-The operator API remains `http://127.0.0.1:8787`. The separate device endpoint is
+The operator API defaults to `http://localhost:8787`. The separate device endpoint is
 `https://127.0.0.1:8791`; `FW_ENROLLMENT_PORT` changes its port, not its bind address.
 Omitting `FW_ENROLLMENT_DIR` disables registration. Invalid configured PKI causes
 startup to fail rather than creating a new trust root.
@@ -56,10 +56,12 @@ cargo run -p fw_cli --locked -- enroll-token \
 
 Replace the fingerprint with the public `key_fingerprint` printed by `fw_agent
 init`. The device creates its own Ed25519 key and CSR. Initialization refuses to
-replace an existing identity. The operator authenticates with the controller's
-one-use bootstrap file. If a browser already consumed that credential, restart
-the controller with the same state and PKI, then log in through the CLI. Restarting
-invalidates existing operator sessions but preserves device registrations.
+replace an existing identity. Before owner enrollment, the operator authenticates
+with the controller's one-use bootstrap file. After passkey enrollment, CLI login
+prints a browser URL and code: sign in with a passkey and explicitly approve the
+matching code. The [passkey guide](passkey-login.md) describes that flow.
+Restarting invalidates operator sessions but preserves passkeys and device
+registrations; it never reopens bootstrap for an enrolled owner.
 
 The CLI writes the invitation to a protected file **before** requesting issuance.
 The API receives a token hash; the raw token stays in the invitation file. A retry

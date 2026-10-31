@@ -1,9 +1,11 @@
 # Control interface
 
 A static React/TypeScript client for the local controller. It uses same-origin
-`/api/v1` requests, HttpOnly sessions and session-bound CSRF. No credentials,
-policy data or API responses are written to browser storage; only the selected
-locale is persisted. No external fonts, analytics, scripts or CDN resources are
+`/api/v1` requests, HttpOnly sessions and session-bound CSRF. Passkey-authenticated
+reads also require the CSRF proof, which is kept only in memory. A reload or new
+tab asks for passkey login again; its cookie alone cannot restore the proof.
+No credentials, policy data or API responses are written to browser storage;
+only the selected locale is persisted. No external fonts, analytics, scripts or CDN resources are
 loaded.
 
 ```sh
@@ -13,16 +15,29 @@ npm test --prefix web -- --run
 npm run build --prefix web
 ```
 
-The controller serves `web/dist`. During frontend development, `npm run dev
---prefix web` starts a loopback Vite server that proxies `/api` to the controller
-on `127.0.0.1:8787`. The controller's Origin allowlist must permit the explicitly
-selected development origin; production has no dependency on Node.
+The controller serves `web/dist` at `http://localhost:8787` by default. Use that
+exact configured origin for real WebAuthn and session flows. During frontend
+development, Vite proxies `/api` to `127.0.0.1:8787`, but its separate development
+origin is not accepted by the controller's fixed Origin policy. Build and serve
+the client through the controller for authentication integration checks.
+The installed controller has no runtime dependency on Node.
 
 Implemented views are overview, access request create/list/detail, policies,
-targets, audit events, and immutable asset/service registry management. Request details have reloadable `/requests/:id` links.
+targets, audit events, immutable asset/service registry management, and passkey
+security settings. Request details have reloadable `/requests/:id` links;
+`/cli-login/:id` retains its request across passkey sign-in and requires an
+explicit matching terminal-code confirmation.
 Server action hints gate request creation; the API independently authorizes all
 operations. Requests use a stable idempotency key across retries, refreshed when
 form contents change. Creation is displayed as acceptance, never activation.
+
+The login screen distinguishes initial console-token setup from an enrolled
+owner's passkey login. Security settings use actual `navigator.credentials.create`
+and `get` calls, show pending/verified/revoked credentials, and require recent
+passkey authentication for additions and revocations. Registration alone returns
+to sign-in; it does not establish a signed authentication. Cancellation produces
+no successful login. The last verified key is protected, including when an
+unverified spare exists. See the [passkey lifecycle](../docs/passkey-login.md).
 
 The UI shows only API data. An empty collection, failed request, unverified
 platform and observation-only mode have distinct presentations. Raw record
@@ -49,6 +64,8 @@ The live browser check requires Python Playwright and Chromium. From the
 repository root, start a fresh development controller and run:
 
 ```sh
+FW_PUBLIC_ORIGIN=http://127.0.0.1:8787 cargo run -p fw_control --locked
+# In another terminal, before enrolling an owner in this disposable state:
 python scripts/smoke_browser.py --token-file state/bootstrap-token --output reports/browser
 ```
 
@@ -89,3 +106,18 @@ python scripts/smoke_enrollment.py --browser
 
 This check uses temporary private state and does not alter the host firewall.
 Browser and component tests remain distinct from native platform qualification.
+
+The passkey integration suite creates its own disposable controller state and
+uses actual browser WebAuthn with a Chromium CDP virtual CTAP2 authenticator:
+
+```sh
+python -m pip install -r scripts/requirements-browser.txt
+python -m playwright install --with-deps chromium
+python scripts/smoke_passkeys.py
+```
+
+Use `--browser-executable /usr/bin/chromium` to select an installed test browser.
+The suite covers signed login, durable enrollment after restart, bootstrap
+shutdown, credential management and browser-authorized CLI login/revocation.
+Virtual authenticator evidence does not establish physical-key compatibility,
+a human approval decision or a production signer trust boundary.

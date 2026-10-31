@@ -51,7 +51,8 @@ owner can block the process-lifetime journal lock, so this is not the independen
 watchdog required for production qualification.
 
 The [signed execution guide](signed-linux-execution.md) explains the fixture
-trust registry, synthetic approvals and remaining limitations. Real WebAuthn,
+trust registry, synthetic approvals and remaining limitations. Local-owner
+[WebAuthn login](passkey-login.md) is implemented. Plan-bound human approval,
 independent signer/quota jobs, approved authority bootstrap, workload identity and
 production capability admission remain incomplete. Lab fixtures cannot promote
 an `unverified` enrollment to supported enforcement.

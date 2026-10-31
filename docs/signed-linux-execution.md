@@ -130,10 +130,12 @@ still required.
 ## Remaining product work
 
 The controller's approval and deployment endpoints remain unsupported. Completing
-the product still requires real WebAuthn and current-role verification, immutable
-approval storage, independent signer jobs and quota revalidation, authority
+the product still requires plan-bound WebAuthn approval and current-role
+verification, immutable approval storage, independent signer jobs and quota revalidation, authority
 bootstrap, workload bindings and authenticated policy transport. No registered
-`unverified` device is silently promoted to a dispatchable target.
+`unverified` device is silently promoted to a dispatchable target. Local-owner
+[passkey login](passkey-login.md) identifies the operator but does not create
+policy approval or signer authority.
 
 The lab does not qualify physical NICs, management-path survival, ICMP/fragments,
 PMTU, arbitrary clock failures, reboot/install/upgrade behavior, or coexistence

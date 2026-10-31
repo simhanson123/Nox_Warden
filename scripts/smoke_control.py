@@ -13,7 +13,7 @@ def check(name, condition):
     if not condition: raise AssertionError(name)
     checks.append(name)
 with tempfile.TemporaryDirectory(prefix='nox-http-') as tmp:
-    env=dict(os.environ,FW_STATE_DIR=tmp,FW_PORT='8788',FW_WEB_DIR=str(ROOT/'web/dist'))
+    env=dict(os.environ,FW_STATE_DIR=tmp,FW_PORT='8788',FW_PUBLIC_ORIGIN=BASE,FW_WEB_DIR=str(ROOT/'web/dist'))
     process=subprocess.Popen([str(ROOT/'target/debug/fw_control')],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))

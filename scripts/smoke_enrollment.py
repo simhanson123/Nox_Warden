@@ -61,7 +61,7 @@ def main():
             invitation_file = state / 'operator/invitation.json'
             environment = dict(os.environ, FW_STATE_DIR=str(controller_dir),
                                FW_PORT=str(args.http_port), FW_ENROLLMENT_PORT=str(args.tls_port),
-                               FW_ENROLLMENT_DIR=str(pki_dir), FW_API_URL=api,
+                               FW_ENROLLMENT_DIR=str(pki_dir), FW_API_URL=api, FW_PUBLIC_ORIGIN=api,
                                FW_BOOTSTRAP_FILE=str(controller_dir / 'bootstrap-token'),
                                FW_SESSION_FILE=str(session_file), FW_WEB_DIR=str(ROOT / 'web/dist'))
             protected_values = []

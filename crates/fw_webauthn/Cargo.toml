@@ -1,0 +1,19 @@
+[package]
+name = "fw_webauthn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fw_contracts = { path = "../fw_contracts" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+base64 = "0.22.1"
+webauthn-rs = { version = "=0.5.4", default-features = false, features = ["danger-allow-state-serialisation"] }
+
+[dev-dependencies]
+openssl = "0.10.75"
+serde_cbor_2 = "0.13.0"
+sha2.workspace = true

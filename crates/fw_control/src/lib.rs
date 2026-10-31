@@ -1,5 +1,10 @@
 //! Loopback-only development control plane. No route can dispatch native changes.
+mod audit;
+mod audit_cursor;
+mod bootstrap_file;
+mod cli_auth;
 mod enrollment;
+mod passkeys;
 mod registry;
 pub mod tls;
 use axum::{
@@ -30,15 +35,21 @@ pub const PRINCIPAL: &str = "00000000-0000-4000-8000-000000000003";
 const SESSION_SECONDS: i64 = 28800;
 #[derive(Clone)]
 struct Session {
+    id: String,
     csrf: String,
     expires: i64,
+    authenticated_at: i64,
+    credential_id: Option<String>,
 }
 struct LoginState {
     token_hash: [u8; 32],
     expires: i64,
     consumed: bool,
     failures: u32,
+    failure_window: std::time::Instant,
     sessions: HashMap<[u8; 32], Session>,
+    ceremony_window: i64,
+    ceremony_attempts: u32,
 }
 pub struct AppState {
     pub store: Store,
@@ -46,6 +57,11 @@ pub struct AppState {
     origin: String,
     login: Mutex<LoginState>,
     enrollment: Option<Arc<enrollment::EnrollmentRuntime>>,
+    webauthn: Option<fw_webauthn::WebAuthn>,
+    cli_login: Mutex<cli_auth::CliLoginState>,
+    denial_audit: Mutex<audit::DenialState>,
+    audit_cursor_key: [u8; 32],
+    bootstrap_file: Option<bootstrap_file::BootstrapFile>,
 }
 fn now() -> i64 {
     SystemTime::now()
@@ -80,13 +96,20 @@ impl IntoResponse for Problem {
             StatusCode::SERVICE_UNAVAILABLE => "TEMPORARILY_UNAVAILABLE",
             StatusCode::TOO_MANY_REQUESTS => "RATE_LIMITED",
             StatusCode::PAYLOAD_TOO_LARGE => "RESULT_TOO_LARGE",
+            StatusCode::GONE if self.1 == "CURSOR_EXPIRED" => "CURSOR_EXPIRED",
             StatusCode::CONFLICT if self.1 == "IDEMPOTENCY_CONFLICT" => "IDEMPOTENCY_CONFLICT",
             StatusCode::CONFLICT => "REVISION_CONFLICT",
             _ if self.1 == "CAPABILITY_UNVERIFIED" => "UNSUPPORTED_PROFILE",
             _ if self.1 == "RESULT_TOO_LARGE" => "RESULT_TOO_LARGE",
             _ => "INVALID_INPUT",
         };
-        (self.0,axum::Json(json!({"type":"urn:f:problem:v1","title":self.1,"status":self.0.as_u16(),"code":code,"detail":self.1,"request_id":Uuid::new_v4(),"retryable":self.0==StatusCode::SERVICE_UNAVAILABLE,"field_errors":[]}))).into_response()
+        let mut response = (self.0,axum::Json(json!({"type":"urn:f:problem:v1","title":self.1,"status":self.0.as_u16(),"code":code,"detail":self.1,"request_id":Uuid::new_v4(),"retryable":self.0==StatusCode::SERVICE_UNAVAILABLE,"field_errors":[]}))).into_response();
+        if self.0 == StatusCode::TOO_MANY_REQUESTS && self.1 == "BOOTSTRAP_RATE_LIMITED" {
+            response
+                .headers_mut()
+                .insert("retry-after", HeaderValue::from_static("60"));
+        }
+        response
     }
 }
 type ApiResult = Result<Response, Problem>;
@@ -104,7 +127,66 @@ fn header<'a>(h: &'a HeaderMap, name: &str) -> Result<&'a str, Problem> {
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| bad("HEADER_REQUIRED"))
 }
+impl Session {
+    fn passkey_authority(&self, at: i64) -> Result<fw_store::passkeys::PasskeyAuthority, Problem> {
+        let id = self.credential_id.as_ref().ok_or(Problem(
+            StatusCode::FORBIDDEN,
+            "PASSKEY_REAUTHENTICATION_REQUIRED",
+        ))?;
+        if self.authenticated_at > at || at - self.authenticated_at >= 300 {
+            return Err(Problem(
+                StatusCode::FORBIDDEN,
+                "PASSKEY_REAUTHENTICATION_REQUIRED",
+            ));
+        }
+        Ok(fw_store::passkeys::PasskeyAuthority::Passkey {
+            credential_id: id.clone(),
+            authenticated_at: self.authenticated_at,
+        })
+    }
+}
+fn session_data(s: &AppState, session: &Session) -> Result<Value, Problem> {
+    Ok(
+        json!({"authenticated":true,"principal_id":PRINCIPAL,"org_id":ORG,
+        "project_id":PROJECT,"csrf_token":session.csrf,"profile":"local-development",
+        "authentication_method":if session.credential_id.is_some(){"passkey"}else{"bootstrap"},
+        "authenticated_at":session.authenticated_at,"credential_id":session.credential_id,
+        "owner_enrolled":s.store.passkey_owner_enrolled(&s.tenant, PRINCIPAL).map_err(map_store)?}),
+    )
+}
+impl LoginState {
+    fn consume_bootstrap(&mut self, candidate: &str, at: i64) -> Result<(), Problem> {
+        if self.consumed || at >= self.expires {
+            return Err(Problem(StatusCode::UNAUTHORIZED, "BOOTSTRAP_INVALID"));
+        }
+        // A valid high-entropy console token remains usable during a failed-
+        // attempt cooldown; an anonymous caller cannot permanently lock it out.
+        if bool::from(hash(candidate).ct_eq(&self.token_hash)) {
+            self.consumed = true;
+            self.token_hash.fill(0);
+            return Ok(());
+        }
+        if self.failure_window.elapsed() >= std::time::Duration::from_secs(60) {
+            self.failures = 0;
+            self.failure_window = std::time::Instant::now();
+        }
+        if self.failures >= 10 {
+            return Err(Problem(
+                StatusCode::TOO_MANY_REQUESTS,
+                "BOOTSTRAP_RATE_LIMITED",
+            ));
+        }
+        self.failures += 1;
+        Err(Problem(StatusCode::UNAUTHORIZED, "BOOTSTRAP_INVALID"))
+    }
+}
 impl AppState {
+    /// Configure only the token file created by the local console startup path.
+    /// Request bodies cannot select a filesystem path.
+    pub fn with_bootstrap_token_file(mut self, path: std::path::PathBuf) -> std::io::Result<Self> {
+        self.bootstrap_file = Some(bootstrap_file::BootstrapFile::open(path)?);
+        Ok(self)
+    }
     pub fn new(
         store: Store,
         origin: String,
@@ -113,6 +195,10 @@ impl AppState {
         let tenant = Tenant::new(ORG, PROJECT)?;
         store.ensure_tenant(ORG, PROJECT, "Local development", now())?;
         store.ensure_principal(&tenant, PRINCIPAL, "human", now())?;
+        let enrolled = store.passkey_owner_enrolled(&tenant, PRINCIPAL)?;
+        let webauthn = fw_webauthn::WebAuthn::new(&origin).ok();
+        let mut audit_cursor_key = [0u8; 32];
+        openssl::rand::rand_bytes(&mut audit_cursor_key)?;
         Ok(Self {
             store,
             tenant,
@@ -120,11 +206,19 @@ impl AppState {
             login: Mutex::new(LoginState {
                 token_hash: hash(token),
                 expires: now() + 600,
-                consumed: false,
+                consumed: enrolled,
                 failures: 0,
+                failure_window: std::time::Instant::now(),
                 sessions: HashMap::new(),
+                ceremony_window: now(),
+                ceremony_attempts: 0,
             }),
             enrollment: None,
+            webauthn,
+            cli_login: Mutex::new(cli_auth::CliLoginState::default()),
+            denial_audit: Mutex::new(audit::DenialState::default()),
+            audit_cursor_key,
+            bootstrap_file: None,
         })
     }
     /// Configure a separate enrollment listener after its TLS material is validated.
@@ -133,12 +227,57 @@ impl AppState {
         self.enrollment = Some(Arc::new(enrollment::EnrollmentRuntime::new(authority)));
         self
     }
+    fn issue_passkey_session(
+        &self,
+        credential_id: &str,
+        previous_token: Option<&str>,
+        at: i64,
+    ) -> Result<(String, Session), Problem> {
+        self.store
+            .active_passkey(&self.tenant, PRINCIPAL, credential_id)
+            .map_err(|_| Problem(StatusCode::UNAUTHORIZED, "PASSKEY_SESSION_REVOKED"))?;
+        let mut login = self.login.lock().map_err(|_| unavailable())?;
+        login.sessions.retain(|_, session| session.expires > at);
+        if let Some(token) = previous_token {
+            login.sessions.remove(&hash(token));
+        }
+        if login.sessions.len() >= 64 {
+            let oldest = login
+                .sessions
+                .iter()
+                .min_by_key(|(_, s)| s.authenticated_at)
+                .map(|(k, _)| *k);
+            if let Some(key) = oldest {
+                login.sessions.remove(&key);
+            }
+        }
+        let token = random_token();
+        let session = Session {
+            id: Uuid::new_v4().to_string(),
+            csrf: random_token(),
+            expires: at + SESSION_SECONDS,
+            authenticated_at: at,
+            credential_id: Some(credential_id.into()),
+        };
+        login.sessions.insert(hash(&token), session.clone());
+        Ok((token, session))
+    }
     fn auth(&self, h: &HeaderMap, write: bool) -> Result<Session, Problem> {
         let result = self.auth_inner(h, write);
         if let Err(ref reason) = result {
-            let _ = self
-                .store
-                .record_denied_action(&self.tenant, None, reason.1, now());
+            let explicit_session =
+                h.get("cookie")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|cookies| {
+                        cookies
+                            .split(';')
+                            .any(|p| p.trim().starts_with("fw_session="))
+                    });
+            // Anonymous page-load probes are expected and do not append a
+            // persistent denial. Explicit credentials and writes are sampled.
+            if write || explicit_session || h.contains_key("authorization") {
+                self.record_authentication_denial(reason.1);
+            }
         }
         result
     }
@@ -154,9 +293,34 @@ impl AppState {
         let session = login
             .sessions
             .get(&hash(token))
-            .filter(|s| s.expires > now())
+            .filter(|s| s.expires > now() && s.authenticated_at <= now())
             .cloned()
             .ok_or(Problem(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED"))?;
+        drop(login);
+        if let Some(id) = &session.credential_id {
+            // Cookies are scoped to a host, not a port. Another localhost
+            // service can receive this cookie, so the independently returned
+            // session proof is required even for reads. Browsers keep it only
+            // in memory; cookie-only session introspection never reveals it.
+            let proof = h
+                .get("x-csrf-token")
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| bool::from(value.as_bytes().ct_eq(session.csrf.as_bytes())))
+                .ok_or(Problem(StatusCode::UNAUTHORIZED, "SESSION_PROOF_REQUIRED"))?;
+            let _ = proof;
+            self.store
+                .active_passkey(&self.tenant, PRINCIPAL, id)
+                .map_err(|_| Problem(StatusCode::UNAUTHORIZED, "PASSKEY_SESSION_REVOKED"))?;
+        } else if self
+            .store
+            .passkey_owner_enrolled(&self.tenant, PRINCIPAL)
+            .map_err(map_store)?
+        {
+            return Err(Problem(
+                StatusCode::UNAUTHORIZED,
+                "PASSKEY_AUTHENTICATION_REQUIRED",
+            ));
+        }
         if write {
             if header(h, "origin")? != self.origin {
                 return Err(Problem(StatusCode::FORBIDDEN, "ORIGIN_REJECTED"));
@@ -178,6 +342,13 @@ struct Bootstrap {
     token: String,
 }
 async fn bootstrap(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
+    let result = bootstrap_inner(State(s.clone()), h, b).await;
+    if let Err(reason) = &result {
+        s.record_authentication_denial(reason.1);
+    }
+    result
+}
+async fn bootstrap_inner(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
     if header(&h, "origin")? != s.origin {
         return Err(Problem(StatusCode::FORBIDDEN, "ORIGIN_REJECTED"));
     }
@@ -185,28 +356,42 @@ async fn bootstrap(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> Ap
         return Err(bad("IDEMPOTENCY_KEY_INVALID"));
     }
     let input: Bootstrap = fw_contracts::parse_strict(&b).map_err(|_| bad("INVALID_JSON"))?;
-    let mut login = s.login.lock().map_err(|_| unavailable())?;
-    if login.failures >= 10 {
-        return Err(Problem(StatusCode::TOO_MANY_REQUESTS, "BOOTSTRAP_LOCKED"));
-    }
-    if login.consumed
-        || now() >= login.expires
-        || !bool::from(hash(&input.token).ct_eq(&login.token_hash))
+    if s.store
+        .passkey_owner_enrolled(&s.tenant, PRINCIPAL)
+        .map_err(map_store)?
     {
-        login.failures += 1;
-        return Err(Problem(StatusCode::UNAUTHORIZED, "BOOTSTRAP_INVALID"));
+        return Err(Problem(
+            StatusCode::UNAUTHORIZED,
+            "PASSKEY_AUTHENTICATION_REQUIRED",
+        ));
     }
-    login.consumed = true;
+    let mut login = s.login.lock().map_err(|_| unavailable())?;
+    if let Err(reason) = login.consume_bootstrap(&input.token, now()) {
+        drop(login);
+        return Err(reason);
+    }
+    if s.bootstrap_file
+        .as_ref()
+        .is_some_and(|file| file.consume().is_err())
+    {
+        drop(login);
+        return Err(Problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "BOOTSTRAP_TOKEN_CLEANUP_FAILED",
+        ));
+    }
     let token = random_token();
     let csrf = random_token();
-    login.sessions.insert(
-        hash(&token),
-        Session {
-            csrf: csrf.clone(),
-            expires: now() + SESSION_SECONDS,
-        },
-    );
-    let mut response=axum::Json(envelope(json!({"authenticated":true,"principal_id":PRINCIPAL,"org_id":ORG,"project_id":PROJECT,"csrf_token":csrf,"profile":"local-development"}))).into_response();
+    let session = Session {
+        id: Uuid::new_v4().to_string(),
+        csrf,
+        expires: now() + SESSION_SECONDS,
+        authenticated_at: now(),
+        credential_id: None,
+    };
+    login.sessions.insert(hash(&token), session.clone());
+    drop(login);
+    let mut response = axum::Json(envelope(session_data(&s, &session)?)).into_response();
     response.headers_mut().insert(
         "set-cookie",
         HeaderValue::from_str(&format!(
@@ -218,7 +403,7 @@ async fn bootstrap(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> Ap
 }
 async fn session(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     let session = s.auth(&h, false)?;
-    Ok(axum::Json(envelope(json!({"authenticated":true,"principal_id":PRINCIPAL,"org_id":ORG,"project_id":PROJECT,"csrf_token":session.csrf,"profile":"local-development"}))).into_response())
+    Ok(axum::Json(envelope(session_data(&s, &session)?)).into_response())
 }
 async fn health() -> Response {
     axum::Json(json!({"status":"ok","service":"fw_control","version":env!("CARGO_PKG_VERSION")}))
@@ -230,7 +415,18 @@ async fn status(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
 }
 async fn capabilities(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     s.auth(&h, false)?;
-    Ok(axum::Json(envelope(json!({"schema_version":"f.development-capabilities/v1","profile":"local-development","native_enforcement":"unverified","dispatch_allowed":false,"supported_api":["access-requests.create","access-requests.read","operations.read","audit.read"],"transport_enrollment":if s.enrollment.is_some(){"available"}else{"disabled"},"unsupported":["oidc","webauthn","authority-bootstrap","certificate-renewal","native-deployment","postgresql-runtime"],"telemetry_enabled":false}))).into_response())
+    let mut unsupported = vec![
+        "oidc",
+        "policy-approval",
+        "authority-bootstrap",
+        "certificate-renewal",
+        "native-deployment",
+        "postgresql-runtime",
+    ];
+    if s.webauthn.is_none() {
+        unsupported.push("webauthn");
+    }
+    Ok(axum::Json(envelope(json!({"schema_version":"f.development-capabilities/v1","profile":"local-development","native_enforcement":"unverified","dispatch_allowed":false,"supported_api":["access-requests.create","access-requests.read","operations.read","audit.read"],"passkey_authentication":s.webauthn.is_some(),"transport_enrollment":if s.enrollment.is_some(){"available"}else{"disabled"},"unsupported":unsupported,"telemetry_enabled":false}))).into_response())
 }
 async fn empty(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     s.auth(&h, false)?;
@@ -279,7 +475,6 @@ impl AccessRequest {
 #[serde(deny_unknown_fields)]
 struct ListQuery {
     limit: Option<usize>,
-    after_sequence: Option<u64>,
 }
 fn list_limit(q: &ListQuery) -> Result<usize, Problem> {
     let n = q.limit.unwrap_or(50);
@@ -384,25 +579,10 @@ async fn operation(
 async fn audit(
     State(s): State<Arc<AppState>>,
     h: HeaderMap,
-    Query(q): Query<ListQuery>,
+    Query(q): Query<audit::AuditQuery>,
 ) -> ApiResult {
-    s.auth(&h, false)?;
-    let limit = list_limit(&q)?;
-    if s.store
-        .count_audit(&s.tenant, q.after_sequence.unwrap_or(0))
-        .map_err(map_store)?
-        > limit as u64
-    {
-        return Err(Problem(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "RESULT_TOO_LARGE",
-        ));
-    }
-    let rows = s
-        .store
-        .list_audit(&s.tenant, q.after_sequence.unwrap_or(0), limit)
-        .map_err(map_store)?;
-    Ok(axum::Json(envelope(json!(rows))).into_response())
+    let session = s.auth(&h, false)?;
+    Ok(axum::Json(audit::page(&s, &session, q, "/api/v1/audit/events")?).into_response())
 }
 async fn blocked(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     s.auth(&h, true)?;
@@ -412,7 +592,7 @@ async fn blocked(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     ))
 }
 async fn mcp(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
-    s.auth(&h, true)?;
+    let session = s.auth(&h, true)?;
     let value = fw_contracts::parse_value(&b).map_err(|_| bad("INVALID_JSON"))?;
     let response = fw_mcp::dispatch(value, |name, args| match name {
         "get_capabilities" => Ok(envelope(
@@ -428,17 +608,16 @@ async fn mcp(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResul
             })
             .map_err(|_| "NOT_FOUND"),
         "get_audit_events" => {
-            if s.store
-                .count_audit(&s.tenant, 0)
-                .map_err(|_| "STORAGE_UNAVAILABLE")?
-                > 50
-            {
-                return Err("RESULT_TOO_LARGE");
-            }
-            s.store
-                .list_audit(&s.tenant, 0, 50)
-                .map(|v| envelope(json!(v)))
-                .map_err(|_| "STORAGE_UNAVAILABLE")
+            let q = audit::AuditQuery {
+                limit: args["limit"].as_u64().map(|n| n as usize),
+                after_sequence: args["after_sequence"]
+                    .as_str()
+                    .map(|n| n.parse::<u64>())
+                    .transpose()
+                    .map_err(|_| "CURSOR_INVALID")?,
+                cursor: args["cursor"].as_str().map(str::to_owned),
+            };
+            audit::page(&s, &session, q, "mcp:get_audit_events").map_err(|error| error.1)
         }
         _ => Err("TOOL_UNSUPPORTED"),
     });
@@ -477,6 +656,8 @@ async fn response_boundary(
 }
 pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
     let api = Router::new()
+        .merge(passkeys::routes())
+        .merge(cli_auth::routes())
         .route("/session/bootstrap", post(bootstrap))
         .route("/session", get(session))
         .route("/status", get(status))
@@ -486,6 +667,7 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
         .route("/operations", get(operations))
         .route("/operations/{id}", get(operation))
         .route("/audit/events", get(audit))
+        .route("/audit/denial-summaries/{id}", get(audit::denial_summary))
         .route("/targets", get(enrollment::list_targets))
         .route("/targets/{id}", get(enrollment::get_target))
         .route("/enrollment-tokens", post(enrollment::create_token))
@@ -520,6 +702,8 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
     .route_service("/assets/{id}",tower_http::services::ServeFile::new(index.clone()))
     .route_service("/services",tower_http::services::ServeFile::new(index.clone()))
     .route_service("/services/{id}",tower_http::services::ServeFile::new(index.clone()))
+    .route_service("/security",tower_http::services::ServeFile::new(index.clone()))
+    .route_service("/cli-login/{id}",tower_http::services::ServeFile::new(index.clone()))
     .route_service("/audit",tower_http::services::ServeFile::new(index))
     .route("/healthz",get(health)).route("/mcp",post(mcp)).nest("/api/v1",api).fallback_service(tower_http::services::ServeDir::new(web_dir)).layer(DefaultBodyLimit::max(65536)).layer(axum::middleware::from_fn(response_boundary)).layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::CACHE_CONTROL,HeaderValue::from_static("no-store"))).layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::X_CONTENT_TYPE_OPTIONS,HeaderValue::from_static("nosniff"))).layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::CONTENT_SECURITY_POLICY,HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"))).with_state(state)
 }
@@ -529,4 +713,193 @@ pub fn generate_token() -> String {
 /// Only serve this router with the TLS listener and its verified ConnectInfo.
 pub fn enrollment_router(state: Arc<AppState>) -> Router {
     enrollment::internal_router(state)
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use fw_store::passkeys::{PasskeyAuthority, PasskeyChallengeInput, VerifiedPasskey};
+    use tower::ServiceExt;
+
+    fn activated_session() -> (Arc<AppState>, String, Session) {
+        let state = Arc::new(
+            AppState::new(
+                Store::in_memory().unwrap(),
+                "http://localhost:8787".into(),
+                "unit-bootstrap",
+            )
+            .unwrap(),
+        );
+        let at = now();
+        let binding = fw_contracts::hash_bytes(b"unit session-boundary fixture");
+        // Isolate session transport checks from cryptography. Actual signature
+        // verification is exercised by fw_webauthn and the browser smoke.
+        for kind in ["registration", "authentication"] {
+            let input = PasskeyChallengeInput {
+                kind: kind.into(),
+                session_binding: binding.clone(),
+                authority: (kind == "registration").then_some(PasskeyAuthority::Bootstrap),
+                name: (kind == "registration").then_some("Unit fixture".into()),
+                request: json!({}),
+                options: json!({}),
+                state: json!({}),
+            };
+            let challenge = state
+                .store
+                .begin_passkey_challenge(
+                    &state.tenant,
+                    PRINCIPAL,
+                    &input,
+                    &Uuid::new_v4().to_string(),
+                    at,
+                )
+                .unwrap();
+            state
+                .store
+                .finish_passkey_challenge(
+                    &state.tenant,
+                    PRINCIPAL,
+                    &challenge.challenge_id,
+                    kind,
+                    &binding,
+                    &json!({}),
+                    &Uuid::new_v4().to_string(),
+                    at,
+                    |_, _| {
+                        Ok(VerifiedPasskey {
+                            credential_id: "dW5pdC1zZXNzaW9uLWtleQ".into(),
+                            credential: json!({"unit_test":"opaque public credential"}),
+                        })
+                    },
+                )
+                .unwrap();
+        }
+        let (token, session) = state
+            .issue_passkey_session("dW5pdC1zZXNzaW9uLWtleQ", None, at)
+            .unwrap();
+        (state, token, session)
+    }
+
+    #[tokio::test]
+    async fn a_localhost_cookie_alone_cannot_read_or_invalidate_a_passkey_session() {
+        let (state, token, session) = activated_session();
+        let app = router(state, "/tmp/fw-session-test-web-absent".into());
+        let cookie = format!("fw_session={token}");
+        for path in [
+            "/api/v1/session".to_owned(),
+            "/api/v1/status".to_owned(),
+            format!("/api/v1/auth/cli/requests/{}", Uuid::new_v4()),
+        ] {
+            for proof in [None, Some("incorrect-proof")] {
+                let mut request = Request::get(&path).header("cookie", &cookie);
+                if let Some(proof) = proof {
+                    request = request.header("x-csrf-token", proof);
+                }
+                let response = app
+                    .clone()
+                    .oneshot(request.body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+                let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+                assert!(!String::from_utf8_lossy(&bytes).contains(&session.csrf));
+            }
+        }
+        let unauthorized_logout = app
+            .clone()
+            .oneshot(
+                Request::post("/api/v1/auth/logout")
+                    .header("origin", "http://localhost:8787")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", Uuid::new_v4().to_string())
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized_logout.status(), StatusCode::UNAUTHORIZED);
+        for path in ["/api/v1/session", "/api/v1/status"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(path)
+                        .header("cookie", &cookie)
+                        .header("x-csrf-token", &session.csrf)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/api/v1/auth/logout")
+                    .header("origin", "http://localhost:8787")
+                    .header("cookie", &cookie)
+                    .header("x-csrf-token", &session.csrf)
+                    .header("content-type", "application/json")
+                    .header("idempotency-key", Uuid::new_v4().to_string())
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = app
+            .oneshot(
+                Request::get("/api/v1/session")
+                    .header("cookie", cookie)
+                    .header("x-csrf-token", &session.csrf)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn a_session_authenticated_in_the_future_is_rejected() {
+        let state = AppState::new(
+            Store::in_memory().unwrap(),
+            "http://localhost:8787".into(),
+            "unit-bootstrap-token",
+        )
+        .unwrap();
+        let token = "unit-session-token";
+        let mut session = Session {
+            id: Uuid::new_v4().to_string(),
+            csrf: "unit-csrf".into(),
+            expires: now() + SESSION_SECONDS,
+            authenticated_at: now(),
+            credential_id: None,
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", format!("fw_session={token}").parse().unwrap());
+        state
+            .login
+            .lock()
+            .unwrap()
+            .sessions
+            .insert(hash(token), session.clone());
+        assert!(state.auth(&headers, false).is_ok());
+        session.authenticated_at = now() + 60;
+        state
+            .login
+            .lock()
+            .unwrap()
+            .sessions
+            .insert(hash(token), session);
+        assert!(matches!(
+            state.auth(&headers, false),
+            Err(Problem(StatusCode::UNAUTHORIZED, _))
+        ));
+    }
 }

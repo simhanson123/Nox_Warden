@@ -10,6 +10,7 @@ function mockController(options: { noSession?: boolean; auditError?: boolean; au
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const path = String(input);
     if (path === '/api/v1/session') return options.noSession ? response({ code: 'UNAUTHENTICATED' }, 401) : response({ data: session, actions: [{ action_id: 'requests.create', allowed: true, reason_code: null }] });
+    if (path === '/api/v1/auth/status') return response({ data: { passkey_available: false, passkey_unavailable_reason: 'UNSUPPORTED_ORIGIN', owner_enrolled: false, bootstrap_available: true, rp_id: null, origin: 'http://127.0.0.1:8787' } });
     if (path === '/api/v1/session/bootstrap') return response({ data: session, actions: [{ action_id: 'requests.create', allowed: true, reason_code: null }] });
     if (path.startsWith('/api/v1/assets?')) return response({ data: [{ asset_id: '11111111-1111-4111-8111-111111111111', state: 'active', revision: 1, definition: { name: 'Registered source' } }], next_cursor: null });
     if (path.startsWith('/api/v1/services?')) return response({ data: [{ service_id: 'https', state: 'active', revision: 1, definition: { name: 'Registered HTTPS' } }], next_cursor: null });
@@ -135,4 +136,31 @@ test('a malformed collection response is rejected instead of shown as empty', as
   render(<App />);
   expect(await screen.findByText('INVALID_RESPONSE')).toBeInTheDocument();
   expect(screen.queryByText('Nothing here yet')).not.toBeInTheDocument();
+});
+
+test('authenticated reads include the memory-held session proof and clear it on sign-out', async () => {
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ data: [] }));
+  setCsrfToken('private-memory-proof');
+  await api('/audit/events');
+  expect(fetch.mock.calls.at(-1)?.[1]?.headers).toMatchObject({ 'X-CSRF-Token': 'private-memory-proof' });
+  expect(fetch.mock.calls.at(-1)?.[1]?.method).toBe('GET');
+  setCsrfToken(undefined);
+  await api('/auth/status');
+  expect(fetch.mock.calls.at(-1)?.[1]?.headers).not.toHaveProperty('X-CSRF-Token');
+  expect(localStorage.getItem('fw.locale')).toBe('en');
+  expect(localStorage.length).toBe(1);
+});
+
+test('a reload without memory proof requires passkey sign-in and never restores bootstrap for an enrolled owner', async () => {
+  setCsrfToken(undefined);
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    if (String(input) === '/api/v1/session') return response({ code: 'UNAUTHENTICATED', detail: 'SESSION_PROOF_REQUIRED' }, 401);
+    if (String(input) === '/api/v1/auth/status') return response({ data: { passkey_available: true, passkey_unavailable_reason: null, owner_enrolled: true, bootstrap_available: false, rp_id: 'localhost', origin: 'http://localhost:8787' } });
+    throw new Error('Unauthenticated reload must not read protected resources');
+  });
+  render(<App/>);
+  expect(await screen.findByRole('button', { name: 'Sign in with a passkey' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('Console token')).not.toBeInTheDocument();
+  expect(fetch.mock.calls.every(([, init]) => !Object.hasOwn(init?.headers ?? {}, 'X-CSRF-Token'))).toBe(true);
+  expect(localStorage.length).toBe(1);
 });
