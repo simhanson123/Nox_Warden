@@ -14,13 +14,16 @@ use std::{
 use thiserror::Error;
 use uuid::Uuid;
 
+mod audit;
 pub mod enrollment;
+pub use audit::AuditPage;
 pub mod passkeys;
 pub mod registry;
 pub use registry::RegistryMutation;
 
 const ENROLLMENT_MIGRATION: &str = include_str!("../migrations/0003_enrollment.sql");
 const PASSKEY_MIGRATION: &str = include_str!("../migrations/0004_passkeys.sql");
+const DENIAL_SUMMARY_MIGRATION: &str = include_str!("../migrations/0005_denial_summaries.sql");
 const REGISTRY_MIGRATION: &str = include_str!("../migrations/0002_registry.sql");
 const MIGRATION: &str = include_str!("../migrations/0001_lite.sql");
 const MAX_TIME: i64 = 253_402_300_799;
@@ -153,6 +156,7 @@ impl Store {
             REGISTRY_MIGRATION,
             ENROLLMENT_MIGRATION,
             PASSKEY_MIGRATION,
+            DENIAL_SUMMARY_MIGRATION,
         ];
         let installed = {
             let mut query = transaction

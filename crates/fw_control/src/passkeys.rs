@@ -173,7 +173,7 @@ async fn status(State(s): State<Arc<AppState>>) -> ApiResult {
     let login = s.login.lock().map_err(|_| unavailable())?;
     Ok(axum::Json(auth_envelope(json!({"passkey_available":s.webauthn.is_some(),
         "passkey_unavailable_reason":if s.webauthn.is_some(){Value::Null}else{json!("PASSKEY_ORIGIN_UNSUPPORTED")},
-        "owner_enrolled":enrolled,"bootstrap_available":!enrolled && !login.consumed && now()<login.expires && login.failures<10,
+        "owner_enrolled":enrolled,"bootstrap_available":!enrolled && !login.consumed && now()<login.expires,
         "rp_id":s.webauthn.as_ref().map(|w|w.rp_id()),"origin":s.origin}))).into_response())
 }
 async fn list(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {

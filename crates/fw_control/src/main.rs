@@ -168,12 +168,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Some(write_bootstrap_token(&state_dir, &token)?)
     };
-    let state = fw_control::AppState::new(store, origin.clone(), &token)?;
+    let mut state = fw_control::AppState::new(store, origin.clone(), &token)?;
+    if let Some(path) = &token_path {
+        state = state.with_bootstrap_token_file(path.clone())?;
+    }
     let (state, enrollment_listener) = match enrollment {
         Some((listener, authority)) => (state.with_enrollment(authority), Some(listener)),
         None => (state, None),
     };
     let state = Arc::new(state);
+    let flush_state = state.clone();
+    let denial_flush = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            flush_state.flush_authentication_denials();
+        }
+    });
     let web = PathBuf::from(std::env::var("FW_WEB_DIR").unwrap_or_else(|_| "web/dist".into()));
     eprintln!(
         "fw_control listening on {address}; open {origin}; observe-only development profile; no native enforcement"
@@ -214,6 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         public.await?;
     }
+    denial_flush.abort();
     Ok(())
 }
 

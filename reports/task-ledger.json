@@ -25,8 +25,8 @@
       "dependencies": [
         "M01"
       ],
-      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports. Migration 4 persists local-owner enrollment, private WebAuthn ceremony/proof state, verified credentials, counters, revocations and atomic audit; restart cannot reopen owner bootstrap.",
-      "blocker": "PostgreSQL/RLS, OIDC, workload binding, certificate renewal/rotation, complete worker queue and authenticated snapshot pagination remain."
+      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports. Migration 4 persists local-owner enrollment, private WebAuthn ceremony/proof state, verified credentials, counters, revocations and atomic audit; restart cannot reopen owner bootstrap. Migration 5 adds immutable content-hashed denial summaries and atomic audit references; bounded audit snapshot pages preserve append-only chain checks.",
+      "blocker": "PostgreSQL/RLS, OIDC, workload binding, certificate renewal/rotation, complete worker queue and catalogue/request snapshot pagination remain."
     },
     {
       "id": "M03",
@@ -74,8 +74,8 @@
         "M02",
         "M03"
       ],
-      "implemented": "Loopback request/operation/audit/catalogue APIs, secure CLI login and read-only MCP. Separate TLS enrollment, Ed25519 device certificates, Linux agent, mTLS capability/status reporting, operator invitations/revocation and actual TargetView inventory. Real local-owner WebAuthn registration/login and credential lifecycle, plus browser-authorized one-use CLI session transfer with original authentication freshness.",
-      "blocker": "Policy authority bootstrap, remaining OpenAPI routes, remote production auth/enrollment, certificate renewal, privileged IPC, full MCP suite and snapshot pagination remain."
+      "implemented": "Loopback request/operation/audit/catalogue APIs, secure CLI login and read-only MCP. Separate TLS enrollment, Ed25519 device certificates, Linux agent, mTLS capability/status reporting, operator invitations/revocation and actual TargetView inventory. Real local-owner WebAuthn registration/login and credential lifecycle, plus browser-authorized one-use CLI session transfer with original authentication freshness. REST/MCP audit reads use authenticated snapshot cursors; tenant-authenticated reads resolve linked denial-count evidence. The audit integration suite passes 21 HTTP/MCP/browser checks after bounded authentication-denial floods.",
+      "blocker": "Policy authority bootstrap, remaining OpenAPI routes, remote production auth/enrollment, certificate renewal, privileged IPC, full MCP suite and remaining catalogue/request pagination remain."
     },
     {
       "id": "M06",
@@ -93,7 +93,7 @@
         "M02",
         "M05"
       ],
-      "implemented": "Signed PBOM/Merkle/DAG verifier, privacy consent/report state machine, online SQLite backup.",
+      "implemented": "Signed PBOM/Merkle/DAG verifier, privacy consent/report state machine, online SQLite backup. Linked immutable evidence for aggregated authentication denials; buffered counters do not claim crash-complete retention.",
       "blocker": "Evidence-store/export integration, authority-epoch restore, retention jobs, notifications and isolated telemetry sender remain."
     },
     {

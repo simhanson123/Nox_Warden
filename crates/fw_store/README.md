@@ -6,7 +6,7 @@ Implemented: WAL/FULL connections with verified foreign keys; checksummed transa
 
 The service authenticates every tenant/principal before constructing `Tenant`. SQLite repository predicates and composite foreign keys are defense in depth; they are not PostgreSQL RLS. Production Lite uses one tenant. Draft policies and queued operations are never evidence of native firewall enforcement. Request submission still requires the caller to validate its exact wire schema, role and workload binding. The current store cannot mark a validation operation succeeded, because the complete immutable plan registry is not implemented here.
 
-Unimplemented F-2.0 portions include normalized policy-scope projections and signed registry snapshots, PostgreSQL migrations/RLS, authority quotas, policy-approval WebAuthn proofs, worker queue proofs, signed PBOM storage, signed device receipts, full snapshot-bound pagination and application-managed WAL checkpoints. Outbox claims are an internal authenticated service boundary; they are not exposed as anonymous user operations. Backups capture only SQLite state and are not an authorization to restore executor generations or revive historical grants.
+Unimplemented F-2.0 portions include normalized policy-scope projections and signed registry snapshots, PostgreSQL migrations/RLS, authority quotas, policy-approval WebAuthn proofs, worker queue proofs, signed PBOM storage, signed device receipts, snapshot-bound pagination outside the audit timeline and application-managed WAL checkpoints. Outbox claims are an internal authenticated service boundary; they are not exposed as anonymous user operations. Backups capture only SQLite state and are not an authorization to restore executor generations or revive historical grants.
 
 `cargo test -p fw_store --locked` exercises concurrency, replay conflicts, tenant isolation, failure injection, CAS, audit corruption detection, outbox expiry, migration checksums, backup/reopen, and policy restrictions. These tests do not establish power-loss behavior on other filesystems or native operating systems.
 
@@ -43,3 +43,25 @@ fresh authentication and cannot mint another session. Raw proofs and library
 state stay in the private database; audit projections contain fixed reason codes
 and public identifiers only. These are controller-local login records, not human
 policy approvals or an independent signer's trusted credential/role registry.
+
+## Audit pages and denial summaries (migration 0005)
+
+`list_audit_page` captures the current append-only audit head on its first call.
+Later pages retain that head, so newly appended events appear in a new scan and
+cannot move the existing page boundaries. Pages contain at most 100 events and
+96 KiB of event JSON, with an explicit continuation sequence whenever more of
+the snapshot remains. The smaller byte budget leaves room for MCP's structured
+and text copies. The HTTP/MCP layer authenticates the cursor and binds it to the
+current principal, tenant, route, filters, snapshot and expiry. Store sequence
+numbers alone are not authorization tokens. Page reads verify content hashes,
+sequence/tenant projections and chain links without truncating an event.
+
+Coalesced authentication denials use immutable canonical evidence separate from
+the closed `f.audit-event/v1` object. The original event's `evidence_hashes` refer
+to a `fw.authentication-denial-summary/v1` record containing a fixed reason,
+decimal count and time window. Counts cover suppressed follow-up denials and
+exclude the initial separately recorded sample. Summary evidence and its audit
+reference commit together; duplicate summary content does not append another
+event. Reads remain tenant-scoped and verify the content hash. Controller RAM
+aggregation is bounded, and unflushed counts can be lost on a crash; this does
+not claim a complete durable record of every unauthenticated request.

@@ -621,6 +621,7 @@ name = "fw_control"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "fw_contracts",
  "fw_enrollment",
@@ -628,6 +629,7 @@ dependencies = [
  "fw_store",
  "fw_webauthn",
  "http-body-util",
+ "openssl",
  "serde",
  "serde_json",
  "sha2",

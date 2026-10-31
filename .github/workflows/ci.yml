@@ -37,6 +37,8 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Browser passkey login and credential revocation
         run: python scripts/smoke_passkeys.py
+      - name: Audit pagination and failed-login abuse resistance
+        run: python scripts/smoke_audit.py
       - name: Isolated Linux packet regression
         run: python scripts/linux-lab.py --report reports/linux-lab.json
       - name: Signed Linux execution and crash recovery
@@ -54,5 +56,6 @@ jobs:
             reports/enrollment-smoke.json
             reports/signed-linux-lab.json
             reports/passkey-smoke.json
+            reports/audit-smoke.json
           retention-days: 7
           if-no-files-found: ignore

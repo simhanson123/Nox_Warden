@@ -21,7 +21,8 @@ cargo run -p fw_cli -- targets
 arguments or printed by login.
 
 The CLI uses the controller's Origin/CSRF-capable local session protocol. Before
-owner enrollment, login consumes the same one-use console token as the browser.
+owner enrollment, login consumes the same one-use console token as the browser;
+the controller removes its configured token file on successful consumption.
 After enrollment it prints an exact controller URL and eight-character uppercase
 code. Open the URL, authenticate with a passkey if needed, type the code from the
 terminal and explicitly approve CLI login. The CLI waits at most five minutes.

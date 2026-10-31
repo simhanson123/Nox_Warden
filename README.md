@@ -20,7 +20,9 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   appears after its first report; every enforcement capability remains unverified.
 - Authenticated local asset and service catalogues with immutable revisions,
   ETags, tenant isolation and transactional audit records. Services can reference
-  registered targets with current credentials and reports.
+  registered targets with current credentials and reports. Authenticated audit
+  reads use bounded snapshot pages; repeated denials retain bounded samples and
+  linked count summaries. See the [audit guide](docs/audit-log.md).
 - Access requests with strict JSON validation, normalization, idempotent storage
   and operation/audit queries. Requests without workload binding and authority
   remain `needs_info`; they are not presented as active network permissions.
@@ -57,7 +59,8 @@ cargo run -p fw_control --locked
 ```
 
 Open `http://localhost:8787`. Before owner enrollment, the server creates a private
-`state/bootstrap-token` file valid for ten minutes and one login. Use it to open
+`state/bootstrap-token` file valid for ten minutes and one login, removed when
+consumed. Use it to open
 **Security**, register the first passkey, then sign in with that passkey. Adding
 another passkey or revoking one requires a recent passkey authentication. A newly
 registered key becomes active only after its first signed login, and the last
@@ -109,6 +112,7 @@ python scripts/smoke_cli.py
 python scripts/smoke_enrollment.py
 # Requires the browser test prerequisites in docs/passkey-login.md.
 python scripts/smoke_passkeys.py
+python scripts/smoke_audit.py
 # Requires the isolated Docker lab; these commands do not enable host protection.
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json

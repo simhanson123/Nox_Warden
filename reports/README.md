@@ -2,9 +2,9 @@
 
 This directory tracks the concise status summary, [task ledger](task-ledger.json)
 and [specification provenance](spec-import.json). Generated reports, logs and
-screenshots are ignored by Git. CI retains selected HTTP, CLI, enrollment and
-Linux packet, signed-execution and passkey reports as downloadable artifacts for seven days; logs and check status
-remain attached to [GitHub Actions runs](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
+screenshots are ignored by Git. CI retains selected HTTP, CLI, enrollment, Linux
+packet, signed-execution, passkey and audit reports as downloadable artifacts for
+seven days; logs and check status remain attached to [GitHub Actions runs](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 Keep tests and reproduction commands in source control. The supplied specification
 and its bundled fixtures remain unchanged under `docs/specs`.
 
@@ -21,12 +21,13 @@ python scripts/smoke_cli.py
 python crates/fw_cli/tests/smoke_login.py
 # Browser prerequisites: docs/passkey-login.md
 python scripts/smoke_passkeys.py
+python scripts/smoke_audit.py
 python scripts/smoke_enrollment.py
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **280 Rust tests, 43 UI tests, 27 specification
+The full repository check passes: **304 Rust tests, 43 UI tests, 27 specification
 checks, 52 core and 28 extended contract fixtures, and nine Linux runner
 regressions**. Formatting, Clippy, frontend types, the production build and parity
 across eight locale catalogues with 214 keys also pass.
@@ -66,6 +67,13 @@ login. Both browser and CLI sessions work before credential revocation and are
 rejected afterward. Browser/controller cleanup succeeds. This verifies the
 protocol and cryptographic path with an automated authenticator; it does not
 establish physical-key compatibility or a human policy-approval decision.
+
+The [audit integration suite](../docs/audit-log.md) passes **21 checks** using
+real HTTP/MCP and browser pagination after 100 anonymous and 100 invalid-cookie
+requests. It checks bounded denial evidence, stable snapshot traversal, a fresh
+read including later events, the browser's Next page and successful cleanup.
+Its report is `reports/audit-smoke.json`; credentials are excluded. These results
+do not establish complete per-request audit retention across crashes.
 
 Live Chromium checks cover English-first startup and saved locale selection,
 asset revisions, deep links and service prerequisites. The enrollment browser

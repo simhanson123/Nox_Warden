@@ -1,4 +1,7 @@
 //! Loopback-only development control plane. No route can dispatch native changes.
+mod audit;
+mod audit_cursor;
+mod bootstrap_file;
 mod cli_auth;
 mod enrollment;
 mod passkeys;
@@ -43,6 +46,7 @@ struct LoginState {
     expires: i64,
     consumed: bool,
     failures: u32,
+    failure_window: std::time::Instant,
     sessions: HashMap<[u8; 32], Session>,
     ceremony_window: i64,
     ceremony_attempts: u32,
@@ -55,6 +59,9 @@ pub struct AppState {
     enrollment: Option<Arc<enrollment::EnrollmentRuntime>>,
     webauthn: Option<fw_webauthn::WebAuthn>,
     cli_login: Mutex<cli_auth::CliLoginState>,
+    denial_audit: Mutex<audit::DenialState>,
+    audit_cursor_key: [u8; 32],
+    bootstrap_file: Option<bootstrap_file::BootstrapFile>,
 }
 fn now() -> i64 {
     SystemTime::now()
@@ -89,13 +96,20 @@ impl IntoResponse for Problem {
             StatusCode::SERVICE_UNAVAILABLE => "TEMPORARILY_UNAVAILABLE",
             StatusCode::TOO_MANY_REQUESTS => "RATE_LIMITED",
             StatusCode::PAYLOAD_TOO_LARGE => "RESULT_TOO_LARGE",
+            StatusCode::GONE if self.1 == "CURSOR_EXPIRED" => "CURSOR_EXPIRED",
             StatusCode::CONFLICT if self.1 == "IDEMPOTENCY_CONFLICT" => "IDEMPOTENCY_CONFLICT",
             StatusCode::CONFLICT => "REVISION_CONFLICT",
             _ if self.1 == "CAPABILITY_UNVERIFIED" => "UNSUPPORTED_PROFILE",
             _ if self.1 == "RESULT_TOO_LARGE" => "RESULT_TOO_LARGE",
             _ => "INVALID_INPUT",
         };
-        (self.0,axum::Json(json!({"type":"urn:f:problem:v1","title":self.1,"status":self.0.as_u16(),"code":code,"detail":self.1,"request_id":Uuid::new_v4(),"retryable":self.0==StatusCode::SERVICE_UNAVAILABLE,"field_errors":[]}))).into_response()
+        let mut response = (self.0,axum::Json(json!({"type":"urn:f:problem:v1","title":self.1,"status":self.0.as_u16(),"code":code,"detail":self.1,"request_id":Uuid::new_v4(),"retryable":self.0==StatusCode::SERVICE_UNAVAILABLE,"field_errors":[]}))).into_response();
+        if self.0 == StatusCode::TOO_MANY_REQUESTS && self.1 == "BOOTSTRAP_RATE_LIMITED" {
+            response
+                .headers_mut()
+                .insert("retry-after", HeaderValue::from_static("60"));
+        }
+        response
     }
 }
 type ApiResult = Result<Response, Problem>;
@@ -140,7 +154,39 @@ fn session_data(s: &AppState, session: &Session) -> Result<Value, Problem> {
         "owner_enrolled":s.store.passkey_owner_enrolled(&s.tenant, PRINCIPAL).map_err(map_store)?}),
     )
 }
+impl LoginState {
+    fn consume_bootstrap(&mut self, candidate: &str, at: i64) -> Result<(), Problem> {
+        if self.consumed || at >= self.expires {
+            return Err(Problem(StatusCode::UNAUTHORIZED, "BOOTSTRAP_INVALID"));
+        }
+        // A valid high-entropy console token remains usable during a failed-
+        // attempt cooldown; an anonymous caller cannot permanently lock it out.
+        if bool::from(hash(candidate).ct_eq(&self.token_hash)) {
+            self.consumed = true;
+            self.token_hash.fill(0);
+            return Ok(());
+        }
+        if self.failure_window.elapsed() >= std::time::Duration::from_secs(60) {
+            self.failures = 0;
+            self.failure_window = std::time::Instant::now();
+        }
+        if self.failures >= 10 {
+            return Err(Problem(
+                StatusCode::TOO_MANY_REQUESTS,
+                "BOOTSTRAP_RATE_LIMITED",
+            ));
+        }
+        self.failures += 1;
+        Err(Problem(StatusCode::UNAUTHORIZED, "BOOTSTRAP_INVALID"))
+    }
+}
 impl AppState {
+    /// Configure only the token file created by the local console startup path.
+    /// Request bodies cannot select a filesystem path.
+    pub fn with_bootstrap_token_file(mut self, path: std::path::PathBuf) -> std::io::Result<Self> {
+        self.bootstrap_file = Some(bootstrap_file::BootstrapFile::open(path)?);
+        Ok(self)
+    }
     pub fn new(
         store: Store,
         origin: String,
@@ -151,6 +197,8 @@ impl AppState {
         store.ensure_principal(&tenant, PRINCIPAL, "human", now())?;
         let enrolled = store.passkey_owner_enrolled(&tenant, PRINCIPAL)?;
         let webauthn = fw_webauthn::WebAuthn::new(&origin).ok();
+        let mut audit_cursor_key = [0u8; 32];
+        openssl::rand::rand_bytes(&mut audit_cursor_key)?;
         Ok(Self {
             store,
             tenant,
@@ -160,6 +208,7 @@ impl AppState {
                 expires: now() + 600,
                 consumed: enrolled,
                 failures: 0,
+                failure_window: std::time::Instant::now(),
                 sessions: HashMap::new(),
                 ceremony_window: now(),
                 ceremony_attempts: 0,
@@ -167,6 +216,9 @@ impl AppState {
             enrollment: None,
             webauthn,
             cli_login: Mutex::new(cli_auth::CliLoginState::default()),
+            denial_audit: Mutex::new(audit::DenialState::default()),
+            audit_cursor_key,
+            bootstrap_file: None,
         })
     }
     /// Configure a separate enrollment listener after its TLS material is validated.
@@ -213,9 +265,19 @@ impl AppState {
     fn auth(&self, h: &HeaderMap, write: bool) -> Result<Session, Problem> {
         let result = self.auth_inner(h, write);
         if let Err(ref reason) = result {
-            let _ = self
-                .store
-                .record_denied_action(&self.tenant, None, reason.1, now());
+            let explicit_session =
+                h.get("cookie")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|cookies| {
+                        cookies
+                            .split(';')
+                            .any(|p| p.trim().starts_with("fw_session="))
+                    });
+            // Anonymous page-load probes are expected and do not append a
+            // persistent denial. Explicit credentials and writes are sampled.
+            if write || explicit_session || h.contains_key("authorization") {
+                self.record_authentication_denial(reason.1);
+            }
         }
         result
     }
@@ -280,6 +342,13 @@ struct Bootstrap {
     token: String,
 }
 async fn bootstrap(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
+    let result = bootstrap_inner(State(s.clone()), h, b).await;
+    if let Err(reason) = &result {
+        s.record_authentication_denial(reason.1);
+    }
+    result
+}
+async fn bootstrap_inner(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
     if header(&h, "origin")? != s.origin {
         return Err(Problem(StatusCode::FORBIDDEN, "ORIGIN_REJECTED"));
     }
@@ -297,17 +366,20 @@ async fn bootstrap(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> Ap
         ));
     }
     let mut login = s.login.lock().map_err(|_| unavailable())?;
-    if login.failures >= 10 {
-        return Err(Problem(StatusCode::TOO_MANY_REQUESTS, "BOOTSTRAP_LOCKED"));
+    if let Err(reason) = login.consume_bootstrap(&input.token, now()) {
+        drop(login);
+        return Err(reason);
     }
-    if login.consumed
-        || now() >= login.expires
-        || !bool::from(hash(&input.token).ct_eq(&login.token_hash))
+    if s.bootstrap_file
+        .as_ref()
+        .is_some_and(|file| file.consume().is_err())
     {
-        login.failures += 1;
-        return Err(Problem(StatusCode::UNAUTHORIZED, "BOOTSTRAP_INVALID"));
+        drop(login);
+        return Err(Problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "BOOTSTRAP_TOKEN_CLEANUP_FAILED",
+        ));
     }
-    login.consumed = true;
     let token = random_token();
     let csrf = random_token();
     let session = Session {
@@ -403,7 +475,6 @@ impl AccessRequest {
 #[serde(deny_unknown_fields)]
 struct ListQuery {
     limit: Option<usize>,
-    after_sequence: Option<u64>,
 }
 fn list_limit(q: &ListQuery) -> Result<usize, Problem> {
     let n = q.limit.unwrap_or(50);
@@ -508,25 +579,10 @@ async fn operation(
 async fn audit(
     State(s): State<Arc<AppState>>,
     h: HeaderMap,
-    Query(q): Query<ListQuery>,
+    Query(q): Query<audit::AuditQuery>,
 ) -> ApiResult {
-    s.auth(&h, false)?;
-    let limit = list_limit(&q)?;
-    if s.store
-        .count_audit(&s.tenant, q.after_sequence.unwrap_or(0))
-        .map_err(map_store)?
-        > limit as u64
-    {
-        return Err(Problem(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "RESULT_TOO_LARGE",
-        ));
-    }
-    let rows = s
-        .store
-        .list_audit(&s.tenant, q.after_sequence.unwrap_or(0), limit)
-        .map_err(map_store)?;
-    Ok(axum::Json(envelope(json!(rows))).into_response())
+    let session = s.auth(&h, false)?;
+    Ok(axum::Json(audit::page(&s, &session, q, "/api/v1/audit/events")?).into_response())
 }
 async fn blocked(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     s.auth(&h, true)?;
@@ -536,7 +592,7 @@ async fn blocked(State(s): State<Arc<AppState>>, h: HeaderMap) -> ApiResult {
     ))
 }
 async fn mcp(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResult {
-    s.auth(&h, true)?;
+    let session = s.auth(&h, true)?;
     let value = fw_contracts::parse_value(&b).map_err(|_| bad("INVALID_JSON"))?;
     let response = fw_mcp::dispatch(value, |name, args| match name {
         "get_capabilities" => Ok(envelope(
@@ -552,17 +608,16 @@ async fn mcp(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes) -> ApiResul
             })
             .map_err(|_| "NOT_FOUND"),
         "get_audit_events" => {
-            if s.store
-                .count_audit(&s.tenant, 0)
-                .map_err(|_| "STORAGE_UNAVAILABLE")?
-                > 50
-            {
-                return Err("RESULT_TOO_LARGE");
-            }
-            s.store
-                .list_audit(&s.tenant, 0, 50)
-                .map(|v| envelope(json!(v)))
-                .map_err(|_| "STORAGE_UNAVAILABLE")
+            let q = audit::AuditQuery {
+                limit: args["limit"].as_u64().map(|n| n as usize),
+                after_sequence: args["after_sequence"]
+                    .as_str()
+                    .map(|n| n.parse::<u64>())
+                    .transpose()
+                    .map_err(|_| "CURSOR_INVALID")?,
+                cursor: args["cursor"].as_str().map(str::to_owned),
+            };
+            audit::page(&s, &session, q, "mcp:get_audit_events").map_err(|error| error.1)
         }
         _ => Err("TOOL_UNSUPPORTED"),
     });
@@ -612,6 +667,7 @@ pub fn router(state: Arc<AppState>, web_dir: std::path::PathBuf) -> Router {
         .route("/operations", get(operations))
         .route("/operations/{id}", get(operation))
         .route("/audit/events", get(audit))
+        .route("/audit/denial-summaries/{id}", get(audit::denial_summary))
         .route("/targets", get(enrollment::list_targets))
         .route("/targets/{id}", get(enrollment::get_target))
         .route("/enrollment-tokens", post(enrollment::create_token))

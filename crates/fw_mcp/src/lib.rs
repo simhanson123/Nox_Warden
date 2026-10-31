@@ -5,11 +5,28 @@ pub fn tools() -> Value {
     json!([
      {"name":"get_capabilities","description":"Read verified and unavailable capabilities; does not authorize deployment","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
      {"name":"get_operation","description":"Read an operation in the authenticated project","inputSchema":{"type":"object","properties":{"operation_id":{"type":"string","format":"uuid"}},"required":["operation_id"],"additionalProperties":false}},
-     {"name":"get_audit_events","description":"Read audit events in the authenticated project","inputSchema":{"type":"object","properties":{},"additionalProperties":false}}
+     {"name":"get_audit_events","description":"Read a bounded audit snapshot page in the authenticated project; follow next_cursor for remaining events","inputSchema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":100},"after_sequence":{"type":"string","pattern":"^(0|[1-9][0-9]{0,19})$","maxLength":20},"cursor":{"type":"string","minLength":1,"maxLength":2048,"pattern":"^[A-Za-z0-9_-]+$"}},"additionalProperties":false}}
     ])
 }
 fn error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+}
+fn valid_audit_arguments(arguments: &Value) -> bool {
+    arguments.as_object().is_some_and(|fields| {
+        fields.iter().all(|(name, value)| match name.as_str() {
+            "limit" => value.as_u64().is_some_and(|n| (1..=100).contains(&n)),
+            "after_sequence" => value.as_str().is_some_and(|s| {
+                s.len() <= 20 && s.parse::<u64>().is_ok_and(|n| n.to_string() == s)
+            }),
+            "cursor" => value.as_str().is_some_and(|s| {
+                !s.is_empty()
+                    && s.len() <= 2048
+                    && s.bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b))
+            }),
+            _ => false,
+        })
+    })
 }
 pub fn dispatch<F>(request: Value, mut call: F) -> Option<Value>
 where
@@ -46,7 +63,8 @@ where
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
             let valid = match name {
-                "get_capabilities" | "get_audit_events" => arguments == json!({}),
+                "get_capabilities" => arguments == json!({}),
+                "get_audit_events" => valid_audit_arguments(&arguments),
                 "get_operation" => arguments.as_object().is_some_and(|m| {
                     m.len() == 1 && m.get("operation_id").is_some_and(Value::is_string)
                 }),
@@ -94,5 +112,37 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn audit_pagination_accepts_bounded_canonical_arguments_only() {
+        for args in [
+            json!({}),
+            json!({"limit":25,"after_sequence":"0"}),
+            json!({"limit":100,"after_sequence":"18446744073709551615","cursor":"opaque_token-123"}),
+        ] {
+            let expected = args.clone();
+            let result=dispatch(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_audit_events","arguments":args}}),|name,actual| {
+                assert_eq!(name,"get_audit_events");assert_eq!(*actual,expected);
+                Ok(json!({"data":[],"next_cursor":null}))
+            }).unwrap();
+            assert_eq!(result["result"]["isError"], false);
+        }
+        for args in [
+            json!({"limit":0}),
+            json!({"limit":101}),
+            json!({"limit":1.5}),
+            json!({"after_sequence":1}),
+            json!({"after_sequence":"01"}),
+            json!({"after_sequence":"18446744073709551616"}),
+            json!({"cursor":""}),
+            json!({"cursor":"contains.dot"}),
+            json!({"cursor":"a".repeat(2049)}),
+            json!({"org_id":"other"}),
+            json!([]),
+        ] {
+            let result=dispatch(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_audit_events","arguments":args}}),|_,_|panic!("invalid arguments must not dispatch")).unwrap();
+            assert_eq!(result["error"]["code"], -32602);
+        }
     }
 }

@@ -11,13 +11,27 @@ Build the controller and static client as described in the [repository guide](..
 then start `fw_control` and open **`http://localhost:8787`**.
 
 1. Before owner enrollment, enter the private `state/bootstrap-token` into the
-   initial login screen. It is valid for ten minutes and one login.
+   initial login screen. It is valid for ten minutes and one login; successful
+   consumption removes the configured private token file before returning a
+   session.
 2. Open **Security**, name the first passkey and register it through the browser's
    authenticator prompt. User verification is required.
 3. Registration ends the setup session. Choose **Sign in with a passkey** and
    complete a signed authentication with the newly registered passkey.
 4. Add and authenticate a spare passkey from Security when needed. A registered
    key stays pending until it completes its first signed login.
+
+Wrong bootstrap tokens are limited to ten failed attempts per 60-second window;
+further wrong attempts receive HTTP 429 with `Retry-After: 60`. A correct, unused,
+unexpired console token remains usable during that cooldown, so anonymous
+failures cannot permanently lock out initial setup. This never bypasses token
+consumption, expiry or the durable owner-enrollment marker.
+
+The launcher pins the token file and its private parent. On Unix, consumption
+checks their identity, ownership, permissions and link state before removal and
+parent synchronization. A replaced or unsafe file is not deleted; cleanup failure
+returns no session and the consumed token remains invalid. These checks do not
+claim Windows ACL qualification or isolation from a compromised same-UID process.
 
 Registration requests `attestation: none`. It does not certify an authenticator's
 hardware, and a registration response alone is not treated as signed login.
