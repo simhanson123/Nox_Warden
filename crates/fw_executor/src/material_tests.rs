@@ -118,7 +118,7 @@ fn exact_material_is_atomic_durable_and_never_rebound_by_retry() {
     j.accept_execution(&grant, OP, &material, NOW).unwrap();
     drop(j);
     let mut j = ExecutorJournal::open(&path).unwrap();
-    assert_eq!(j.operation(OP).unwrap().unwrap().state, State::Prepared);
+    assert_eq!(j.operation(OP).unwrap().unwrap().state, State::NotApplied);
     assert_eq!(
         canonical_bytes(&j.execution_material(OP).unwrap().unwrap()).unwrap(),
         canonical_bytes(&material).unwrap()
@@ -136,12 +136,231 @@ fn exact_material_is_atomic_durable_and_never_rebound_by_retry() {
         Err(ExecutorError::Conflict)
     ));
     assert_eq!(j.highest_generation().unwrap(), 1);
-    j.arm_watchdog(OP, &material.content_hash().unwrap(), &h('a'))
-        .unwrap();
     assert!(matches!(
         j.mark_submitted(OP, NOW + 500),
+        Err(ExecutorError::Transition)
+    ));
+}
+
+#[test]
+fn restart_closes_unsubmitted_material_without_releasing_generation_fence() {
+    let (grant, material, _) = fixture();
+    let dir = private_test_directory();
+    let path = dir.path().join("journal");
+    let mut j = journal(&path, &grant);
+    j.accept_execution(&grant, OP, &material, NOW).unwrap();
+    j.arm_watchdog(OP, &material.content_hash().unwrap(), &h('a'))
+        .unwrap();
+    drop(j);
+    let mut j = ExecutorJournal::open(&path).unwrap();
+    let closed = j.operation(OP).unwrap().unwrap();
+    assert_eq!(closed.state, State::NotApplied);
+    assert_eq!(closed.submitted_at, None);
+    assert_eq!(closed.confirm_deadline, None);
+    assert_eq!(j.highest_generation().unwrap(), 1);
+    assert_eq!(j.current_state_hash().unwrap(), grant.baseline_hash());
+    assert!(matches!(
+        j.mark_submitted(OP, NOW + 1),
+        Err(ExecutorError::Transition)
+    ));
+    j.accept_fields(
+        &Acceptance {
+            org_id: grant.org_id(),
+            target_id: grant.target_id(),
+            epoch: 1,
+            generation: 2,
+            grant_hash: &h('d'),
+            baseline_hash: grant.baseline_hash(),
+            desired_state_hash: grant.desired_state_hash(),
+            issued_at: NOW,
+            not_after: NOW + 240,
+            confirm_not_after: NOW + 300,
+        },
+        NEXT,
+        NOW + 2,
+    )
+    .unwrap();
+    assert_eq!(j.highest_generation().unwrap(), 2);
+}
+
+#[test]
+fn restart_never_closes_corrupt_unsubmitted_material() {
+    let (grant, material, _) = fixture();
+    let dir = private_test_directory();
+    let path = dir.path().join("journal");
+    let mut j = journal(&path, &grant);
+    j.accept_execution(&grant, OP, &material, NOW).unwrap();
+    j.connection
+        .execute("UPDATE execution_material SET material_hash=?1", [h('f')])
+        .unwrap();
+    drop(j);
+    assert!(matches!(
+        ExecutorJournal::open(&path),
+        Err(ExecutorError::Binding)
+    ));
+    let raw = Connection::open(&path).unwrap();
+    let stored: String = raw
+        .query_row("SELECT state FROM operations", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(stored, "PREPARED");
+}
+
+#[cfg(unix)]
+#[test]
+fn native_child_keeps_journal_fenced_after_owner_exit() {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+    let (grant, _, _) = fixture();
+    let dir = private_test_directory();
+    let path = dir.path().join("journal");
+    let j = journal(&path, &grant);
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", "printf ready; read line"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    j.fence_native_command(&mut command).unwrap();
+    let mut child = command.spawn().unwrap();
+    let mut ready = [0; 5];
+    child.stdout.take().unwrap().read_exact(&mut ready).unwrap();
+    assert_eq!(&ready, b"ready");
+    drop(command);
+    drop(j);
+    let blocked = matches!(ExecutorJournal::open(&path), Err(ExecutorError::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock);
+    child.stdin.take().unwrap().write_all(b"done\n").unwrap();
+    assert!(child.wait().unwrap().success());
+    assert!(
+        blocked,
+        "a live native child must retain the durable operation fence"
+    );
+    assert!(ExecutorJournal::open(&path).is_ok());
+}
+
+#[test]
+fn recovery_attempts_preserve_uncertain_submission_and_immutable_material() {
+    let (grant, material, _) = fixture();
+    let dir = private_test_directory();
+    let path = dir.path().join("journal");
+    let mut j = journal(&path, &grant);
+    accept_and_submit(&mut j, &grant, &material);
+    let hash = material.content_hash().unwrap();
+    let first = j
+        .prepare_recovery_attempt(OP, &hash, &json!({"binding":"first"}), NOW + 61)
+        .unwrap();
+    j.claim_recovery(OP, 1, grant.desired_state_hash(), NOW + 61)
+        .unwrap();
+    drop(j);
+    let mut j = ExecutorJournal::open(&path).unwrap();
+    assert_eq!(j.latest_recovery_attempt(OP).unwrap().unwrap(), first);
+    let refreshed = j
+        .prepare_recovery_attempt(OP, &hash, &json!({"binding":"fresh"}), NOW + 66)
+        .unwrap();
+    assert_eq!(refreshed.sequence, first.sequence + 1);
+    j.mark_recovery_submitted(OP, refreshed.sequence, NOW + 66)
+        .unwrap();
+    drop(j);
+    let mut j = ExecutorJournal::open(&path).unwrap();
+    assert!(matches!(
+        j.prepare_recovery_attempt(
+            OP,
+            &hash,
+            &json!({"binding":"must not replace uncertainty"}),
+            NOW + 67
+        ),
+        Err(ExecutorError::Transition)
+    ));
+    assert!(j
+        .record_recovery_attempt_not_applied(
+            OP,
+            refreshed.sequence,
+            grant.baseline_hash(),
+            &h('b'),
+            NOW + 67
+        )
+        .is_err());
+    j.record_recovery_attempt_not_applied(
+        OP,
+        refreshed.sequence,
+        grant.desired_state_hash(),
+        &h('b'),
+        NOW + 67,
+    )
+    .unwrap();
+    let last = j
+        .prepare_recovery_attempt(
+            OP,
+            &hash,
+            &json!({"binding":"after actual candidate observation"}),
+            NOW + 68,
+        )
+        .unwrap();
+    assert_eq!(last.sequence, refreshed.sequence + 1);
+    assert_eq!(j.highest_generation().unwrap(), 1);
+    let original: Vec<u8> = j
+        .connection
+        .query_row(
+            "SELECT installation_bytes FROM recovery_attempts WHERE operation_id=?1 AND sequence=1",
+            [OP],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(original, canonical_bytes(&first.installation).unwrap());
+}
+
+#[test]
+fn recovery_attempts_reject_wrong_material_expiry_and_unsubmitted_completion() {
+    let (grant, material, _) = fixture();
+    let dir = private_test_directory();
+    let mut j = journal(&dir.path().join("journal"), &grant);
+    accept_and_submit(&mut j, &grant, &material);
+    let hash = material.content_hash().unwrap();
+    let installation = json!({"binding":"test"});
+    assert!(j
+        .prepare_recovery_attempt(OP, &hash, &installation, NOW + 60)
+        .is_err());
+    assert!(j
+        .prepare_recovery_attempt(OP, &h('d'), &installation, NOW + 61)
+        .is_err());
+    let attempt = j
+        .prepare_recovery_attempt(OP, &hash, &installation, NOW + 61)
+        .unwrap();
+    j.claim_recovery(OP, 1, grant.desired_state_hash(), NOW + 61)
+        .unwrap();
+    assert!(j
+        .record_recovery_completion(
+            OP,
+            1,
+            grant.desired_state_hash(),
+            &hash,
+            &digest(&material.recovery_state),
+            &h('b'),
+            NOW + 62
+        )
+        .is_err());
+    let expiry = grant.rollback_authority().valid_until_unix().unwrap();
+    assert!(matches!(
+        j.mark_recovery_submitted(OP, attempt.sequence, expiry),
         Err(ExecutorError::Expired)
     ));
+    assert!(matches!(
+        j.prepare_recovery_attempt(OP, &hash, &installation, expiry),
+        Err(ExecutorError::Expired)
+    ));
+    j.mark_recovery_submitted(OP, attempt.sequence, NOW + 62)
+        .unwrap();
+    assert_eq!(
+        j.record_recovery_completion(
+            OP,
+            1,
+            grant.desired_state_hash(),
+            &hash,
+            &digest(&material.recovery_state),
+            &h('b'),
+            NOW + 63
+        )
+        .unwrap(),
+        State::RolledBack
+    );
 }
 
 #[test]
@@ -362,9 +581,66 @@ fn actual_drift_withdraws_confirmation_and_blocks_new_generation() {
     };
     j.confirm(&envelope, &trust, NOW + 3).unwrap();
     assert_eq!(j.mark_drift(OP, NOW + 4).unwrap(), State::Unknown);
+    assert_eq!(
+        j.record_observation(OP, grant.baseline_hash(), NOW + 5)
+            .unwrap(),
+        State::Unknown
+    );
     assert_eq!(j.current_state_hash().unwrap(), grant.desired_state_hash());
     assert_eq!(j.highest_generation().unwrap(), 1);
     assert!(j.confirm(&envelope, &trust, NOW + 5).is_err());
+}
+
+#[test]
+fn observed_candidate_cannot_be_reclassified_as_unapplied_after_restart() {
+    let (grant, material, _) = fixture();
+    let dir = private_test_directory();
+    let path = dir.path().join("journal");
+    let mut j = journal(&path, &grant);
+    accept_and_submit(&mut j, &grant, &material);
+    j.record_observation(OP, grant.desired_state_hash(), NOW + 2)
+        .unwrap();
+    drop(j);
+    let mut j = ExecutorJournal::open(&path).unwrap();
+    assert_eq!(
+        j.record_observation(OP, grant.baseline_hash(), NOW + 3)
+            .unwrap(),
+        State::Unknown
+    );
+    let observed: String = j
+        .connection
+        .query_row(
+            "SELECT observed_hash FROM operations WHERE operation_id=?1",
+            [OP],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(observed, grant.desired_state_hash());
+    assert_eq!(j.current_state_hash().unwrap(), grant.baseline_hash());
+}
+
+#[test]
+fn prepared_recovery_is_prior_application_evidence_even_without_observation_row() {
+    let (grant, material, _) = fixture();
+    let dir = private_test_directory();
+    let path = dir.path().join("journal");
+    let mut j = journal(&path, &grant);
+    accept_and_submit(&mut j, &grant, &material);
+    j.prepare_recovery_attempt(
+        OP,
+        &material.content_hash().unwrap(),
+        &json!({"binding":"fresh candidate was observed"}),
+        NOW + 61,
+    )
+    .unwrap();
+    drop(j);
+    let mut j = ExecutorJournal::open(&path).unwrap();
+    assert_eq!(
+        j.record_observation(OP, grant.baseline_hash(), NOW + 62)
+            .unwrap(),
+        State::Unknown
+    );
+    assert_eq!(j.latest_recovery_attempt(OP).unwrap().unwrap().sequence, 1);
 }
 
 #[cfg(unix)]
@@ -413,7 +689,9 @@ fn version_one_migration_preserves_fencing_without_inventing_native_material() {
     let mut j = journal(&path, &grant);
     j.accept(&grant, OP, NOW).unwrap();
     j.connection
-        .execute_batch("DROP TABLE execution_material; PRAGMA user_version=1;")
+        .execute_batch(
+            "DROP TABLE recovery_attempts; DROP TABLE execution_material; PRAGMA user_version=1;",
+        )
         .unwrap();
     drop(j);
     let j = ExecutorJournal::open(&path).unwrap();
@@ -424,7 +702,7 @@ fn version_one_migration_preserves_fencing_without_inventing_native_material() {
         j.connection
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        2
+        3
     );
 }
 

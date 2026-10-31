@@ -270,7 +270,8 @@ fn prepare(path: &Path, mode: &str) -> Result<Value> {
             commit_budget_seconds: 1,
         },
     )?;
-    let confirm_cap = at + 22;
+    let confirm_cap = at + if mode == "recovery-resume" { 15 } else { 22 };
+    let dispatch_until = confirm_cap - 2;
     let recovery_until = if mode == "expired-recovery" {
         confirm_cap
     } else {
@@ -321,7 +322,7 @@ fn prepare(path: &Path, mode: &str) -> Result<Value> {
         .filter(|p| p.action == fw_domain::Action::Allow)
         .map(h)
         .collect::<Result<std::collections::BTreeSet<_>>>()?;
-    let payload = json!({"schema_version":"f.grant/v1","grant_id":id()?,"plan_id":plan_id,"plan_hash":h(&plan)?,"org_id":ORG,"project_id":PROJECT,"target_id":TARGET,"principal_id":PRINCIPAL,"approval_set_hash":h(&approval)?,"authority_epoch":"1","target_generation":"1","issued_at":iso(at),"not_after":iso(at+20),"artifact_hash":candidate.artifact_hash()?,"baseline_hash":previous.desired_state_hash,"confirm_timeout_seconds":60,"confirm_not_after":iso(confirm_cap),"rollback_authority":{"profile":"preserve-current-restrictions","scope_bound_hash":scope_hash,"baseline_hash":previous.desired_state_hash,"artifact_hash":recovery.artifact_hash()?,"valid_until":iso(recovery_until)},"change_kind":"add_access_lease","request_patch_hash":h(&json!({"synthetic_patch":state.policies}))?,"desired_state_hash":candidate.desired_state_hash,"lease_id":LEASE,"request_id":REQUEST,"workload_binding_id":id()?,"requested_policy_hashes":requested,"envelope_hash":h(&json!({"synthetic_envelope":true}))?,"delegation_hash":h(&json!({"synthetic_delegation":true}))?,"reservation":{"reservation_id":id()?,"root_id":id()?,"status":"reserved","reserved_until":iso(at+20),"projected_active_leases":1,"projected_new_leases_per_day":1,"projected_unique_destinations_per_day":1,"projected_cumulative_lease_seconds_per_day":75,"projected_concurrent_deployments":1,"window_start":iso(at-86400),"window_end":iso(at)}});
+    let payload = json!({"schema_version":"f.grant/v1","grant_id":id()?,"plan_id":plan_id,"plan_hash":h(&plan)?,"org_id":ORG,"project_id":PROJECT,"target_id":TARGET,"principal_id":PRINCIPAL,"approval_set_hash":h(&approval)?,"authority_epoch":"1","target_generation":"1","issued_at":iso(at),"not_after":iso(dispatch_until),"artifact_hash":candidate.artifact_hash()?,"baseline_hash":previous.desired_state_hash,"confirm_timeout_seconds":60,"confirm_not_after":iso(confirm_cap),"rollback_authority":{"profile":"preserve-current-restrictions","scope_bound_hash":scope_hash,"baseline_hash":previous.desired_state_hash,"artifact_hash":recovery.artifact_hash()?,"valid_until":iso(recovery_until)},"change_kind":"add_access_lease","request_patch_hash":h(&json!({"synthetic_patch":state.policies}))?,"desired_state_hash":candidate.desired_state_hash,"lease_id":LEASE,"request_id":REQUEST,"workload_binding_id":id()?,"requested_policy_hashes":requested,"envelope_hash":h(&json!({"synthetic_envelope":true}))?,"delegation_hash":h(&json!({"synthetic_delegation":true}))?,"reservation":{"reservation_id":id()?,"root_id":id()?,"status":"reserved","reserved_until":iso(dispatch_until),"projected_active_leases":1,"projected_new_leases_per_day":1,"projected_unique_destinations_per_day":1,"projected_cumulative_lease_seconds_per_day":75,"projected_concurrent_deployments":1,"window_start":iso(at-86400),"window_end":iso(at)}});
     let context = GrantContext {
         org_id: ORG.into(),
         project_id: PROJECT.into(),
@@ -474,14 +475,28 @@ fn forge(path: &Path, kind: &str, output: &Path) -> Result<Value> {
     save(output, &bundle)?;
     Ok(json!({"negative_fixture":kind,"production_authorized":false}))
 }
-fn successor(path: &Path) -> Result<Value> {
+fn successor(path: &Path, unapplied: bool) -> Result<Value> {
     guard()?;
     directory(path, false)?;
     let original: ExecutionBundle = read(&path.join("bundle.json"))?;
-    let sidecar: Value =
-        read(&path.join(format!("state/recovery-{}.json", original.operation_id)))?;
-    let previous_installation = serde_json::from_value(sidecar["installation"].clone())?;
-    let previous = original.recovery.clone();
+    let (previous, previous_installation) = if unapplied {
+        (
+            original.previous.clone(),
+            original.previous_installation.clone(),
+        )
+    } else {
+        let journal = fw_executor::ExecutorJournal::open(path.join("state/journal.sqlite3"))?;
+        let sidecar: Value =
+            if let Some(attempt) = journal.latest_recovery_attempt(&original.operation_id)? {
+                attempt.installation
+            } else {
+                read(&path.join(format!("state/recovery-{}.json", original.operation_id)))?
+            };
+        (
+            original.recovery.clone(),
+            serde_json::from_value(sidecar["installation"].clone())?,
+        )
+    };
     let at = now();
     let expiry = at + 35;
     let lease_id = id()?;
@@ -599,9 +614,10 @@ fn successor(path: &Path) -> Result<Value> {
 fn run() -> Result<Value> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
-        [command, path, mode] if command == "prepare" && ["confirmed", "crash", "timeout", "expired-recovery"].contains(&mode.as_str()) => prepare(Path::new(path), mode),
+        [command, path, mode] if command == "prepare" && ["confirmed", "crash", "timeout", "expired-recovery", "recovery-resume"].contains(&mode.as_str()) => prepare(Path::new(path), mode),
         [command, path, probe, output] if command == "confirm" || command == "confirm-next" => confirmation(Path::new(path), Path::new(probe), Path::new(output), if command == "confirm-next" { "bundle-next.json" } else { "bundle.json" }),
-        [command, path] if command == "successor" => successor(Path::new(path)),
+        [command, path] if command == "successor" => successor(Path::new(path), false),
+        [command, path] if command == "successor-unapplied" => successor(Path::new(path), true),
         [command, path, kind, output] if command == "forge" => forge(Path::new(path), kind, Path::new(output)),
         _ => Err("usage: fw_signed_lab_fixture prepare DIR MODE; confirm|confirm-next DIR PROBE OUTPUT; successor DIR; forge DIR KIND OUTPUT".into())
     }

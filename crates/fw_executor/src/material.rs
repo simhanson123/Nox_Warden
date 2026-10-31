@@ -158,7 +158,8 @@ pub(crate) fn read_material(
                         return Err(ExecutorError::Binding);
                     }
                 }
-                None if operation.confirm_deadline.is_none() && operation.state == State::Prepared => {}
+                None if operation.confirm_deadline.is_none()
+                    && matches!(operation.state, State::Prepared | State::NotApplied) => {}
                 _ => return Err(ExecutorError::Binding),
             }
             Ok((material, expected))
@@ -370,6 +371,15 @@ impl ExecutorJournal {
             return Err(ExecutorError::Binding);
         }
         if operation.state != State::RecoveryClaimed {
+            return Err(ExecutorError::Transition);
+        }
+        if super::recovery::latest(&tx, id)?.is_some_and(|attempt| {
+            attempt.submitted_at.is_none()
+                || attempt.not_applied_at.is_some()
+                || attempt
+                    .submitted_at
+                    .is_some_and(|submitted| now < submitted)
+        }) {
             return Err(ExecutorError::Transition);
         }
         if now
