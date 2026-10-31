@@ -651,7 +651,8 @@ async fn collections_over_one_hundred_rows_have_scoped_stable_continuations() {
         let (status, _, first) = get(&app, &format!("/api/v1/{route}"), &cookie, &csrf).await;
         assert_eq!(status, StatusCode::OK, "{first}");
         assert_eq!(first["data"].as_array().unwrap().len(), 50);
-        let (status, _, max) = get(&app, &format!("/api/v1/{route}?limit=100"), &cookie, &csrf).await;
+        let (status, _, max) =
+            get(&app, &format!("/api/v1/{route}?limit=100"), &cookie, &csrf).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(max["data"].as_array().unwrap().len(), 100);
         let mut rows = first["data"].as_array().unwrap().clone();
@@ -667,7 +668,13 @@ async fn collections_over_one_hundred_rows_have_scoped_stable_continuations() {
         }
         assert_eq!(rows.len(), 105);
     }
-    let (_, _, first) = get(&app, "/api/v1/assets?limit=25&eligible=true", &cookie, &csrf).await;
+    let (_, _, first) = get(
+        &app,
+        "/api/v1/assets?limit=25&eligible=true",
+        &cookie,
+        &csrf,
+    )
+    .await;
     let cursor = first["next_cursor"].as_str().unwrap();
     for path in [
         format!("/api/v1/services?cursor={cursor}"),
@@ -705,7 +712,13 @@ async fn collections_over_one_hundred_rows_have_scoped_stable_continuations() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (status, _, next) = get(&app, &format!("/api/v1/assets?cursor={cursor}"), &cookie, &csrf).await;
+    let (status, _, next) = get(
+        &app,
+        &format!("/api/v1/assets?cursor={cursor}"),
+        &cookie,
+        &csrf,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(next["revision"], first["revision"]);
     assert!(
@@ -719,7 +732,8 @@ async fn collections_over_one_hundred_rows_have_scoped_stable_continuations() {
         get(
             &app,
             &format!("/api/v1/assets?cursor={cursor}"),
-            "session=invalid"
+            "session=invalid",
+            &csrf,
         )
         .await
         .0,
@@ -782,7 +796,13 @@ async fn eligible_target_pages_skip_revoked_and_expired_reports_and_keep_continu
         .unwrap();
     let (app, target) = app(store);
     let (cookie, csrf) = login(&app).await;
-    let (status, _, first) = get(&app, "/api/v1/targets?limit=1&eligible=true", &cookie, &csrf).await;
+    let (status, _, first) = get(
+        &app,
+        "/api/v1/targets?limit=1&eligible=true",
+        &cookie,
+        &csrf,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{first}");
     assert!(first["data"].as_array().unwrap().is_empty());
     assert!(
@@ -795,7 +815,8 @@ async fn eligible_target_pages_skip_revoked_and_expired_reports_and_keep_continu
     while let Some(c) = cursor {
         pages += 1;
         assert!(pages <= 3);
-        let (status, _, page) = get(&app, &format!("/api/v1/targets?cursor={c}"), &cookie, &csrf).await;
+        let (status, _, page) =
+            get(&app, &format!("/api/v1/targets?cursor={c}"), &cookie, &csrf).await;
         assert_eq!(status, StatusCode::OK, "{page}");
         rows.extend(page["data"].as_array().unwrap().clone());
         cursor = page["next_cursor"].as_str().map(str::to_owned);

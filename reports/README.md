@@ -3,7 +3,7 @@
 This directory tracks the concise status summary, [task ledger](task-ledger.json)
 and [specification provenance](spec-import.json). Generated reports, logs and
 screenshots are ignored by Git. CI retains selected HTTP, CLI, enrollment, Linux
-packet, signed-execution, passkey and audit reports as downloadable artifacts for
+packet, signed-execution, passkey, audit and catalogue reports as downloadable artifacts for
 seven days; logs and check status remain attached to [GitHub Actions runs](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 Keep tests and reproduction commands in source control. The supplied specification
 and its bundled fixtures remain unchanged under `docs/specs`.
@@ -21,6 +21,7 @@ python scripts/check_vendor.py
 cargo build -p fw_control -p fw_cli -p fw_agent --locked
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
+python scripts/smoke_catalogue_navigation.py --controller-binary target/debug/fw_control
 python crates/fw_cli/tests/smoke_login.py
 # Browser prerequisites: docs/passkey-login.md
 python scripts/smoke_passkeys.py
@@ -31,12 +32,13 @@ python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **414 Rust tests, 43 UI tests, 27 specification
-checks, 52 core and 28 extended contract fixtures, and nine Linux runner
-regressions**. Formatting, Clippy, frontend types, the production build and parity
-across eight locale catalogues with 213 keys also pass.
+The full repository check passes: **431 workspace Rust tests, 23 authority tests
+without default features, 54 UI tests, 27 specification checks, 52 core and 28
+extended contract fixtures, and nine Linux runner regressions**. Formatting,
+Clippy, frontend types, the production build and parity across eight locale
+catalogues with 229 keys also pass.
 
-The real-controller HTTP and CLI smokes pass **24 and 11 checks**, respectively;
+The real-controller HTTP and CLI smokes pass **24 and 13 checks**, respectively;
 the separate CLI protocol fixture passes **five checks**. The TLS enrollment
 smoke with Chromium passes **25 checks**, including original contract validation,
 live target selection and persisted service creation. Its nonbrowser CI subset
@@ -143,23 +145,29 @@ artifacts, rather than a continuing development diary.
 
 ## Catalogue continuation and target selection
 
-The controller's six catalogue/request/target collections now use stable,
-15-minute authenticated snapshot cursors with default 50 / maximum 100 rows and
-byte-limited continuation. Migration 6 backfills verified projections atomically
-and retains only the live cursor window plus each resource's predecessor.
-Service target writes and selector reads share current certificate/report checks;
-capability refresh now commits a distinct monotonic outbox event, while exact
-retries create none. See the [contract and reproduction steps](../docs/catalogue-pagination.md).
+Six collections use authenticated 15-minute snapshot cursors, default 50 / maximum
+100 rows and byte-limited continuation. Migration 6 atomically backfills verified
+projections and retains the live cursor window plus each resource's predecessor.
+Service writes and selectors share current certificate/report checks. Report
+renewal commits a distinct monotonic outbox revision; exact retries create none.
+CLI list commands accept bounded `--limit` and `--cursor` options.
 
-`cargo test --locked --offline -p fw_store -p fw_control -p fw_cli` passed **150 tests**;
-`cargo clippy --locked --offline -p fw_store -p fw_control -p fw_cli --all-targets -- -D warnings`
-and the real controller `python scripts/smoke_control.py` **24 checks** passed.
-The actual CLI `python scripts/smoke_cli.py` passed **13 checks**, including
-three-page traversal and rejection of malformed options before credential reads
-or HTTP.
-These cover pagination beyond 100 rows, byte boundaries, scoped/tampered cursors,
-current selector filtering, migration/clock rollback and concurrent report
-renewal. These are repository/API checks, not native firewall qualification.
+The UI supports true previous/next navigation and 25/50/100-row selection;
+refresh, retry and writes reset the cursor. Eligible pickers traverse reported
+pages, preserve and revalidate selections, and continue after empty pages.
+Target tables show actual backend and observation fields. See the
+[API/storage contract](../docs/catalogue-pagination.md) and
+[browser navigation guide](../docs/catalogue-navigation.md).
+
+The full checks above include more-than-100-row traversal, byte limits, tampered
+and mismatched cursors, current eligibility, migration/clock rollback, projection
+integrity and concurrent report renewal. The real CLI smoke passes 13 checks,
+including three-page traversal and rejection of malformed options before
+credential reads or HTTP. Real Chromium catalogue navigation passes 11 checks
+against 65 manual assets, including all pages, previous-page identity, page size,
+refresh, write reset and picker continuation. CI runs this browser test after
+installing pinned browser tooling and retains `reports/catalogue-browser.json`
+for seven days. These checks do not qualify native firewall enforcement.
 
 ## Release boundary
 
@@ -176,24 +184,3 @@ signer/watchdog integration, signed installers and release acceptance remain
 incomplete. See the [implementation overview](../docs/implementation.md),
 [device workflow](../docs/device-enrollment.md) and
 [platform status](../docs/platform-support.md).
-
-## Catalogue browser navigation
-
-The controller UI follows server snapshot cursors with true previous/next and
-25/50/100-row selection. Refresh, retry and mutations discard old cursors.
-Eligible pickers traverse all reported pages, including empty pages, preserve
-selections and offer explicit choice refresh; unloaded or ineligible selections
-block submission. Target tables use actual backend and observation fields.
-See the [navigation guide](../docs/catalogue-navigation.md) for the behavior,
-backend boundary and reproducible browser command.
-
-Verification for this UI slice: `cd web && npm test -- --run --maxWorkers=2
---testTimeout=30000` passes **54 tests**, including 11 new navigation/picker
-behavior checks. `npm run check` and `npm run build` pass; all eight locale
-catalogues have 229 keys with matching placeholders. The real-controller
-Chromium command in the guide passes **11 checks** with 65 seeded manual assets,
-including all three pages, previous-page identity, 50-row selection, refresh,
-post-save cursor reset, picker continuation and explicit picker refresh. Unit
-network/browser doubles are distinct from this actual HTTP/browser integration;
-neither qualifies native firewall enforcement. The generated report stays local
-at `reports/catalogue-browser.json`.
