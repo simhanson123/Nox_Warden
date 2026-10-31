@@ -31,10 +31,14 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   durable executor journals, audit verification and opt-in telemetry state.
 - Typed plan/bootstrap challenges and real WebAuthn verification of assertions
   bound to their immutable context. A separate [authority store](docs/authority-store.md)
-  durably admits plan decisions with current credential/role checks, original
-  proof retention and one-use challenge consumption. Trusted provisioning, an
-  isolated authority/signing service and the human review HTTP/UI workflow still
-  require integration; local login does not approve a policy.
+  atomically records decisions, current credential/role checks, original proofs
+  and immutable approval sets requiring independent human reviewers.
+- A separate [policy review service and screen](docs/authority-review-ui.md)
+  authenticate pinned authority passkeys, show verified before/after policy
+  evidence and collect fresh signed approval or rejection. Historical receipts
+  remain separate from current quorum, revocation and expiry checks. Production
+  authority bootstrap, protected OS deployment and signer integration remain
+  incomplete; controller login does not approve a policy.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.
 - Isolated Linux nftables suites for packet semantics and signed execution. The

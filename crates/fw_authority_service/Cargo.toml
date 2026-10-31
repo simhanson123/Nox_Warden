@@ -1,0 +1,28 @@
+[package]
+name = "fw_authority_service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = "0.8.8"
+hyper = { version = "1.8", features = ["server", "http1"] }
+hyper-util = { version = "0.1.19", features = ["tokio", "service"] }
+tokio = { version = "1.48.0", features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+fw_planner = { path = "../fw_planner" }
+fw_authority = { path = "../fw_authority" }
+fw_contracts = { path = "../fw_contracts" }
+fw_webauthn = { path = "../fw_webauthn" }
+openssl = "=0.10.81"
+base64 = "=0.22.1"
+subtle = "2.6.1"
+
+[dev-dependencies]
+rusqlite.workspace = true
+serde_cbor_2 = "=0.13.0"
+sha2.workspace = true
+tempfile = "3.23"

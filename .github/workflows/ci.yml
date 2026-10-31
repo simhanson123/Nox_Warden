@@ -43,6 +43,10 @@ jobs:
         run: python scripts/smoke_login_admission.py
       - name: Audit pagination and failed-login abuse resistance
         run: python scripts/smoke_audit.py
+      - name: Independent policy review and signed decisions
+        run: |
+          cargo build -p fw_authority_service --bins --examples --locked
+          python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
       - name: Isolated Linux packet regression
         run: python scripts/linux-lab.py --report reports/linux-lab.json
       - name: Signed Linux execution and crash recovery
@@ -62,6 +66,7 @@ jobs:
             reports/signed-linux-lab.json
             reports/passkey-smoke.json
             reports/login-admission-smoke.json
+            reports/authority-browser.json
             reports/audit-smoke.json
           retention-days: 7
           if-no-files-found: ignore

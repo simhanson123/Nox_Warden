@@ -15,3 +15,5 @@ __pycache__/
 !/reports/README.md
 !/reports/task-ledger.json
 !/reports/spec-import.json
+
+/web/dist-authority/

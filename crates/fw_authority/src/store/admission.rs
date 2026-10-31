@@ -31,6 +31,7 @@ impl AuthorityStore {
         let membership = records::current_role(&tx, tenant, principal, role, now)?;
         let subject = records::plan(&tx, tenant, plan_id, now)?;
         let context = records::context(tenant, principal, &subject, role, decision)?;
+        sets::check_author_alias(&tx, tenant, &subject, principal, now)?;
         let outstanding: i64 = tx.query_row("SELECT count(*) FROM authority_challenges WHERE org_id=? AND project_id=? AND principal_id=?
             AND consumed_at IS NULL AND expires_at>?",params![tenant.org_id,tenant.project_id,principal,now],|r|r.get(0))?;
         if outstanding >= MAX_OUTSTANDING {
@@ -75,7 +76,8 @@ impl AuthorityStore {
 
     /// Verify and atomically retain one human decision. This method performs no
     /// external calls under its IMMEDIATE transaction: only bounded local proof
-    /// verification and SQLite writes. It creates no quorum, grant or outbox.
+    /// verification and SQLite writes, including current quorum aggregation.
+    /// It creates no execution grant or dispatch outbox entry.
     #[allow(clippy::too_many_arguments)]
     pub fn admit_decision(
         &mut self,
@@ -115,12 +117,14 @@ impl AuthorityStore {
             }
             // A replay acknowledges history even if it is no longer eligible.
             // No timestamp, state, counter or audit record is renewed here.
+            let aggregation = sets::retained_result(&tx, tenant, &previous.id)?;
             tx.commit()?;
             return Ok(DecisionResult {
                 decision: serde_json::from_value(previous.approval["decision"].clone())
                     .map_err(|_| invalid("stored decision kind"))?,
                 approval: previous.approval,
                 replayed: true,
+                aggregation,
             });
         }
         let challenge = records::challenge(&tx, tenant, challenge_id)?;
@@ -145,6 +149,7 @@ impl AuthorityStore {
             challenge.challenge.role(),
             challenge.challenge.decision(),
         )?;
+        sets::check_author_alias(&tx, tenant, &subject, principal, now)?;
         let credential = records::credential(&tx, tenant, &challenge.credential_id)?;
         credential.require(principal, "active", now)?;
         let membership = records::role(&tx, tenant, &challenge.membership_id)?;
@@ -233,12 +238,15 @@ impl AuthorityStore {
             idempotency_key,request_hash,evidence_hash,content_hash,created_at,expires_at,canonical_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             params![tenant.org_id,tenant.project_id,approval_id,principal,challenge_id,subject.plan_id,credential.id,membership.id,
                 decision_name(challenge.challenge.decision()),idempotency_key,request_hash,hash(&evidence_hash)?,hash(&hash_bytes(&canonical))?,now,expires_at,canonical])?;
+        let aggregation = sets::aggregate(&tx, tenant, &subject.plan_id, verifier, now)?;
+        sets::persist_result(&tx, tenant, &approval_id, &aggregation)?;
         audit(&tx, tenant, "approval_decision_recorded", &approval_id, now)?;
         tx.commit()?;
         Ok(DecisionResult {
             decision: challenge.challenge.decision(),
             approval,
             replayed: false,
+            aggregation,
         })
     }
 
@@ -253,136 +261,12 @@ impl AuthorityStore {
         verifier: &WebAuthn,
         now: i64,
     ) -> Result<RetainedDecision> {
-        identifier(approval_id)?;
-        time(now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Deferred)?;
-        let decision = records::decision(&tx, tenant, approval_id)?;
-        if now < decision.created_at || now >= decision.expires_at {
-            return Err(AuthorityError::Time);
-        }
-        let challenge = records::challenge(&tx, tenant, &decision.challenge_id)?;
-        if challenge.consumed_at != Some(decision.created_at)
-            || challenge.credential_id != decision.credential_id
-            || challenge.membership_id != decision.membership_id
-            || challenge.challenge.principal_id() != decision.principal_id
-        {
-            return Err(invalid("retained decision consumption"));
-        }
-        let subject = records::plan(&tx, tenant, &decision.plan_id, now)?;
-        let context = records::context(
-            tenant,
-            &decision.principal_id,
-            &subject,
-            challenge.challenge.role(),
-            challenge.challenge.decision(),
-        )?;
-        let current_credential = records::credential(&tx, tenant, &decision.credential_id)?;
-        current_credential.require(&decision.principal_id, "active", now)?;
-        let current_role = records::role(&tx, tenant, &decision.membership_id)?;
-        current_role.require(&decision.principal_id, challenge.challenge.role(), now)?;
-        let evidence = tx.query_row("SELECT challenge_id,credential_id,membership_id,pre_credential_bytes,post_credential_bytes,assertion_bytes,
-            proof_state_bytes,credential_registry_bytes,role_membership_bytes,admitted_at,canonical_bytes FROM authority_evidence
-            WHERE org_id=? AND project_id=? AND evidence_hash=?",params![tenant.org_id,tenant.project_id,decision.evidence_hash],|r|Ok((
-            r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Vec<u8>>(3)?,r.get::<_,Vec<u8>>(4)?,r.get::<_,Vec<u8>>(5)?,
-            r.get::<_,Vec<u8>>(6)?,r.get::<_,Vec<u8>>(7)?,r.get::<_,Vec<u8>>(8)?,r.get::<_,i64>(9)?,r.get::<_,Vec<u8>>(10)?)))
-            .optional()?.ok_or(AuthorityError::Binding)?;
-        if evidence.0 != decision.challenge_id
-            || evidence.1 != decision.credential_id
-            || evidence.2 != decision.membership_id
-            || evidence.3 != challenge.credential_bytes
-            || evidence.6 != challenge.state_bytes
-            || evidence.9 != decision.created_at
-            || hash(&hash_bytes(&evidence.10))? != decision.evidence_hash
-        {
-            return Err(invalid("retained evidence projection"));
-        }
-        let before: Credential = decode(&evidence.3)?;
-        let after: Credential = decode(&evidence.4)?;
-        let assertion: AuthenticationResponse = decode(&evidence.5)?;
-        if hash(
-            &canonical_hash(&json!({"challenge_id":decision.challenge_id,"assertion":assertion}))
-                .map_err(|_| invalid("retained approval request"))?,
-        )? != decision.request_hash
-        {
-            return Err(invalid("retained approval request hash"));
-        }
-        let registry: Value = decode(&evidence.7)?;
-        let role_snapshot: Value = decode(&evidence.8)?;
-        let canonical: Value = decode(&evidence.10)?;
-        if canonical
-            != evidence_value(
-                &challenge,
-                &before,
-                &after,
-                &assertion,
-                &registry,
-                &role_snapshot,
-                decision.created_at,
-            )?
-        {
-            return Err(invalid("retained evidence canonical projection"));
-        }
-        if before
-            .key_fingerprint()
-            .map_err(|_| invalid("retained credential key"))?
-            != current_credential.fingerprint
-            || after
-                .key_fingerprint()
-                .map_err(|_| invalid("retained result key"))?
-                != current_credential.fingerprint
-            || current_credential.revision <= challenge.credential_revision
-            || current_role.revision != challenge.role_revision
-        {
-            return Err(AuthorityError::Binding);
-        }
-        let mut expected_registry = current_credential.snapshot(tenant)?;
-        expected_registry["revision"] = json!(challenge.credential_revision);
-        expected_registry["credential"] =
-            serde_json::to_value(&before).map_err(|_| invalid("retained credential snapshot"))?;
-        if registry != expected_registry || role_snapshot != current_role.snapshot(tenant)? {
-            return Err(AuthorityError::Binding);
-        }
-        let expected_expiry = (decision.created_at + subject.max_approval_age_seconds)
-            .min(subject.valid_until)
-            .min(current_credential.not_after)
-            .min(current_role.not_after);
-        if decision.expires_at != expected_expiry {
-            return Err(AuthorityError::Binding);
-        }
-        let expected_approval = approval_value(
-            &tx,
-            tenant,
-            &decision.id,
-            &challenge.challenge,
-            &registry,
-            &role_snapshot,
-            &hash_string(&decision.evidence_hash)?,
-            evidence.10.len(),
-            decision.created_at,
-            decision.expires_at,
-        )?;
-        if decision.approval != expected_approval {
-            return Err(invalid("retained approval projection"));
-        }
-        let verified = finish_approval_proof(
-            verifier,
-            &challenge.state,
-            &challenge.challenge,
-            &context,
-            &assertion,
-            &before,
-            decision.created_at,
-        )?;
-        if bytes(verified.updated_credential())? != evidence.4 {
-            return Err(AuthorityError::Binding);
-        }
+        let verified = verify_retained_in_tx(&tx, tenant, approval_id, verifier, now)?;
         tx.commit()?;
-        Ok(RetainedDecision {
-            decision: challenge.challenge.decision(),
-            approval: decision.approval,
-        })
+        Ok(verified)
     }
 }
 
@@ -425,4 +309,146 @@ fn approval_value(
         "media_type":"application/json","size_bytes":size},"credential_registry_hash":canonical_hash(registry).map_err(|_|invalid("registry snapshot hash"))?,
         "role_membership_hash":canonical_hash(membership).map_err(|_|invalid("role snapshot hash"))?,"created_at":at(now)?,"expires_at":at(expiry)?}),
     )
+}
+
+// Shared by inspection and T4 aggregation. The write caller retains its existing
+// transaction and current registry snapshot through set insertion and commit.
+pub(super) fn verify_retained_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    approval_id: &str,
+    verifier: &WebAuthn,
+    now: i64,
+) -> Result<RetainedDecision> {
+    identifier(approval_id)?;
+    time(now)?;
+    let decision = records::decision(tx, tenant, approval_id)?;
+    let revoked:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_decision_revocations WHERE org_id=? AND project_id=? AND approval_id=?)",
+        params![tenant.org_id,tenant.project_id,approval_id],|r|r.get(0))?;
+    if revoked {
+        return Err(AuthorityError::Binding);
+    }
+    if now < decision.created_at || now >= decision.expires_at {
+        return Err(AuthorityError::Time);
+    }
+    let challenge = records::challenge(tx, tenant, &decision.challenge_id)?;
+    if challenge.consumed_at != Some(decision.created_at)
+        || challenge.credential_id != decision.credential_id
+        || challenge.membership_id != decision.membership_id
+        || challenge.challenge.principal_id() != decision.principal_id
+    {
+        return Err(invalid("retained decision consumption"));
+    }
+    let subject = records::plan(tx, tenant, &decision.plan_id, now)?;
+    let context = records::context(
+        tenant,
+        &decision.principal_id,
+        &subject,
+        challenge.challenge.role(),
+        challenge.challenge.decision(),
+    )?;
+    let current_credential = records::credential(tx, tenant, &decision.credential_id)?;
+    current_credential.require(&decision.principal_id, "active", now)?;
+    let current_role = records::role(tx, tenant, &decision.membership_id)?;
+    current_role.require(&decision.principal_id, challenge.challenge.role(), now)?;
+    let evidence = tx.query_row("SELECT challenge_id,credential_id,membership_id,pre_credential_bytes,post_credential_bytes,assertion_bytes,
+        proof_state_bytes,credential_registry_bytes,role_membership_bytes,admitted_at,canonical_bytes FROM authority_evidence
+        WHERE org_id=? AND project_id=? AND evidence_hash=?",params![tenant.org_id,tenant.project_id,decision.evidence_hash],|r|Ok((
+        r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Vec<u8>>(3)?,r.get::<_,Vec<u8>>(4)?,r.get::<_,Vec<u8>>(5)?,
+        r.get::<_,Vec<u8>>(6)?,r.get::<_,Vec<u8>>(7)?,r.get::<_,Vec<u8>>(8)?,r.get::<_,i64>(9)?,r.get::<_,Vec<u8>>(10)?)))
+        .optional()?.ok_or(AuthorityError::Binding)?;
+    if evidence.0 != decision.challenge_id
+        || evidence.1 != decision.credential_id
+        || evidence.2 != decision.membership_id
+        || evidence.3 != challenge.credential_bytes
+        || evidence.6 != challenge.state_bytes
+        || evidence.9 != decision.created_at
+        || hash(&hash_bytes(&evidence.10))? != decision.evidence_hash
+    {
+        return Err(invalid("retained evidence projection"));
+    }
+    let before: Credential = decode(&evidence.3)?;
+    let after: Credential = decode(&evidence.4)?;
+    let assertion: AuthenticationResponse = decode(&evidence.5)?;
+    if hash(
+        &canonical_hash(&json!({"challenge_id":decision.challenge_id,"assertion":assertion}))
+            .map_err(|_| invalid("retained approval request"))?,
+    )? != decision.request_hash
+    {
+        return Err(invalid("retained approval request hash"));
+    }
+    let registry: Value = decode(&evidence.7)?;
+    let role_snapshot: Value = decode(&evidence.8)?;
+    let canonical: Value = decode(&evidence.10)?;
+    if canonical
+        != evidence_value(
+            &challenge,
+            &before,
+            &after,
+            &assertion,
+            &registry,
+            &role_snapshot,
+            decision.created_at,
+        )?
+    {
+        return Err(invalid("retained evidence canonical projection"));
+    }
+    if before
+        .key_fingerprint()
+        .map_err(|_| invalid("retained credential key"))?
+        != current_credential.fingerprint
+        || after
+            .key_fingerprint()
+            .map_err(|_| invalid("retained result key"))?
+            != current_credential.fingerprint
+        || current_credential.revision <= challenge.credential_revision
+        || current_role.revision != challenge.role_revision
+    {
+        return Err(AuthorityError::Binding);
+    }
+    let mut expected_registry = current_credential.snapshot(tenant)?;
+    expected_registry["revision"] = json!(challenge.credential_revision);
+    expected_registry["credential"] =
+        serde_json::to_value(&before).map_err(|_| invalid("retained credential snapshot"))?;
+    if registry != expected_registry || role_snapshot != current_role.snapshot(tenant)? {
+        return Err(AuthorityError::Binding);
+    }
+    let expected_expiry = (decision.created_at + subject.max_approval_age_seconds)
+        .min(subject.valid_until)
+        .min(current_credential.not_after)
+        .min(current_role.not_after);
+    if decision.expires_at != expected_expiry {
+        return Err(AuthorityError::Binding);
+    }
+    let expected_approval = approval_value(
+        tx,
+        tenant,
+        &decision.id,
+        &challenge.challenge,
+        &registry,
+        &role_snapshot,
+        &hash_string(&decision.evidence_hash)?,
+        evidence.10.len(),
+        decision.created_at,
+        decision.expires_at,
+    )?;
+    if decision.approval != expected_approval {
+        return Err(invalid("retained approval projection"));
+    }
+    let verified = finish_approval_proof(
+        verifier,
+        &challenge.state,
+        &challenge.challenge,
+        &context,
+        &assertion,
+        &before,
+        decision.created_at,
+    )?;
+    if bytes(verified.updated_credential())? != evidence.4 {
+        return Err(AuthorityError::Binding);
+    }
+    Ok(RetainedDecision {
+        decision: challenge.challenge.decision(),
+        approval: decision.approval,
+    })
 }

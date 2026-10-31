@@ -585,6 +585,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "fw_authority_service"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "fw_authority",
+ "fw_contracts",
+ "fw_planner",
+ "fw_webauthn",
+ "hyper",
+ "hyper-util",
+ "openssl",
+ "rusqlite",
+ "serde",
+ "serde_cbor_2",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "fw_backend_linux"
 version = "0.1.0"
 dependencies = [
