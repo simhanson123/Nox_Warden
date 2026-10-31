@@ -8,7 +8,9 @@ firewall enforcement, independent OS deployment or release qualification.
 Private fixture material stays in a temporary directory and is never reported.
 """
 import argparse
+import copy
 from contextlib import ExitStack
+from datetime import datetime
 import json
 from pathlib import Path
 import shutil
@@ -17,6 +19,8 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+
+import jsonschema
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'http://localhost:8790'
@@ -30,6 +34,92 @@ def check(report, label, condition):
     report['checks'].append({'name': label, 'passed': bool(condition)})
     if not condition:
         raise CheckFailed(label)
+
+
+def require_canonical_time_patterns(root, selected):
+    """Keep our dependency-free format checker confined to these exact contracts."""
+    pattern = r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    visited = set()
+
+    def visit(schema):
+        if isinstance(schema, dict):
+            if schema.get('format') == 'date-time' and schema.get('pattern') != pattern:
+                raise CheckFailed('selected preserved contracts retain canonical UTC whole-second timestamps')
+            reference = schema.get('$ref')
+            if reference and reference not in visited:
+                if not reference.startswith('#/'):
+                    raise CheckFailed('selected preserved authority contract references are local')
+                visited.add(reference)
+                target = root
+                for segment in reference[2:].split('/'):
+                    target = target[segment.replace('~1', '/').replace('~0', '~')]
+                visit(target)
+            for value in schema.values():
+                visit(value)
+        elif isinstance(schema, list):
+            for value in schema:
+                visit(value)
+
+    visit(selected)
+
+
+def contract_validators():
+    """Use preserved definitions verbatim; validate embedded wire objects only."""
+    api = json.loads((ROOT / 'docs/specs/F_OpenAPI.json').read_text())
+    extended = json.loads((ROOT / 'docs/specs/F_확장계약_스키마.json').read_text())
+    # Base jsonschema intentionally omits the optional date-time dependency.
+    # These preserved contracts already require this exact UTC representation;
+    # parsing also rejects impossible dates instead of silently ignoring format.
+    formats = jsonschema.FormatChecker()
+
+    @formats.checks('date-time', raises=ValueError)
+    def canonical_utc_time(value):
+        if isinstance(value, str):
+            datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ')
+        return True
+
+    definitions = {}
+    for name in ('PolicyChangePlan', 'ApprovalRequirements', 'HumanApproval', 'ApprovalSet'):
+        require_canonical_time_patterns(api, api['components']['schemas'][name])
+        require_canonical_time_patterns(extended, extended['$defs'][name])
+        definitions[name] = (
+            jsonschema.Draft202012Validator(
+                {'$ref': '#/components/schemas/' + name, 'components': api['components']},
+                format_checker=formats),
+            jsonschema.Draft202012Validator(
+                {'$ref': '#/$defs/' + name, '$defs': extended['$defs']},
+                format_checker=formats),
+        )
+    return definitions
+
+
+def matches_contract(validators, name, value):
+    return all(validator.is_valid(value) for validator in validators[name])
+
+
+def contract_negative_controls(report, validators, emitted):
+    # Mutate copies of actual HTTP output. Never substitute canned fixture JSON
+    # for the positive serializer check, and never emit object/exception contents.
+    unknown_fields_rejected = True
+    for name, value in emitted.items():
+        changed = copy.deepcopy(value)
+        changed['unexpected_contract_field'] = True
+        unknown_fields_rejected &= all(not validator.is_valid(changed) for validator in validators[name])
+    check(report, 'both preserved schemas reject unknown fields on every emitted authority object',
+          unknown_fields_rejected)
+
+    formats_rejected = True
+    for field, invalid in (('approval_id', 'not-a-uuid'), ('created_at', '2030-02-30T12:00:00Z')):
+        changed = copy.deepcopy(emitted['HumanApproval'])
+        changed[field] = invalid
+        formats_rejected &= all(not validator.is_valid(changed) for validator in validators['HumanApproval'])
+    check(report, 'both preserved schemas reject malformed approval UUID and invalid calendar timestamp',
+          formats_rejected)
+
+    changed = copy.deepcopy(emitted['ApprovalSet'])
+    changed['approvals'][0]['decision'] = 'reject'
+    check(report, 'both preserved approval-set schemas reject a substituted rejection member',
+          all(not validator.is_valid(changed) for validator in validators['ApprovalSet']))
 
 
 def stop(process):
@@ -58,6 +148,7 @@ def wait_ready(process):
 
 def run(args, report):
     from playwright.sync_api import sync_playwright, expect
+    validators = contract_validators()
     with tempfile.TemporaryDirectory(prefix='fw-authority-browser-') as temporary, ExitStack() as cleanup:
         state = Path(temporary) / 'private'
         provision = subprocess.run([str(args.fixture_binary), str(state), str(args.ui_directory)],
@@ -103,13 +194,25 @@ def run(args, report):
                     page.get_by_role('button', name='Sign in to authority', exact=True).click()
                     expect(page.get_by_role('button', name=fixture['plan_id'], exact=True)).to_be_visible()
 
+                def read_detail(plan_id, action):
+                    with page.expect_response(lambda response: response.request.method == 'GET'
+                                              and response.url == ORIGIN + '/authority/v1/plans/' + plan_id) as received:
+                        action()
+                    if received.value.status != 200:
+                        raise CheckFailed('authenticated detail response succeeds before contract validation')
+                    return received.value.json()
+
                 def review(plan_id):
-                    page.get_by_role('button', name=plan_id, exact=True).click()
+                    detail = read_detail(plan_id, lambda: page.get_by_role('button', name=plan_id, exact=True).click())
                     expect(page.get_by_role('heading', name='Review immutable plan')).to_be_visible()
+                    return detail
 
                 login()
                 check(report, 'pinned authority credential signs in through browser WebAuthn', True)
-                review(fixture['plan_id'])
+                detail = review(fixture['plan_id'])
+                check(report, 'actual policy-change plan and requirements conform to both preserved schemas',
+                      matches_contract(validators, 'PolicyChangePlan', detail['plan'])
+                      and matches_contract(validators, 'ApprovalRequirements', detail['requirements']))
                 expect(page.get_by_role('region', name='Before', exact=True)).to_be_visible()
                 expect(page.get_by_role('region', name='After', exact=True)).to_be_visible()
                 expect(page.get_by_role('region', name='Current authority status', exact=True)).to_contain_text('Awaiting independent approvals')
@@ -123,7 +226,13 @@ def run(args, report):
                 check(report, 'keyboard navigation reaches explicit decision consent', True)
                 page.get_by_label('Decision role', exact=True).select_option('owner')
                 page.get_by_role('checkbox').check()
-                page.get_by_role('button', name='Approve plan', exact=True).click()
+                with page.expect_response(lambda response: response.request.method == 'POST'
+                                          and response.url == ORIGIN + '/authority/v1/approvals/assertions') as admitted:
+                    page.get_by_role('button', name='Approve plan', exact=True).click()
+                approval = admitted.value.json()['approval']
+                check(report, 'actual signed approval conforms to both preserved HumanApproval schemas',
+                      admitted.value.status == 200 and approval['decision'] == 'approve'
+                      and matches_contract(validators, 'HumanApproval', approval))
                 expect(page.get_by_role('status')).to_contain_text('Decision recorded')
                 expect(page.get_by_role('status')).to_contain_text('approve')
                 expect(page.get_by_role('status')).to_contain_text('This does not issue a grant or apply firewall changes.')
@@ -133,6 +242,15 @@ def run(args, report):
                 expect(aggregate).to_contain_text('Included signed approvals: 1')
                 expect(page.get_by_text('Admission result (historical)', exact=True)).to_be_visible()
                 check(report, 'fresh detail verifies current set separately from historical admission acknowledgement', True)
+                current = read_detail(fixture['plan_id'], lambda: page.get_by_role('button', name='Refresh', exact=True).click())
+                approval_set = current['current_approval_set']['content']
+                check(report, 'actual current human ApprovalSet conforms to both preserved schemas and includes the admitted approval',
+                      approval_set['kind'] == 'human' and approval in approval_set['approvals']
+                      and matches_contract(validators, 'ApprovalSet', approval_set))
+                contract_negative_controls(report, validators, {
+                    'PolicyChangePlan': detail['plan'], 'ApprovalRequirements': detail['requirements'],
+                    'HumanApproval': approval, 'ApprovalSet': approval_set,
+                })
                 storage = page.evaluate('({local:Object.keys(localStorage),session:Object.keys(sessionStorage)})')
                 check(report, 'session proof and signed assertions never enter browser persistent storage',
                       storage == {'local': [], 'session': []})
@@ -150,7 +268,13 @@ def run(args, report):
                 before_rejection = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
                 page.get_by_label('Decision role', exact=True).select_option('owner')
                 page.get_by_role('checkbox').check()
-                page.get_by_role('button', name='Reject plan', exact=True).click()
+                with page.expect_response(lambda response: response.request.method == 'POST'
+                                          and response.url == ORIGIN + '/authority/v1/approvals/assertions') as rejected:
+                    page.get_by_role('button', name='Reject plan', exact=True).click()
+                rejection = rejected.value.json()['approval']
+                check(report, 'actual signed rejection conforms to both preserved HumanApproval schemas',
+                      rejected.value.status == 200 and rejection['decision'] == 'reject'
+                      and matches_contract(validators, 'HumanApproval', rejection))
                 expect(page.get_by_role('status')).to_contain_text('reject')
                 expect(page.get_by_role('region', name='Current authority status', exact=True)).to_contain_text('Blocked by signed rejection')
                 after_rejection = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']

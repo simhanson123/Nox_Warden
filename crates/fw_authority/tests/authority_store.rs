@@ -7,6 +7,8 @@
 mod approval_authenticator;
 #[path = "support/authority_legacy.rs"]
 mod authority_legacy;
+#[path = "support/private_directory.rs"]
+mod private_directory;
 
 use approval_authenticator::{Authenticator, ORIGIN, PRINCIPAL};
 use fw_authority::{
@@ -119,7 +121,7 @@ impl Fixture {
     }
 
     fn with_counter(counter: u32) -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_directory::private_directory();
         let path = directory.path().join("authority.sqlite3");
         let mut store = AuthorityStore::open(&path).unwrap();
         let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
@@ -748,7 +750,7 @@ fn plan_registration_rejects_conflicts_hash_only_inputs_and_invalid_requirements
 
 #[test]
 fn authority_store_refuses_foreign_database_and_unknown_schema_version() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let controller_path = directory.path().join("controller.sqlite3");
     let db = rusqlite::Connection::open(&controller_path).unwrap();
     db.execute_batch("CREATE TABLE owners(principal_id TEXT PRIMARY KEY); INSERT INTO owners VALUES ('controller-owner');").unwrap();
@@ -775,7 +777,7 @@ fn authority_store_refuses_foreign_database_and_unknown_schema_version() {
 
 #[test]
 fn concurrent_first_open_creates_one_complete_authority_schema() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     // Repeat the same initial-open race on fresh databases. Both connections
     // remain alive after their workers return, so one cannot rely on the other
     // connection closing to finish schema creation or select the journal mode.
@@ -1075,7 +1077,7 @@ fn stale_issued_credential_snapshot_cannot_replace_a_newer_successful_counter() 
 
 #[test]
 fn registration_is_pending_until_the_independent_store_verifies_possession() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let mut store = AuthorityStore::open(directory.path().join("authority.sqlite3")).unwrap();
     let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
     let verifier = WebAuthn::new(ORIGIN).unwrap();
@@ -1171,7 +1173,7 @@ fn registration_is_pending_until_the_independent_store_verifies_possession() {
 
 #[test]
 fn activation_audit_failure_rolls_back_possession_and_counter_transition() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let path = directory.path().join("authority.sqlite3");
     let mut store = AuthorityStore::open(&path).unwrap();
     let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
@@ -1244,7 +1246,7 @@ fn activation_audit_failure_rolls_back_possession_and_counter_transition() {
 
 #[test]
 fn failed_activation_proof_and_expiry_are_durable_without_activating_the_key() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let path = directory.path().join("authority.sqlite3");
     let mut store = AuthorityStore::open(&path).unwrap();
     let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
@@ -1501,7 +1503,7 @@ fn immutable_records_reject_sql_updates_and_corrupted_proof_is_detected_on_read(
 #[test]
 fn authority_path_rejects_symlinks_hardlinks_and_shared_writable_directories() {
     use std::os::unix::fs::{PermissionsExt, symlink};
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let real = directory.path().join("authority.sqlite3");
     drop(AuthorityStore::open(&real).unwrap());
     let symbolic = directory.path().join("symbolic.sqlite3");
@@ -1613,7 +1615,7 @@ fn challenge_sql_guards_preserve_issued_state_attempt_budget_and_single_consumpt
 
 #[test]
 fn activation_sql_guards_preserve_pending_state_attempt_budget_and_single_consumption() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let path = directory.path().join("authority.sqlite3");
     let (mut store, tenant, verifier, key, credential) = pending_key(&path);
     let activation = store
@@ -1694,7 +1696,7 @@ fn outstanding_ceremony_limits_count_locked_records_until_their_original_expiry(
         assert!(f.submit(&locked, &invalid, IDEMPOTENCY, NOW + 1).is_err());
     }
     for _ in 1..16 {
-        f.issue(ApprovalDecision::Approve, NOW);
+        f.issue(ApprovalDecision::Approve, NOW + 1);
     }
     f.restart();
     assert!(matches!(
@@ -1725,7 +1727,7 @@ fn outstanding_ceremony_limits_count_locked_records_until_their_original_expiry(
             .is_ok()
     );
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = private_directory::private_directory();
     let path = directory.path().join("authority.sqlite3");
     let (mut store, tenant, verifier, key, credential) = pending_key(&path);
     let locked = store
@@ -1760,7 +1762,7 @@ fn outstanding_ceremony_limits_count_locked_records_until_their_original_expiry(
     );
     for _ in 1..16 {
         store
-            .begin_credential_activation(&tenant, &credential.id(), &verifier, NOW)
+            .begin_credential_activation(&tenant, &credential.id(), &verifier, NOW + 2)
             .unwrap();
     }
     store = AuthorityStore::open(&path).unwrap();

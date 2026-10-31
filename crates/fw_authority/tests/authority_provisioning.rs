@@ -3,6 +3,8 @@
 //! Independent pending-key possession, provisioning and rollback regressions.
 #[path = "support/approval_authenticator.rs"]
 mod approval_authenticator;
+#[path = "support/private_directory.rs"]
+mod private_directory;
 
 use approval_authenticator::{Authenticator, ORIGIN, PRINCIPAL};
 use fw_authority::{ApprovalRole, AuthorityStore, AuthorityTenant};
@@ -90,7 +92,7 @@ struct Pending {
 }
 impl Pending {
     fn new() -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_directory::private_directory();
         let path = directory.path().join("authority.sqlite3");
         let mut store = AuthorityStore::open(&path).unwrap();
         let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();

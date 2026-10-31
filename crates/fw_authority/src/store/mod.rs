@@ -7,12 +7,14 @@
 //! Decisions can atomically complete a human approval set; they do not create
 //! grants or signing jobs.
 mod admission;
+mod audit_log;
 mod migrations;
 mod provision;
 mod records;
 mod review;
 mod sets;
 mod subject;
+pub use audit_log::AuthorityAuditVerification;
 pub use review::*;
 pub use sets::{AggregationOutcome, AuthorityBasis, StoredApprovalSet};
 
@@ -346,18 +348,13 @@ fn audit(
     resource: &str,
     now: i64,
 ) -> Result<()> {
-    let (sequence, previous): (Vec<u8>, Vec<u8>) = tx.query_row(
-        "SELECT sequence,event_hash FROM authority_audit_heads WHERE org_id=? AND project_id=?",
-        params![tenant.org_id, tenant.project_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
-    let sequence = u64::from_be_bytes(
-        sequence
-            .try_into()
-            .map_err(|_| invalid("authority audit sequence"))?,
-    )
-    .checked_add(1)
-    .ok_or(invalid("authority audit sequence exhausted"))?;
+    let (sequence, previous, recorded_at) = audit_log::append_head(tx, tenant)?;
+    if recorded_at.is_some_and(|previous_time| now < previous_time) {
+        return Err(AuthorityError::Time);
+    }
+    let sequence = sequence
+        .checked_add(1)
+        .ok_or(invalid("authority audit sequence exhausted"))?;
     let event = json!({"schema_version":"fw.authority-audit/v1", "org_id":tenant.org_id,"project_id":tenant.project_id,
         "sequence":sequence.to_string(),"previous_hash":hash_string(&previous)?,"kind":kind,"resource_id":resource,"recorded_at":at(now)?});
     let canonical = bytes(&event)?;
