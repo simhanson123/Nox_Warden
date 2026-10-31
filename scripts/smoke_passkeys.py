@@ -328,6 +328,15 @@ def run(args, report):
                 check(report, 'local console token starts the first enrollment session',
                       status == 200 and result['data']['authentication_method'] == 'bootstrap')
                 bootstrap_cookie, bootstrap_csrf = client.cookie(), client.csrf
+                status, disclosure = raw_request(origin, '/session', None, bootstrap_cookie)
+                check(report, 'a bootstrap cookie alone cannot disclose the in-memory session proof',
+                      status == 401 and bootstrap_csrf not in json.dumps(disclosure))
+                status, _ = raw_request(origin, '/status', None, bootstrap_cookie)
+                check(report, 'a bootstrap cookie alone cannot read protected controller state', status == 401)
+                status, _ = raw_request(origin, '/auth/passkeys/registration/options',
+                                        {'name': 'Untrusted cookie-only enrollment'}, bootstrap_cookie,
+                                        request_origin=origin)
+                check(report, 'a copied bootstrap cookie and forged origin cannot start owner enrollment', status == 401)
                 status, result = client.request('/auth/passkeys/registration/options', {'name': 'Primary passkey'})
                 check(report, 'registration requests real user verification', status == 200 and
                       result['data']['public_key']['authenticatorSelection']['userVerification'] == 'required')

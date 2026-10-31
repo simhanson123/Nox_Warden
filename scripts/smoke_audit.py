@@ -227,6 +227,11 @@ def run(args, report):
                   == [(row['sequence'], row['event_id']) for row in current])
 
             report['stage'] = 'browser_pagination'
+            # Before owner enrollment a restart provides a new local console
+            # token. Authenticate the browser through the actual setup form;
+            # importing a cookie cannot recover its separate in-memory proof.
+            stop(process)
+            process = start(environment, origin)
             with sync_playwright() as playwright, ExitStack() as cleanup:
                 launch = {'headless': True, 'args': ['--no-sandbox']}
                 executable = args.browser_executable or shutil.which('chromium')
@@ -236,17 +241,16 @@ def run(args, report):
                 cleanup.callback(close_browser, browser, report)
                 report['browser_version'] = browser.version
                 context = browser.new_context(locale='en-US')
-                session = next(cookie for cookie in client.cookies if cookie.name == 'fw_session')
-                context.add_cookies([{'name': 'fw_session', 'value': session.value, 'url': origin,
-                                     'httpOnly': True, 'sameSite': 'Strict'}])
                 browser_page = context.new_page()
                 browser_page.set_default_timeout(15000)
                 errors = []
                 browser_page.on('pageerror', lambda error: errors.append(type(error).__name__))
                 def audit_response(response):
                     return urllib.parse.urlsplit(response.url).path == '/api/v1/audit/events'
+                browser_page.goto(origin + '/audit')
+                browser_page.get_by_label('Console token', exact=True).fill(token_file.read_text())
                 with browser_page.expect_response(audit_response) as loading:
-                    browser_page.goto(origin + '/audit')
+                    browser_page.get_by_role('button', name='Start session', exact=True).click()
                 report['browser_executed'] = True
                 loaded = loading.value
                 first_visible = loaded.json()

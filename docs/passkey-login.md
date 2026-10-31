@@ -105,18 +105,21 @@ for an enrolled owner. Other origins, remote HTTPS management and OIDC are not
 implemented by this profile. Use the built client served by the controller for
 real authentication; a separate Vite development origin is not allowlisted.
 
-Passkey-authenticated requests require both the HttpOnly/SameSite=Strict cookie
-and the session's `X-CSRF-Token`, including reads such as `/session`. The browser
-holds that second proof only in memory. Reloading or opening a new tab therefore
-requires passkey login again; a cookie alone cannot restore the session or fetch
-its proof. This prevents a different localhost-port service receiving the shared
-hostname's cookie from using that cookie alone to recover the session token.
-The CLI stores both values in its existing private session file.
+All authenticated requests, including initial bootstrap setup, require both the
+HttpOnly/SameSite=Strict cookie and the session's `X-CSRF-Token`, even for reads
+such as `/session`. The successful bootstrap or passkey login response supplies
+that second proof. The browser holds it only in memory; the CLI stores both
+values in its existing private session file. A cookie alone cannot restore the
+session or retrieve its proof, even when a local client supplies the configured
+Origin header. This prevents another localhost-port service receiving the shared
+hostname's cookie from using it to take over initial owner registration.
 
-Before owner enrollment, initial bootstrap setup retains the legacy cookie-only
-read behavior and requires trusted local services/processes. The additional
-proof requirement protects enrolled passkey sessions; it does not make initial
-bootstrap or a compromised host an independent security boundary.
+Reloading or opening a new tab requires passkey login again once an owner is
+enrolled. Before enrollment, keep the initial setup tab open until registration
+and the first signed login finish. If its memory proof is lost before any owner
+registration, restart the local controller to obtain a fresh console token.
+Registration reserves the durable owner immediately; afterward restart never
+reopens bootstrap, including while the first credential is still pending.
 
 Mutations additionally check the exact configured Origin. Loopback HTTP does not
 set the Secure cookie attribute. This remains a development profile and does not

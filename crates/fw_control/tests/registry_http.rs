@@ -66,12 +66,13 @@ async fn login(app: &Router) -> (String, String) {
         body["data"]["csrf_token"].as_str().unwrap().to_string(),
     )
 }
-async fn get(app: &Router, path: &str, cookie: &str) -> (StatusCode, HeaderMap, Value) {
+async fn get(app: &Router, path: &str, cookie: &str, csrf: &str) -> (StatusCode, HeaderMap, Value) {
     decode(
         app.clone()
             .oneshot(
                 Request::get(path)
                     .header("cookie", cookie)
+                    .header("x-csrf-token", csrf)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -161,11 +162,11 @@ async fn asset_revision_and_idempotency_are_real() {
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(conflict["code"], "IDEMPOTENCY_CONFLICT");
     let (status, detail_headers, detail) =
-        get(&app, &format!("/api/v1/assets/{id}"), &cookie).await;
+        get(&app, &format!("/api/v1/assets/{id}"), &cookie, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail["data"], created["data"]);
     assert_eq!(detail_headers["etag"], headers["etag"]);
-    let (status, _, list) = get(&app, "/api/v1/assets", &cookie).await;
+    let (status, _, list) = get(&app, "/api/v1/assets", &cookie, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(list["data"].as_array().unwrap().len(), 1);
     assert_eq!(list["revision"], 2);
@@ -352,7 +353,7 @@ async fn catalogue_input_cannot_claim_trusted_identity_or_server_fields() {
         )
         .await
         .0,
-        StatusCode::FORBIDDEN
+        StatusCode::UNAUTHORIZED
     );
 }
 #[tokio::test]
@@ -397,7 +398,7 @@ async fn services_refer_to_existing_assets_and_targets_with_exact_transport() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(replay["data"], created["data"]);
-    let (status, _, detail) = get(&app, "/api/v1/services/web.https", &cookie).await;
+    let (status, _, detail) = get(&app, "/api/v1/services/web.https", &cookie, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail["data"], created["data"]);
     let mut revised = json!({"definition":body["definition"],"state":"active"});
@@ -495,7 +496,7 @@ async fn retired_assets_stay_visible_but_cannot_be_reactivated_or_referenced() {
     )
     .await;
     assert_eq!(status, StatusCode::CREATED);
-    let (status, _, detail) = get(&app, &format!("/api/v1/assets/{id}"), &cookie).await;
+    let (status, _, detail) = get(&app, &format!("/api/v1/assets/{id}"), &cookie, &csrf).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail["data"]["state"], "retired");
     assert_eq!(detail["actions"][0]["allowed"], false);
@@ -556,7 +557,7 @@ async fn cross_tenant_objects_are_not_found() {
     let (cookie, csrf) = login(&app).await;
     let hidden_id = hidden["asset_id"].as_str().unwrap();
     assert_eq!(
-        get(&app, &format!("/api/v1/assets/{hidden_id}"), &cookie)
+        get(&app, &format!("/api/v1/assets/{hidden_id}"), &cookie, &csrf)
             .await
             .0,
         StatusCode::NOT_FOUND
@@ -596,12 +597,12 @@ async fn bounded_lists_fail_explicitly_instead_of_truncating() {
             StatusCode::CREATED
         );
     }
-    let (status, _, body) = get(&app, "/api/v1/assets?limit=1", &cookie).await;
+    let (status, _, body) = get(&app, "/api/v1/assets?limit=1", &cookie, &csrf).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["code"], "RESULT_TOO_LARGE");
     for query in ["limit=0", "limit=101", "cursor=unknown", "unknown=true"] {
         assert_eq!(
-            get(&app, &format!("/api/v1/assets?{query}"), &cookie)
+            get(&app, &format!("/api/v1/assets?{query}"), &cookie, &csrf)
                 .await
                 .0,
             StatusCode::BAD_REQUEST

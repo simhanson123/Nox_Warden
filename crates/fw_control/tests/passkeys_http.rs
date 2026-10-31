@@ -116,7 +116,7 @@ async fn registration_options_require_session_csrf_and_have_required_verificatio
         ))
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let key = Uuid::new_v4().to_string();
     let first = app
         .clone()
@@ -214,6 +214,7 @@ async fn forged_registration_does_not_enroll_owner_or_create_session() {
         app.oneshot(
             Request::get("/api/v1/auth/passkeys")
                 .header("cookie", cookie)
+                .header("x-csrf-token", &csrf)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -226,7 +227,7 @@ async fn forged_registration_does_not_enroll_owner_or_create_session() {
 #[tokio::test]
 async fn pending_owner_rejects_existing_bootstrap_session_and_token() {
     let (state, app) = app(ORIGIN);
-    let (cookie, _csrf) = bootstrap(&app).await;
+    let (cookie, csrf) = bootstrap(&app).await;
     let tenant = Tenant::new(ORG, PROJECT).unwrap();
     let at = chrono::Utc::now().timestamp();
     let binding = fw_contracts::hash_bytes(b"explicit unit test storage fixture");
@@ -274,6 +275,7 @@ async fn pending_owner_rejects_existing_bootstrap_session_and_token() {
         .oneshot(
             Request::get("/api/v1/status")
                 .header("cookie", cookie)
+                .header("x-csrf-token", &csrf)
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -337,7 +339,7 @@ async fn login_is_origin_bound_and_logout_cannot_skip_csrf() {
             .await
             .unwrap()
             .status(),
-        StatusCode::FORBIDDEN
+        StatusCode::UNAUTHORIZED
     );
     let response = app
         .clone()
@@ -362,6 +364,7 @@ async fn login_is_origin_bound_and_logout_cannot_skip_csrf() {
         app.oneshot(
             Request::get("/api/v1/session")
                 .header("cookie", cookie)
+                .header("x-csrf-token", &csrf)
                 .body(Body::empty())
                 .unwrap()
         )
