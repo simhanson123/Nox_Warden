@@ -15,6 +15,9 @@ Run from the repository root after installing the [build prerequisites](../READM
 ```sh
 source scripts/dev-env.sh
 bash scripts/check.sh
+# Focused immutable approval challenge and bound WebAuthn verification suites:
+cargo test -p fw_authority -p fw_webauthn --locked
+python scripts/check_vendor.py
 cargo build -p fw_control -p fw_cli -p fw_agent --locked
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
@@ -27,7 +30,7 @@ python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **304 Rust tests, 43 UI tests, 27 specification
+The full repository check passes: **331 Rust tests, 43 UI tests, 27 specification
 checks, 52 core and 28 extended contract fixtures, and nine Linux runner
 regressions**. Formatting, Clippy, frontend types, the production build and parity
 across eight locale catalogues with 214 keys also pass.
@@ -75,6 +78,19 @@ read including later events, the browser's Next page and successful cleanup.
 Its report is `reports/audit-smoke.json`; credentials are excluded. These results
 do not establish complete per-request audit retention across crashes.
 
+The [approval proof suites](../docs/policy-approval-proofs.md) add **27 passing
+Rust tests** within that total: six bound-authentication tests, nine typed
+challenge tests and twelve authority-bridge tests. They cover domain-separated
+plan/bootstrap challenges and real signature verification against their
+immutable context. Their software authenticator responses are
+cryptographic test inputs, not evidence of a human approval decision. The
+controller exposes no approval service, and the tests do not establish durable
+one-use authority storage or independent role and credential trust.
+The [vendored-source check](../vendor/README.md) verifies the recorded source and
+license inventory; its archive mode also checks the original registry checksums
+and reconstructs the complete local patch. RustSec advisory scanning does not
+review those source changes.
+
 Live Chromium checks cover English-first startup and saved locale selection,
 asset revisions, deep links and service prerequisites. The enrollment browser
 check additionally verifies selecting an actual registered target, creating a
@@ -92,8 +108,9 @@ artifacts, rather than a continuing development diary.
 ## Release boundary
 
 The controller remains **observe-only**. Local-owner passkey login identifies the
-operator; plan-bound approval and independent signer authority remain separate
-unimplemented integrations. Transport registration and measured
+operator; the plan-bound proof library does not complete the human approval
+workflow, durable authority transaction or independent signer integration.
+Transport registration and measured
 capability metadata now support real target/service inventory; they do not
 bootstrap policy authority, attest workloads or activate access requests.
 Certificate renewal and remote enrollment, full Linux qualification, Windows

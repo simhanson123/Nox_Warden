@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-fw_authority = { path = "../fw_authority" }
+fw_authority = { path = "../fw_authority", default-features = false }
 fw_backend_linux = { path = "../fw_backend_linux" }
 fw_contracts = { path = "../fw_contracts" }
 fw_executor = { path = "../fw_executor" }

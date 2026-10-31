@@ -19,10 +19,24 @@ ordinary acceptance/submission path retains its original dispatch deadline.
 `verify_human_approval_set` binds immutable approval evidence to the exact plan
 and requirement hashes, current epoch, expiry, role profile and independent human
 count. The caller must implement `ProofVerifier` using actual WebAuthn verification
-and current credential/role/revocation state. No production proof adapter or
-permissive default is provided. `sign_grant` likewise requires an independent
+and current credential/role/revocation state. No complete production authority
+adapter or permissive default is provided. `sign_grant` likewise requires an independent
 `AuthorityEvidence` adapter. These library functions are not an isolated signer
 service and are not reachable through an HTTP signing endpoint.
+
+`ApprovalChallenge` creates a closed immutable context for a policy/access plan
+or a distinct authority-bootstrap subject. Separate domain-prefixed SHA-256
+digests bind the exact canonical payload and a fresh 32-byte random nonce.
+`begin_approval_proof` and `finish_approval_proof` recheck context, origin and
+validity and use the real WebAuthn verifier. Finish returns an opaque
+`VerifiedBoundAssertion` with original proof fields and the updated credential.
+It does not check role ownership, commit `HumanApproval` or consume the challenge.
+See the [approval proof guide](../../docs/policy-approval-proofs.md).
+
+The challenge and proof modules use the default-enabled `approval-proofs` Cargo
+feature. Native executor and lab consumers disable default features, keeping
+these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
+Grant, recovery and quota verification remain available without this feature.
 
 `QuotaLedger` uses SQLite `BEGIN IMMEDIATE`, WAL, and FULL synchronous writes.
 Root and project limits are checked in the same transaction: active leases,
@@ -35,12 +49,13 @@ clock refuses fresh reservations. The supplied timestamp and limit values must
 come from the authority, not a client.
 
 Local-owner [WebAuthn login](../../docs/passkey-login.md) is implemented separately
-and does not authorize a plan. Remaining M03 work includes plan-bound WebAuthn
-approval/current-role proof adapters, durable independent
+and does not authorize a plan. Remaining M03 work includes approval HTTP/UI,
+durable atomic challenge consumption and credential updates, current-role and
+revocation resolution, independently pinned credentials, durable independent
 signer jobs/trust ceremonies, signed grant/quota reconciliation, complete
 PostgreSQL authority transactions, and process/key isolation deployment. SQLite
 unit/race/reopen tests do not certify production crash recovery or privileged OS
 enforcement. The separate [signed Linux lab](../../docs/signed-linux-execution.md)
 uses clearly marked synthetic plan/approval and signing fixtures to test native
-integration. It does not supply a production `AuthorityEvidence` or WebAuthn
-adapter, and the local controller cannot dispatch those fixture grants.
+integration. It does not supply production `AuthorityEvidence` or a human
+approval workflow, and the local controller cannot dispatch those fixture grants.

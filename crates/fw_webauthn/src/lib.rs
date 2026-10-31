@@ -80,6 +80,18 @@ pub struct AuthenticationState {
     credentials: Vec<Credential>,
     inner: PasskeyAuthentication,
 }
+/// Server-only state for an externally derived, domain-separated challenge.
+/// This is deliberately not interchangeable with ordinary login state.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoundAuthenticationState {
+    schema_version: String,
+    principal_id: String,
+    origin: String,
+    challenge: [u8; 32],
+    credentials: Vec<Credential>,
+    inner: PasskeyAuthentication,
+}
 pub struct RegistrationCeremony {
     /// JSON object containing `publicKey`, for navigator.credentials.create.
     pub options: Value,
@@ -89,6 +101,11 @@ pub struct AuthenticationCeremony {
     /// JSON object containing `publicKey`, for navigator.credentials.get.
     pub options: Value,
     pub state: AuthenticationState,
+}
+pub struct BoundAuthenticationCeremony {
+    /// JSON object containing `publicKey`, for navigator.credentials.get.
+    pub options: Value,
+    pub state: BoundAuthenticationState,
 }
 
 /// The unsigned browser extension outputs are admitted but never authority.
@@ -298,18 +315,95 @@ impl WebAuthn {
         response: &AuthenticationResponse,
         current: &Credential,
     ) -> Result<Credential> {
-        let principal = principal_uuid(&state.principal_id)?;
         if state.origin != self.origin || state.schema_version != "fw.passkey-authentication/v1" {
             return Err(Error::Stale);
         }
-        validate_credentials(&state.credentials, &state.principal_id)?;
-        current.validate(&state.principal_id)?;
+        self.finish_authentication_for(
+            &state.principal_id,
+            &state.credentials,
+            &state.inner,
+            response,
+            current,
+            None,
+        )
+    }
+
+    /// Start verification of a caller-derived, domain-separated challenge.
+    /// The caller must derive this digest from its validated immutable payload
+    /// and a fresh random nonce of at least 32 bytes. A client-selected digest
+    /// is not acceptable. This method does not establish consent or authority.
+    pub fn begin_bound_authentication(
+        &self,
+        principal_id: &str,
+        credentials: &[Credential],
+        expected_challenge: [u8; 32],
+    ) -> Result<BoundAuthenticationCeremony> {
+        principal_uuid(principal_id)?;
+        if credentials.is_empty() {
+            return Err(Error::Input);
+        }
+        validate_credentials(credentials, principal_id)?;
+        let keys: Vec<_> = credentials.iter().map(|c| c.passkey.clone()).collect();
+        let (options, inner) = self
+            .inner
+            .start_passkey_authentication_with_challenge(&keys, expected_challenge)
+            .map_err(|_| Error::Verification)?;
+        Ok(BoundAuthenticationCeremony {
+            options: serde_json::to_value(options).map_err(|_| Error::Input)?,
+            state: BoundAuthenticationState {
+                schema_version: "fw.bound-passkey-authentication/v1".into(),
+                principal_id: principal_id.into(),
+                origin: self.origin.clone(),
+                challenge: expected_challenge,
+                credentials: credentials.to_vec(),
+                inner,
+            },
+        })
+    }
+
+    /// Verify a bound proof against a freshly rederived expected challenge.
+    /// The caller must atomically consume its challenge and persist the returned
+    /// credential update; a successful signature alone is not policy approval.
+    pub fn finish_bound_authentication(
+        &self,
+        state: &BoundAuthenticationState,
+        response: &AuthenticationResponse,
+        current: &Credential,
+        expected_challenge: [u8; 32],
+    ) -> Result<Credential> {
+        if state.origin != self.origin
+            || state.schema_version != "fw.bound-passkey-authentication/v1"
+            || state.challenge != expected_challenge
+        {
+            return Err(Error::Stale);
+        }
+        self.finish_authentication_for(
+            &state.principal_id,
+            &state.credentials,
+            &state.inner,
+            response,
+            current,
+            Some(&expected_challenge),
+        )
+    }
+
+    fn finish_authentication_for(
+        &self,
+        principal_id: &str,
+        credentials: &[Credential],
+        inner: &PasskeyAuthentication,
+        response: &AuthenticationResponse,
+        current: &Credential,
+        expected_challenge: Option<&[u8; 32]>,
+    ) -> Result<Credential> {
+        let principal = principal_uuid(principal_id)?;
+        validate_credentials(credentials, principal_id)?;
+        current.validate(principal_id)?;
         let raw_id = validate_id(&response.id, &response.raw_id, &response.type_)?;
         if current.passkey.cred_id().as_slice() != raw_id {
             return Err(Error::Verification);
         }
-        let saved = state
-            .credentials
+        let saved = credentials
             .iter()
             .find(|c| c.id() == response.id)
             .ok_or(Error::Verification)?;
@@ -320,11 +414,14 @@ impl WebAuthn {
         {
             return Err(Error::Stale);
         }
-        validate_client_data(
+        let challenge = validate_client_data(
             &response.response.client_data_json,
             "webauthn.get",
             &self.origin,
         )?;
+        if expected_challenge.is_some_and(|expected| challenge != expected) {
+            return Err(Error::Verification);
+        }
         let auth_data = decode(&response.response.authenticator_data, 16_384)?;
         if auth_data.len() < 37 {
             return Err(Error::Input);
@@ -341,7 +438,7 @@ impl WebAuthn {
                 .map_err(|_| Error::Input)?;
         let result = self
             .inner
-            .finish_passkey_authentication(&assertion, &state.inner)
+            .finish_passkey_authentication(&assertion, inner)
             .map_err(|_| Error::Verification)?;
         if !result.user_verified() {
             return Err(Error::Verification);
@@ -399,7 +496,7 @@ fn validate_extensions(ext: &ClientExtensions) -> Result<()> {
     }
     Ok(())
 }
-fn validate_client_data(encoded: &str, expected_type: &str, origin: &str) -> Result<()> {
+fn validate_client_data(encoded: &str, expected_type: &str, origin: &str) -> Result<Vec<u8>> {
     let bytes = decode(encoded, 8192)?;
     // Parse strictly to reject ambiguous duplicate JSON keys while preserving
     // the original external clientDataJSON bytes for library signature checks.
@@ -409,13 +506,11 @@ fn validate_client_data(encoded: &str, expected_type: &str, origin: &str) -> Res
         || data["origin"] != origin
         || data.get("crossOrigin").is_some_and(|v| v != false)
         || data.get("topOrigin").is_some()
-        || data["challenge"]
-            .as_str()
-            .is_none_or(|v| decode(v, 128).is_err())
     {
         return Err(Error::Verification);
     }
-    Ok(())
+    decode(data["challenge"].as_str().ok_or(Error::Verification)?, 128)
+        .map_err(|_| Error::Verification)
 }
 
 #[cfg(test)]

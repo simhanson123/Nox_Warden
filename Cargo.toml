@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["vendor/webauthn-rs-0.5.4", "vendor/webauthn-rs-core-0.5.4"]
+
+[patch.crates-io]
+webauthn-rs = { path = "vendor/webauthn-rs-0.5.4" }
+webauthn-rs-core = { path = "vendor/webauthn-rs-core-0.5.4" }
 
 [workspace.package]
 version = "0.1.0"

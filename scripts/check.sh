@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 source scripts/dev-env.sh
 python scripts/validate_spec.py --root docs/specs
 python scripts/check_contracts.py
+python scripts/check_vendor.py
 python scripts/check_locales.py
 python -m unittest discover -s native/linux -p 'test_*runner.py'
 cargo fmt --all --check
