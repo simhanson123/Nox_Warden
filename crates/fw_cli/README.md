@@ -24,8 +24,10 @@ The CLI uses the controller's Origin/CSRF-capable local session protocol. Before
 owner enrollment, login consumes the same one-use console token as the browser;
 the controller removes its configured token file on successful consumption.
 After enrollment it prints an exact controller URL and eight-character uppercase
-code. Open the URL, authenticate with a passkey if needed, type the code from the
-terminal and explicitly approve CLI login. The CLI waits at most five minutes.
+code. Open the URL, authenticate with a passkey if needed, type the code from your
+own terminal and explicitly approve CLI login. The browser does not display the
+expected code; do not enter a code sent by someone else. The CLI waits at most
+five minutes.
 The browser never receives the CLI's polling secret; that secret is exchanged
 once for a session and never appears in a URL or log. Logging out or replacing
 the authorizing browser session before exchange cancels the pending permission.

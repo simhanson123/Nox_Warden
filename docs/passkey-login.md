@@ -65,7 +65,9 @@ console-token file. After enrollment:
 1. The terminal prints the exact local controller URL and an eight-character
    uppercase code.
 2. Open that URL, sign in or reauthenticate with a passkey, and type the code from
-   the terminal. Approve CLI login explicitly.
+   your own terminal. The browser request view does not return or display the
+   expected code; the server checks the value you enter. Approve CLI login
+   explicitly, and do not enter a code sent by someone else.
 3. The CLI exchanges a separate one-use polling secret for its own session and
    writes the existing private session file. The browser never receives this
    polling secret, and it is not placed in a URL or printed.
@@ -75,6 +77,11 @@ browser session before exchange cancels its authorization. A restart or lost
 exchange response requires a new CLI login request. Exchanging a CLI session
 preserves the original passkey authentication time; it cannot renew permission
 to add or revoke a key.
+
+Possession of a request URL does not supply its confirmation code or authorize
+the request. Someone who creates a request still knows that request's code and
+could try to persuade an owner to enter it. Manual terminal confirmation is not
+a complete defense against social engineering or a compromised local host.
 
 The controller retains at most 16 CLI login requests until their five-minute
 expiry, including requests already exchanged. Creation does not require an
@@ -139,8 +146,8 @@ envelope and bounded JSON handling.
 | `POST /auth/passkeys/login/complete` | `{ceremony_id, credential}`; actual signed browser assertion, current credential, challenge and browser binding. |
 | `POST /auth/passkeys/{id}/revocations` | `{}`; recent verified passkey session, with last-verified-key protection. |
 | `POST /auth/logout` | `{}`; authenticated session and CSRF. |
-| `POST /auth/cli/requests` | `{}`; bounded, expiring CLI request. Returns the polling secret only to the requesting CLI. |
-| `GET /auth/cli/requests/{id}` | Authenticated view of the request and display code; never the polling secret. |
+| `POST /auth/cli/requests` | `{}`; bounded, expiring CLI request. Returns the confirmation code and polling secret only to the initiating client. |
+| `GET /auth/cli/requests/{id}` | Authenticated request ID, controller origin, expiry and state; neither the confirmation code nor polling secret. |
 | `POST /auth/cli/requests/{id}/authorize` | `{user_code}`; explicit matching code, recent verified passkey session and CSRF. |
 | `POST /auth/cli/requests/{id}/exchange` | `{poll_token}`; pending response or one-use credential-bound session transfer. |
 

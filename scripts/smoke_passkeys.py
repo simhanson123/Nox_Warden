@@ -433,6 +433,12 @@ def run(args, report):
                 ui_login(page, client)
                 report['stage'] = 'cli_browser_authorization'
                 code_input = page.get_by_label('Code from your terminal', exact=True)
+                code_input.wait_for()
+                check(report, 'browser approval page does not display or prefill the terminal code',
+                      code not in page.locator('body').inner_text() and code_input.input_value() == '')
+                check(report, 'browser cannot authorize a CLI request with no terminal code',
+                      page.get_by_role('button', name='Approve terminal sign-in', exact=True).is_disabled()
+                      and cli.poll() is None)
                 code_input.fill('00000000' if code != '00000000' else 'FFFFFFFF')
                 page.get_by_role('button', name='Approve terminal sign-in', exact=True).click()
                 page.get_by_text('The code does not match this sign-in request.', exact=True).wait_for()
@@ -451,6 +457,13 @@ def run(args, report):
                 check(report, 'CLI handoff issues a bounded one-use request', status == 201)
                 pending = pending['data']
                 route = '/auth/cli/requests/' + pending['request_id']
+                status, _ = raw_request(origin, route + '/authorize', {'user_code': pending['user_code']})
+                check(report, 'knowing the code cannot authorize a CLI request without a passkey session', status == 401)
+                status, viewed = client.request(route)
+                check(report, 'authenticated CLI request view withholds confirmation and polling secrets',
+                      status == 200 and 'user_code' not in viewed['data'] and 'poll_token' not in viewed['data'])
+                status, _ = client.request(route + '/authorize', {})
+                check(report, 'server rejects a missing CLI confirmation code', status == 400)
                 status, _ = raw_request(origin, route, None, client.cookie())
                 check(report, 'a session cookie alone cannot read a terminal authorization request', status in (401, 403))
                 status, _ = client.request(route + '/authorize', {'user_code': '00000000' if pending['user_code'] != '00000000' else 'FFFFFFFF'})

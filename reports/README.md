@@ -30,10 +30,10 @@ python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **387 Rust tests, 43 UI tests, 27 specification
+The full repository check passes: **388 Rust tests, 43 UI tests, 27 specification
 checks, 52 core and 28 extended contract fixtures, and nine Linux runner
 regressions**. Formatting, Clippy, frontend types, the production build and parity
-across eight locale catalogues with 214 keys also pass.
+across eight locale catalogues with 213 keys also pass.
 
 The real-controller HTTP and CLI smokes pass **24 and 11 checks**, respectively;
 the separate CLI protocol fixture passes **five checks**. The TLS enrollment
@@ -62,11 +62,13 @@ Signing and approval inputs are clearly marked synthetic fixtures, and the
 recovery process is not a qualified watchdog against a permanently hung lock
 owner. Expired rollback authority causes no unsigned fallback write.
 
-The [passkey browser suite](../docs/passkey-login.md) passes **48 checks** with
+The [passkey browser suite](../docs/passkey-login.md) passes **53 checks** with
 actual Chromium WebAuthn backed by a CDP virtual CTAP2 authenticator and real
 controller/CLI processes. It covers durable owner enrollment across restart,
 signed login, credential management, bootstrap closure and browser-authorized CLI
-login. Both browser and CLI sessions work before credential revocation and are
+login. The browser request view withholds the expected terminal code and polling
+secret; missing or incorrect codes and unauthenticated authorization fail.
+Both browser and CLI sessions work before credential revocation and are
 rejected afterward. Browser/controller cleanup succeeds. This verifies the
 protocol and cryptographic path with an automated authenticator; it does not
 establish physical-key compatibility or a human policy-approval decision.

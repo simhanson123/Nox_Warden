@@ -107,13 +107,21 @@ test('unverified backup does not permit revoking the last working passkey and na
 
 test('terminal sign-in is never authorized by visiting its URL or by entering a wrong code', async () => {
   const onSession = vi.fn(); const requestId = '11111111-1111-4111-8111-111111111111';
-  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => response(init?.method === 'POST' ? { request_id: requestId, state: 'approved' } : { request_id: requestId, user_code: '4E2A91BF', expires_at: '2026-10-31T09:00:00Z', state: 'pending', api_origin: 'http://localhost:8787' }));
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    if (init?.method !== 'POST') return response({ request_id: requestId, expires_at: '2026-10-31T09:00:00Z', state: 'pending', api_origin: 'http://localhost:8787' });
+    return JSON.parse(String(init.body)).user_code === '4E2A91BF'
+      ? response({ request_id: requestId, state: 'approved' })
+      : response({ code: 'PERMISSION_DENIED', detail: 'CLI_CODE_MISMATCH' }, 403);
+  });
   render(<CliLoginPage requestId={requestId} t={t} locale="en" session={session} onSession={onSession} onSignedOut={vi.fn()}/>);
   const input = await screen.findByLabelText('Code from your terminal');
   expect(input).toHaveValue(''); expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+  expect(screen.queryByText('4E2A91BF')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Approve terminal sign-in' })).toBeDisabled();
   await userEvent.type(input, '00000000'); await userEvent.click(screen.getByRole('button', { name: 'Approve terminal sign-in' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('The code does not match');
-  expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]!.body))).toEqual({ user_code: '00000000' });
   fireEvent.change(input, { target: { value: '4E2A91BF' } }); await userEvent.click(screen.getByRole('button', { name: 'Approve terminal sign-in' }));
   expect(await screen.findByRole('status')).toHaveTextContent('Terminal sign-in authorized');
   expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]!.body))).toEqual({ user_code: '4E2A91BF' });
@@ -121,7 +129,7 @@ test('terminal sign-in is never authorized by visiting its URL or by entering a 
 
 test('terminal authorization stays disabled until fresh passkey authentication exists', async () => {
   browser(); const requestId = '11111111-1111-4111-8111-111111111111';
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ request_id: requestId, user_code: '4E2A91BF', expires_at: '2026-10-31T09:00:00Z', state: 'pending', api_origin: 'http://localhost:8787' }));
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ request_id: requestId, expires_at: '2026-10-31T09:00:00Z', state: 'pending', api_origin: 'http://localhost:8787' }));
   render(<CliLoginPage requestId={requestId} t={t} locale="en" session={{ ...session, authenticated_at: 1 }} onSession={vi.fn()} onSignedOut={vi.fn()}/>);
   expect(await screen.findByLabelText('Code from your terminal')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Verify with a passkey' })).toBeEnabled();

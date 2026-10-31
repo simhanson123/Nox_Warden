@@ -207,13 +207,12 @@
     "passkey.confirmRevoke": "Confirm revocation",
     "passkey.limit": "You can register up to eight active passkeys.",
     "cli.title": "Authorize terminal sign-in",
-    "cli.description": "Approve only a sign-in you started in your own terminal. Compare the controller address and enter the code printed there.",
+    "cli.description": "Approve only a sign-in you started in your own terminal. Compare the controller address and enter the code printed there. Do not enter a code sent by someone else.",
     "cli.codeLabel": "Code from your terminal",
     "cli.controller": "Controller address",
     "cli.approve": "Approve terminal sign-in",
     "cli.approved": "Terminal sign-in authorized. Return to your terminal to finish.",
-    "cli.codeMismatch": "The code does not match this sign-in request.",
-    "cli.requestCode": "Request code"
+    "cli.codeMismatch": "The code does not match this sign-in request."
   },
   "ko": {
     "common.loading": "현재 정보를 불러오는 중입니다…",
@@ -423,13 +422,12 @@
     "passkey.confirmRevoke": "철회 확인",
     "passkey.limit": "활성 패스키는 최대 8개까지 등록할 수 있습니다.",
     "cli.title": "터미널 로그인 승인",
-    "cli.description": "본인이 터미널에서 시작한 로그인만 승인하세요. 제어 프로그램 주소를 확인하고 터미널에 표시된 코드를 입력하세요.",
+    "cli.description": "본인이 터미널에서 시작한 로그인만 승인하세요. 제어 프로그램 주소를 확인하고 터미널에 표시된 코드를 입력하세요. 다른 사람이 보내 준 코드는 입력하지 마세요.",
     "cli.codeLabel": "터미널에 표시된 코드",
     "cli.controller": "제어 프로그램 주소",
     "cli.approve": "터미널 로그인 승인",
     "cli.approved": "터미널 로그인을 승인했습니다. 터미널로 돌아가 완료하세요.",
-    "cli.codeMismatch": "이 로그인 요청의 코드와 일치하지 않습니다.",
-    "cli.requestCode": "요청 코드"
+    "cli.codeMismatch": "이 로그인 요청의 코드와 일치하지 않습니다."
   },
   "ja": {
     "common.loading": "現在の情報を読み込んでいます…",
@@ -639,13 +637,12 @@
     "passkey.confirmRevoke": "失効を確定",
     "passkey.limit": "有効なパスキーは最大8個まで登録できます。",
     "cli.title": "ターミナルのログインを承認",
-    "cli.description": "ご自身のターミナルで開始したログインだけを承認してください。コントローラーのアドレスを確認し、ターミナルに表示されたコードを入力してください。",
+    "cli.description": "ご自身のターミナルで開始したログインだけを承認してください。コントローラーのアドレスを確認し、ターミナルに表示されたコードを入力してください。他の人から送られたコードは入力しないでください。",
     "cli.codeLabel": "ターミナルのコード",
     "cli.controller": "コントローラーのアドレス",
     "cli.approve": "ターミナルのログインを承認",
     "cli.approved": "ターミナルのログインを承認しました。ターミナルに戻って完了してください。",
-    "cli.codeMismatch": "このログイン要求のコードと一致しません。",
-    "cli.requestCode": "要求コード"
+    "cli.codeMismatch": "このログイン要求のコードと一致しません。"
   },
   "es": {
     "common.loading": "Cargando la información actual…",
@@ -855,13 +852,12 @@
     "passkey.confirmRevoke": "Confirmar revocación",
     "passkey.limit": "Puedes registrar hasta ocho claves de acceso activas.",
     "cli.title": "Autorizar inicio de sesión del terminal",
-    "cli.description": "Aprueba solo un inicio de sesión que hayas iniciado en tu terminal. Compara la dirección del controlador e introduce el código mostrado allí.",
+    "cli.description": "Aprueba solo un inicio de sesión que hayas iniciado en tu terminal. Compara la dirección del controlador e introduce el código mostrado allí. No introduzcas un código enviado por otra persona.",
     "cli.codeLabel": "Código del terminal",
     "cli.controller": "Dirección del controlador",
     "cli.approve": "Aprobar inicio de sesión del terminal",
     "cli.approved": "Inicio de sesión autorizado. Vuelve al terminal para terminar.",
-    "cli.codeMismatch": "El código no coincide con esta solicitud de inicio de sesión.",
-    "cli.requestCode": "Código de solicitud"
+    "cli.codeMismatch": "El código no coincide con esta solicitud de inicio de sesión."
   },
   "de": {
     "common.loading": "Aktuelle Informationen werden geladen…",
@@ -1071,13 +1067,12 @@
     "passkey.confirmRevoke": "Widerruf bestätigen",
     "passkey.limit": "Sie können bis zu acht aktive Passkeys registrieren.",
     "cli.title": "Terminalanmeldung autorisieren",
-    "cli.description": "Genehmigen Sie nur eine Anmeldung, die Sie selbst in Ihrem Terminal gestartet haben. Vergleichen Sie die Controller-Adresse und geben Sie den dort angezeigten Code ein.",
+    "cli.description": "Genehmigen Sie nur eine Anmeldung, die Sie selbst in Ihrem Terminal gestartet haben. Vergleichen Sie die Controller-Adresse und geben Sie den dort angezeigten Code ein. Geben Sie keinen Code ein, den Ihnen jemand anderes geschickt hat.",
     "cli.codeLabel": "Code aus Ihrem Terminal",
     "cli.controller": "Controller-Adresse",
     "cli.approve": "Terminalanmeldung genehmigen",
     "cli.approved": "Terminalanmeldung autorisiert. Kehren Sie zum Terminal zurück, um den Vorgang abzuschließen.",
-    "cli.codeMismatch": "Der Code stimmt nicht mit dieser Anmeldeanfrage überein.",
-    "cli.requestCode": "Anfragecode"
+    "cli.codeMismatch": "Der Code stimmt nicht mit dieser Anmeldeanfrage überein."
   },
   "fr": {
     "common.loading": "Chargement des informations actuelles…",
@@ -1287,13 +1282,12 @@
     "passkey.confirmRevoke": "Confirmer la révocation",
     "passkey.limit": "Vous pouvez enregistrer jusqu’à huit clés d’accès actives.",
     "cli.title": "Autoriser la connexion du terminal",
-    "cli.description": "N’approuvez qu’une connexion lancée dans votre propre terminal. Comparez l’adresse du contrôleur et saisissez le code qui y est affiché.",
+    "cli.description": "N’approuvez qu’une connexion lancée dans votre propre terminal. Comparez l’adresse du contrôleur et saisissez le code qui y est affiché. Ne saisissez pas de code envoyé par quelqu’un d’autre.",
     "cli.codeLabel": "Code affiché dans votre terminal",
     "cli.controller": "Adresse du contrôleur",
     "cli.approve": "Approuver la connexion du terminal",
     "cli.approved": "Connexion du terminal autorisée. Retournez au terminal pour terminer.",
-    "cli.codeMismatch": "Le code ne correspond pas à cette demande de connexion.",
-    "cli.requestCode": "Code de la demande"
+    "cli.codeMismatch": "Le code ne correspond pas à cette demande de connexion."
   },
   "zh-Hans": {
     "common.loading": "正在加载当前信息…",
@@ -1503,13 +1497,12 @@
     "passkey.confirmRevoke": "确认撤销",
     "passkey.limit": "最多可注册八个有效通行密钥。",
     "cli.title": "授权终端登录",
-    "cli.description": "仅批准你在自己的终端中发起的登录。请核对控制器地址并输入终端显示的代码。",
+    "cli.description": "仅批准你在自己的终端中发起的登录。请核对控制器地址并输入终端显示的代码。不要输入他人发送的代码。",
     "cli.codeLabel": "终端显示的代码",
     "cli.controller": "控制器地址",
     "cli.approve": "批准终端登录",
     "cli.approved": "终端登录已获授权。请返回终端完成操作。",
-    "cli.codeMismatch": "代码与此登录请求不匹配。",
-    "cli.requestCode": "请求代码"
+    "cli.codeMismatch": "代码与此登录请求不匹配。"
   },
   "zh-Hant": {
     "common.loading": "正在載入目前資訊…",
@@ -1719,12 +1712,11 @@
     "passkey.confirmRevoke": "確認撤銷",
     "passkey.limit": "最多可註冊八個有效通行金鑰。",
     "cli.title": "授權終端機登入",
-    "cli.description": "僅核准你在自己的終端機中發起的登入。請核對控制器位址並輸入終端機顯示的代碼。",
+    "cli.description": "僅核准你在自己的終端機中發起的登入。請核對控制器位址並輸入終端機顯示的代碼。請勿輸入他人傳送的代碼。",
     "cli.codeLabel": "終端機顯示的代碼",
     "cli.controller": "控制器位址",
     "cli.approve": "核准終端機登入",
     "cli.approved": "終端機登入已獲授權。請返回終端機完成操作。",
-    "cli.codeMismatch": "代碼與此登入要求不符。",
-    "cli.requestCode": "要求代碼"
+    "cli.codeMismatch": "代碼與此登入要求不符。"
   }
 }
