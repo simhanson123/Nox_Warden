@@ -110,6 +110,15 @@ impl Authenticator {
             client_extension_results: ClientExtensions::default(),
         }
     }
+    fn resign(&self, response: &mut AuthenticationResponse) {
+        let mut signed = decode(&response.response.authenticator_data, 16_384).unwrap();
+        signed.extend_from_slice(&Sha256::digest(
+            decode(&response.response.client_data_json, 8192).unwrap(),
+        ));
+        let mut signer = Signer::new(MessageDigest::sha256(), &self.key).unwrap();
+        signer.update(&signed).unwrap();
+        response.response.signature = URL_SAFE_NO_PAD.encode(signer.sign_to_vec().unwrap());
+    }
 }
 
 fn registered() -> (WebAuthn, Authenticator, Credential) {
@@ -447,4 +456,323 @@ fn only_exact_localhost_origin_and_bounded_owner_credentials_are_admitted() {
             .is_err()
     );
     assert!(verifier.begin_registration(PRINCIPAL, "\n", &[]).is_err());
+}
+
+#[test]
+fn bound_proof_uses_exact_supplied_digest_and_keeps_normal_login_random() {
+    let (verifier, key, credential) = registered();
+    let digest = Sha256::digest(b"test-only domain-separated immutable subject and nonce").into();
+    let start = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), digest)
+        .unwrap();
+    assert_eq!(
+        start.options["publicKey"]["challenge"],
+        URL_SAFE_NO_PAD.encode(digest)
+    );
+    assert_eq!(start.options["publicKey"]["userVerification"], "required");
+    assert_eq!(start.options["publicKey"]["rpId"], RP_ID);
+    assert_eq!(start.options["publicKey"]["timeout"], 300_000);
+    let state: BoundAuthenticationState =
+        serde_json::from_value(serde_json::to_value(&start.state).unwrap()).unwrap();
+    let updated = verifier
+        .finish_bound_authentication(
+            &state,
+            &key.assertion(&start.options, 1, 5, ORIGIN),
+            &credential,
+            digest,
+        )
+        .unwrap();
+    assert_ne!(
+        serde_json::to_value(&updated).unwrap(),
+        serde_json::to_value(&credential).unwrap()
+    );
+    let first = verifier
+        .begin_authentication(PRINCIPAL, std::slice::from_ref(&updated))
+        .unwrap();
+    let second = verifier
+        .begin_authentication(PRINCIPAL, std::slice::from_ref(&updated))
+        .unwrap();
+    for normal in [&first, &second] {
+        assert_ne!(
+            normal.options["publicKey"]["challenge"],
+            start.options["publicKey"]["challenge"]
+        );
+        assert_eq!(
+            decode(
+                normal.options["publicKey"]["challenge"].as_str().unwrap(),
+                128
+            )
+            .unwrap()
+            .len(),
+            32
+        );
+    }
+    assert_ne!(
+        first.options["publicKey"]["challenge"],
+        second.options["publicKey"]["challenge"]
+    );
+}
+
+#[test]
+fn bound_proofs_reject_changed_digest_and_cross_purpose_state_or_assertions() {
+    let (verifier, key, credential) = registered();
+    let digest = [37; 32];
+    let start = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), digest)
+        .unwrap();
+    let proof = key.assertion(&start.options, 1, 5, ORIGIN);
+    assert!(matches!(
+        verifier.finish_bound_authentication(&start.state, &proof, &credential, [38; 32]),
+        Err(Error::Stale)
+    ));
+    let other = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), [38; 32])
+        .unwrap();
+    assert!(
+        verifier
+            .finish_bound_authentication(
+                &start.state,
+                &key.assertion(&other.options, 1, 5, ORIGIN),
+                &credential,
+                digest,
+            )
+            .is_err()
+    );
+    let login = verifier
+        .begin_authentication(PRINCIPAL, std::slice::from_ref(&credential))
+        .unwrap();
+    assert!(
+        serde_json::from_value::<AuthenticationState>(serde_json::to_value(&start.state).unwrap())
+            .is_err()
+    );
+    assert!(
+        serde_json::from_value::<BoundAuthenticationState>(
+            serde_json::to_value(&login.state).unwrap()
+        )
+        .is_err()
+    );
+    assert!(
+        verifier
+            .finish_authentication(&login.state, &proof, &credential)
+            .is_err()
+    );
+    assert!(
+        verifier
+            .finish_bound_authentication(
+                &start.state,
+                &key.assertion(&login.options, 1, 5, ORIGIN),
+                &credential,
+                digest,
+            )
+            .is_err()
+    );
+    let mut wrong_purpose = start.state.clone();
+    wrong_purpose.schema_version = "fw.passkey-authentication/v1".into();
+    assert!(matches!(
+        verifier.finish_bound_authentication(&wrong_purpose, &proof, &credential, digest),
+        Err(Error::Stale)
+    ));
+    // Changing wrapper metadata cannot replace the challenge stored by the
+    // maintained verifier. This proof is genuinely signed for the other digest.
+    let mut replaced_digest = start.state.clone();
+    replaced_digest.challenge = [38; 32];
+    assert!(
+        verifier
+            .finish_bound_authentication(
+                &replaced_digest,
+                &key.assertion(&other.options, 1, 5, ORIGIN),
+                &credential,
+                [38; 32],
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn bound_proof_preserves_signature_presence_uv_origin_rp_and_identity_checks() {
+    let (verifier, key, credential) = registered();
+    let digest = [73; 32];
+    let start = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), digest)
+        .unwrap();
+    for flags in [0, 1, 4] {
+        assert!(
+            verifier
+                .finish_bound_authentication(
+                    &start.state,
+                    &key.assertion(&start.options, 1, flags, ORIGIN),
+                    &credential,
+                    digest,
+                )
+                .is_err()
+        );
+    }
+    for origin in ["http://localhost:9999", "http://127.0.0.1:8787"] {
+        assert!(
+            verifier
+                .finish_bound_authentication(
+                    &start.state,
+                    &key.assertion(&start.options, 1, 5, origin),
+                    &credential,
+                    digest,
+                )
+                .is_err()
+        );
+    }
+    let proof = key.assertion(&start.options, 1, 5, ORIGIN);
+    let mut wrong_rp = proof.clone();
+    let mut auth_data = decode(&wrong_rp.response.authenticator_data, 16_384).unwrap();
+    auth_data[..32].copy_from_slice(&Sha256::digest(b"other.localhost"));
+    wrong_rp.response.authenticator_data = URL_SAFE_NO_PAD.encode(auth_data);
+    key.resign(&mut wrong_rp);
+    let mut wrong_key = proof.clone();
+    Authenticator::new().resign(&mut wrong_key);
+    let mut wrong_user = proof.clone();
+    wrong_user.response.user_handle = Some(URL_SAFE_NO_PAD.encode([8; 16]));
+    let mut wrong_id = proof.clone();
+    wrong_id.id = URL_SAFE_NO_PAD.encode([8; 16]);
+    wrong_id.raw_id = wrong_id.id.clone();
+    for bad in [wrong_rp, wrong_key, wrong_user, wrong_id] {
+        assert!(
+            verifier
+                .finish_bound_authentication(&start.state, &bad, &credential, digest)
+                .is_err()
+        );
+    }
+    assert!(
+        verifier
+            .finish_bound_authentication(&start.state, &proof, &credential, digest)
+            .is_ok()
+    );
+}
+
+#[test]
+fn bound_proof_preserves_current_snapshot_and_increasing_counter_checks() {
+    let (verifier, key, credential) = registered();
+    let first = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), [11; 32])
+        .unwrap();
+    let proof = key.assertion(&first.options, 1, 5, ORIGIN);
+    let updated = verifier
+        .finish_bound_authentication(&first.state, &proof, &credential, [11; 32])
+        .unwrap();
+    assert!(matches!(
+        verifier.finish_bound_authentication(&first.state, &proof, &updated, [11; 32]),
+        Err(Error::Stale)
+    ));
+    let next = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&updated), [12; 32])
+        .unwrap();
+    for counter in [0, 1] {
+        assert!(
+            verifier
+                .finish_bound_authentication(
+                    &next.state,
+                    &key.assertion(&next.options, counter, 5, ORIGIN),
+                    &updated,
+                    [12; 32],
+                )
+                .is_err()
+        );
+    }
+    assert!(
+        verifier
+            .finish_bound_authentication(
+                &next.state,
+                &key.assertion(&next.options, 2, 5, ORIGIN),
+                &updated,
+                [12; 32],
+            )
+            .is_ok()
+    );
+}
+
+#[test]
+fn bound_synchronized_zero_counter_credentials_need_a_new_signed_digest() {
+    let verifier = WebAuthn::new(ORIGIN).unwrap();
+    let key = Authenticator::new();
+    let registration = verifier
+        .begin_registration(PRINCIPAL, "Local owner", &[])
+        .unwrap();
+    let credential = verifier
+        .finish_registration(
+            &registration.state,
+            &key.registration(&registration.options, 0x5d),
+        )
+        .unwrap();
+    let first = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), [21; 32])
+        .unwrap();
+    let proof = key.assertion(&first.options, 0, 0x1d, ORIGIN);
+    let updated = verifier
+        .finish_bound_authentication(&first.state, &proof, &credential, [21; 32])
+        .unwrap();
+    let next = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&updated), [22; 32])
+        .unwrap();
+    assert!(
+        verifier
+            .finish_bound_authentication(&next.state, &proof, &updated, [22; 32])
+            .is_err()
+    );
+    assert!(
+        verifier
+            .finish_bound_authentication(
+                &next.state,
+                &key.assertion(&next.options, 0, 0x1d, ORIGIN),
+                &updated,
+                [22; 32],
+            )
+            .is_ok()
+    );
+    assert!(
+        verifier
+            .finish_bound_authentication(
+                &next.state,
+                &key.assertion(&next.options, 0, 5, ORIGIN),
+                &updated,
+                [22; 32],
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn bound_ceremonies_keep_strict_input_and_owner_scope() {
+    let (verifier, key, credential) = registered();
+    assert!(
+        verifier
+            .begin_bound_authentication(PRINCIPAL, &[], [1; 32])
+            .is_err()
+    );
+    assert!(
+        verifier
+            .begin_bound_authentication(
+                "22222222-2222-4222-8222-222222222222",
+                std::slice::from_ref(&credential),
+                [1; 32],
+            )
+            .is_err()
+    );
+    let start = verifier
+        .begin_bound_authentication(PRINCIPAL, std::slice::from_ref(&credential), [1; 32])
+        .unwrap();
+    let mut proof = key.assertion(&start.options, 1, 5, ORIGIN);
+    proof.response.client_data_json = URL_SAFE_NO_PAD.encode(format!(
+        "{{\"type\":\"webauthn.get\",\"challenge\":\"{}\",\"origin\":\"{ORIGIN}\",\"origin\":\"{ORIGIN}\"}}",
+        URL_SAFE_NO_PAD.encode([1; 32])
+    ));
+    key.resign(&mut proof);
+    assert!(
+        verifier
+            .finish_bound_authentication(&start.state, &proof, &credential, [1; 32])
+            .is_err()
+    );
+    let proof = key.assertion(&start.options, 1, 5, ORIGIN);
+    assert!(
+        WebAuthn::new("http://localhost:9999")
+            .unwrap()
+            .finish_bound_authentication(&start.state, &proof, &credential, [1; 32])
+            .is_err()
+    );
 }

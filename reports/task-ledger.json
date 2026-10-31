@@ -34,8 +34,8 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas, and retained typed signed rollback authority for native verification.",
-      "blocker": "Immutable plan-bound WebAuthn approval, independent current-role/proof verification, isolated authority/signer service and production trust lifecycle remain. Local-owner passkey login does not authorize policy signing."
+      "implemented": "Exact bounded business-flow semantic diff, immutable approval profiles, DSSE verification, persistent quotas, and retained typed signed rollback authority for native verification. Typed immutable plan/authority-bootstrap challenge payloads use separate domain hashes and fresh random nonces; an opaque bridge verifies real WebAuthn assertions against the exact context and current supplied credential snapshot.",
+      "blocker": "Approval HTTP/UI, durable one-use authority transactions and proof retention, independent current-role/revocation checks, out-of-band credential pinning, isolated authority/signer service and production trust lifecycle remain. Cryptographic proof and local-owner login alone do not authorize policy signing."
     },
     {
       "id": "M04L",

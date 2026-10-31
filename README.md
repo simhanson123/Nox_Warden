@@ -29,6 +29,10 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
 - Policy and security libraries for deny precedence, current allow union, bounded
   leases, policy comparison, approval requirements, Ed25519 DSSE, atomic quotas,
   durable executor journals, audit verification and opt-in telemetry state.
+- Typed plan/bootstrap challenges and real WebAuthn verification of assertions
+  bound to their immutable context. These [approval proof primitives](docs/policy-approval-proofs.md)
+  still require an authority service, durable one-use approval storage and a
+  complete human review workflow.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.
 - Isolated Linux nftables suites for packet semantics and signed execution. The

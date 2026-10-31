@@ -571,9 +571,13 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "fw_contracts",
+ "fw_webauthn",
+ "openssl",
  "rusqlite",
  "serde",
+ "serde_cbor_2",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "uuid",
 ]
@@ -2256,8 +2260,6 @@ dependencies = [
 [[package]]
 name = "webauthn-rs"
 version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b24d082d3360258fefb6ffe56123beef7d6868c765c779f97b7a2fcf06727f8"
 dependencies = [
  "base64urlsafedata",
  "serde",
@@ -2270,8 +2272,6 @@ dependencies = [
 [[package]]
 name = "webauthn-rs-core"
 version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15784340a24c170ce60567282fb956a0938742dbfbf9eff5df793a686a009b8b"
 dependencies = [
  "base64 0.21.7",
  "base64urlsafedata",

@@ -8,7 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-fw_authority = { path = "../fw_authority" }
+fw_authority = { path = "../fw_authority", default-features = false }
 fw_backend_linux = { path = "../fw_backend_linux" }
 fw_contracts = { path = "../fw_contracts" }
 fw_domain = { path = "../fw_domain" }

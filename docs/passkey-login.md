@@ -43,7 +43,11 @@ owner is enrolled, bootstrap is blocked even after restart, and existing
 bootstrap sessions cannot operate as the enrolled owner. Startup does not issue
 a replacement bootstrap token. Sessions themselves are memory-only: after
 restart, sign in with a passkey again. There is no implemented lost-all-passkeys
-recovery ceremony or bootstrap bypass. Keep a verified spare for continued access.
+recovery ceremony or bootstrap bypass. This also applies if the first registered
+key is lost or cannot authenticate before its first signed login: the durable
+owner marker already closes bootstrap, and no verified spare exists yet. That
+state has no supported recovery workflow. Keep a verified spare once enrollment
+and the first login succeed.
 
 Credential additions and revocations require a passkey authentication less than
 five minutes old. The server checks freshness and current credential state;
@@ -71,6 +75,13 @@ browser session before exchange cancels its authorization. A restart or lost
 exchange response requires a new CLI login request. Exchanging a CLI session
 preserves the original passkey authentication time; it cannot renew permission
 to add or revoke a key.
+
+The controller retains at most 16 CLI login requests until their five-minute
+expiry, including requests already exchanged. Creation does not require an
+existing session. A local client can fill these slots and temporarily prevent
+legitimate CLI login with `CLI_LOGIN_LIMIT` (HTTP 429); expiry clears old entries
+when another creation is attempted. This bound limits memory, but does not
+provide availability against a local requester repeatedly filling the queue.
 The [CLI guide](../crates/fw_cli/README.md) describes file permissions and settings.
 
 ## Origin and runtime boundaries
@@ -106,9 +117,10 @@ establish isolation from software or administrators controlling the same host.
 
 The controller stores local-owner credentials and proof in its own database.
 That database is not an independently protected signer's source of authority.
-Plan-bound human approval still requires an immutable subject challenge, current
-roles and original proof verification in the separate authority. A successful
-login does not satisfy those requirements. See the [implementation boundaries](implementation.md)
+The [approval proof library](policy-approval-proofs.md) separately implements
+immutable subject challenges and bound WebAuthn verification. The authority still
+needs current-role resolution, trusted credential enrollment and durable one-use
+approval storage. A successful login does not satisfy those requirements. See the [implementation boundaries](implementation.md)
 and [WebAuthn dependency review](passkey-dependencies.md).
 
 ## Authentication API extension

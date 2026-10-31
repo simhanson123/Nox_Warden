@@ -1,0 +1,75 @@
+{
+  "schema_version": "fw.vendored-source-provenance/v1",
+  "upstream_repository": "https://github.com/kanidm/webauthn-rs",
+  "upstream_git_revision": "282d95f20648090bc131cdd33cdced336c33c3d1",
+  "license": "MPL-2.0",
+  "license_copy": {
+    "source_url": "https://raw.githubusercontent.com/kanidm/webauthn-rs/282d95f20648090bc131cdd33cdced336c33c3d1/LICENSE.md",
+    "sha256": "32ee9dbf6196874fc9d406c54a888a6c4cbb9aa4a7f35b46befeaff43a78fe85",
+    "note": "Published crate archives omit LICENSE.md. An unchanged copy from the exact upstream git revision is added to each vendored directory."
+  },
+  "crates": [
+    {
+      "name": "webauthn-rs",
+      "version": "0.5.4",
+      "archive_url": "https://static.crates.io/crates/webauthn-rs/webauthn-rs-0.5.4.crate",
+      "archive_sha256": "1b24d082d3360258fefb6ffe56123beef7d6868c765c779f97b7a2fcf06727f8",
+      "published_files": {
+        ".cargo_vcs_info.json": "529f1f14ef842bf4a7be5d1fc4e42e89fe6fae91e7b009526703c426cc1e5649",
+        "Cargo.lock": "eeb3e9ae11127b57cd5d77c5b8c07e2e5052a0a53517cf8a5ab8c4c9832ad20f",
+        "Cargo.toml": "480ceb012ec01781671ecc7e0eb630182e6d395b094c459131766f2d9d560268",
+        "Cargo.toml.orig": "cc4a2bc2b3693fe4843cd24b61ede35268f5c0d177fe89381a1ace6d9a441eea",
+        "README.md": "67bf297fc373d717167e5250eec1a1b387fa8a3aa5aeeaa29e88512e8ef42e20",
+        "src/interface.rs": "ad1d24e3c11f1b32cc6ed18f134da79687cb737c9f1795135e95782263906c59",
+        "src/lib.rs": "c5299f99d8c11e4f47848b2b13408f361201065cd7118db6fbcfe8dca46703f9"
+      },
+      "modified_files": [
+        {
+          "path": "src/interface.rs",
+          "sha256": "037e6e14a0158023868f9ad9e8129fb37569822da142d6cd810371b790999d89"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "40dc887eec64145db4cc77278ca3fa59522c568584b8da84cdcedf25e17ed239"
+        }
+      ]
+    },
+    {
+      "name": "webauthn-rs-core",
+      "version": "0.5.4",
+      "archive_url": "https://static.crates.io/crates/webauthn-rs-core/webauthn-rs-core-0.5.4.crate",
+      "archive_sha256": "15784340a24c170ce60567282fb956a0938742dbfbf9eff5df793a686a009b8b",
+      "published_files": {
+        ".cargo_vcs_info.json": "20b58821b61db2c4dd4685631ff2f5d300738569ed6c005fdfbae6e5f753131f",
+        "Cargo.lock": "04d587c00bb28a4316b49b03b4f8f58ce75b6801568bd69298189ba6966e9fdd",
+        "Cargo.toml": "edb45e2b7c441d0dc0a8e0a5fca8702e2c6a998a32cc734cf8207d46bb6944d6",
+        "Cargo.toml.orig": "0af00e0e869e41cacb18255ec0698898c8a1bd8962f78ed5e7d4c0e959f25f28",
+        "README.md": "5164cc56c62e95f861850eda6fd924e4ebc8f44f38b5a725b3d670fd099d1415",
+        "build.rs": "b2c74e0bb37acbafe13c491a75e27bd4e0b416be27f6c43da4b29c5fee490371",
+        "src/attestation.rs": "6e26dc0560e8e09ce55e784e590740e64a0da8932673dbd4660782308250c957",
+        "src/constants.rs": "d698685cb77d63201f7d751fdb83abe9a81e64bec4c2208d481b7ad2852b8bef",
+        "src/core.rs": "c5753644c6dc4c9e72202405a68f54a15c243b99a03961b26215d74295920972",
+        "src/crypto.rs": "cabe69ea08577a339145f82180c902122190ff133f8f69dd8072898a3cc0544f",
+        "src/error.rs": "b8d8f49cd794d9df3761ec3065db91fce0875f4d6b81127e01396bc421b44268",
+        "src/fake.rs": "1953c560e00ecf3a74907764e5b67d1a582d6bc5b2f1de6650249cc6bcc43d88",
+        "src/interface.rs": "ff87a37c8393cae69e258c39bb1e0be089140b1c20262fa6772fbb733e67cfdc",
+        "src/internals.rs": "349698487a679742d08a7428a9819fa31b62e407b81c81a61ce8fb5394ecf603",
+        "src/lib.rs": "8f61e33d5781ae543e8012087a4526b6e1a30e1e0db6121156cfd9fdb1ea0970",
+        "src/macros.rs": "df1046d139eab1ef84c7f1fdb8fd25db1044d9a046e01d2f2bf0dd01cb3f8d8e",
+        "src/proto.rs": "071c1dcc4226a381b35bfecac309ff2beb6a0ce460165d60ac60a8fd8823fc71"
+      },
+      "modified_files": [
+        {
+          "path": "src/core.rs",
+          "sha256": "6fb6bc31fde909c69d1eb3706282cdd12ab04161df4eebe686e39fc41460c8c7"
+        }
+      ]
+    }
+  ],
+  "patch": {
+    "path": "webauthn-challenge.patch",
+    "sha256": "22a4659baa78b432b0470da20c51df2e267c2b77f9be113a821e382caa7af476",
+    "apply_from": "vendor",
+    "strip_components": 1
+  }
+}

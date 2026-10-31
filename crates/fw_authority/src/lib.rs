@@ -1,8 +1,16 @@
 //! Pure grant verification and persistent quota primitives for an isolated authority.
-//! This crate does not provide a WebAuthn ceremony, a production signer service,
-//! or an API that accepts client-supplied approval booleans.
+//! Bound WebAuthn proof primitives do not provide a production approval/signing
+//! service or an API that accepts client-supplied approval booleans.
 mod approval;
 pub use approval::*;
+#[cfg(feature = "approval-proofs")]
+mod challenge;
+#[cfg(feature = "approval-proofs")]
+pub use challenge::*;
+#[cfg(feature = "approval-proofs")]
+mod proof;
+#[cfg(feature = "approval-proofs")]
+pub use proof::*;
 mod quota;
 pub use quota::*;
 

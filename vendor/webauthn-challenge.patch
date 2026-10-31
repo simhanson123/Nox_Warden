@@ -1,0 +1,122 @@
+--- a/webauthn-rs-0.5.4/src/interface.rs
++++ b/webauthn-rs-0.5.4/src/interface.rs
+@@ -2,9 +2,14 @@
+ 
+ use serde::{Deserialize, Serialize};
+ 
+-use webauthn_rs_core::error::WebauthnError;
++#[cfg(any(
++    all(doc, not(doctest)),
++    feature = "attestation",
++    feature = "resident-key-support"
++))]
++use webauthn_rs_core::{error::WebauthnError, proto::AttestationCa};
+ use webauthn_rs_core::proto::{
+-    AttestationCa, AttestationCaList, AuthenticationResult, AuthenticationState, COSEAlgorithm,
++    AttestationCaList, AuthenticationResult, AuthenticationState, COSEAlgorithm,
+     COSEKey, Credential, CredentialID, ParsedAttestation, RegistrationState,
+ };
+ 
+--- a/webauthn-rs-0.5.4/src/lib.rs
++++ b/webauthn-rs-0.5.4/src/lib.rs
+@@ -675,6 +675,33 @@
+         &self,
+         creds: &[Passkey],
+     ) -> WebauthnResult<(RequestChallengeResponse, PasskeyAuthentication)> {
++        self.start_passkey_authentication_inner(creds, None)
++    }
++
++    /// Start passkey authentication with an application-derived 32-byte challenge.
++    ///
++    /// This preserves the same required user verification and credential policies
++    /// as [`Self::start_passkey_authentication`]. The application must derive a
++    /// fresh, unpredictable challenge, for example a domain-separated hash of an
++    /// immutable subject containing a new 32-byte CSPRNG nonce. Client-selected,
++    /// predictable or reused challenges are unsafe and must never be accepted.
++    ///
++    /// Store the returned state only on the server and consume it atomically once.
++    /// This method starts a WebAuthn assertion ceremony; it does not authorize the subject.
++    /// Call [`Self::finish_passkey_authentication`] to verify the returned assertion.
++    pub fn start_passkey_authentication_with_challenge(
++        &self,
++        creds: &[Passkey],
++        challenge: [u8; 32],
++    ) -> WebauthnResult<(RequestChallengeResponse, PasskeyAuthentication)> {
++        self.start_passkey_authentication_inner(creds, Some(challenge))
++    }
++
++    fn start_passkey_authentication_inner(
++        &self,
++        creds: &[Passkey],
++        challenge: Option<[u8; 32]>,
++    ) -> WebauthnResult<(RequestChallengeResponse, PasskeyAuthentication)> {
+         let extensions = None;
+         let creds = creds.iter().map(|sk| sk.cred.clone()).collect();
+         let policy = Some(UserVerificationPolicy::Required);
+@@ -684,6 +711,10 @@
+         self.core
+             .new_challenge_authenticate_builder(creds, policy)
+             .map(|builder| {
++                let builder = match challenge {
++                    Some(value) => builder.challenge(value),
++                    None => builder,
++                };
+                 builder
+                     .extensions(extensions)
+                     .allow_backup_eligible_upgrade(allow_backup_eligible_upgrade)
+--- a/webauthn-rs-core-0.5.4/src/core.rs
++++ b/webauthn-rs-core-0.5.4/src/core.rs
+@@ -82,6 +82,7 @@
+ /// A builder allowing customisation of a client authentication challenge.
+ #[derive(Debug)]
+ pub struct ChallengeAuthenticateBuilder {
++    challenge: Option<[u8; CHALLENGE_SIZE_BYTES]>,
+     creds: Vec<Credential>,
+     policy: UserVerificationPolicy,
+     extensions: Option<RequestAuthenticationExtensions>,
+@@ -158,6 +159,18 @@
+ }
+ 
+ impl ChallengeAuthenticateBuilder {
++    /// Use an application-derived 32-byte challenge instead of generating one.
++    ///
++    /// The application must guarantee freshness and unpredictability, for example
++    /// by hashing a domain-separated immutable subject containing a new 32-byte
++    /// CSPRNG nonce. Never accept a client-selected or previously used challenge.
++    /// The returned authentication state must remain in protected server storage
++    /// and be consumed atomically once. Other verification policies are unchanged.
++    pub fn challenge(mut self, value: [u8; CHALLENGE_SIZE_BYTES]) -> Self {
++        self.challenge = Some(value);
++        self
++    }
++
+     /// Define extensions to be requested in the request. Defaults to None.
+     pub fn extensions(mut self, value: Option<RequestAuthenticationExtensions>) -> Self {
+         self.extensions = value;
+@@ -964,6 +977,7 @@
+         };
+ 
+         Ok(ChallengeAuthenticateBuilder {
++            challenge: None,
+             creds,
+             policy,
+             extensions: Default::default(),
+@@ -987,6 +1001,7 @@
+         challenge_builder: ChallengeAuthenticateBuilder,
+     ) -> Result<(RequestChallengeResponse, AuthenticationState), WebauthnError> {
+         let ChallengeAuthenticateBuilder {
++            challenge,
+             creds,
+             policy,
+             extensions,
+@@ -994,7 +1009,9 @@
+             hints,
+         } = challenge_builder;
+ 
+-        let chal = self.generate_challenge();
++        let chal = challenge
++            .map(|value| Challenge::new(value.to_vec()))
++            .unwrap_or_else(|| self.generate_challenge());
+ 
+         // Get the user's existing creds if any.
+         let ac = creds
