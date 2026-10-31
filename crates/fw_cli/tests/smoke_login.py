@@ -53,7 +53,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         requests.append(("GET", self.path))
+        if self.path == "/api/v1/auth/status":
+            self.reply(200, {"data": {"owner_enrolled": False}})
+            return
         assert self.headers["Cookie"] == "fw_session=" + COOKIE
+        assert self.headers["X-CSRF-Token"] == CSRF
         assert self.path in ("/api/v1/status", "/api/v1/assets", "/api/v1/services")
         self.reply(200, {"data": {"mode": "observe", "enforcement": False}} if self.path.endswith("status") else {"data": []})
 
@@ -97,7 +101,7 @@ try:
         session.unlink()
         count = len(requests)
         call("login", expected=1)
-        assert len(requests) == count + 1 and not session.exists()
+        assert len(requests) == count + 2 and not session.exists()
         checks.append("bootstrap redirect refused without persisting credentials")
 finally:
     server.shutdown()

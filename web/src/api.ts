@@ -10,7 +10,11 @@ export interface ReadEnvelope<T> {
   freshness?: { observed_at: string | null; stale: boolean; source: string; stale_after_seconds: number };
   next_cursor?: string | null;
 }
-export interface Session { authenticated: boolean; principal_id: string; org_id: string; project_id: string; csrf_token: string }
+export interface Session {
+  authenticated: boolean; principal_id: string; org_id: string; project_id: string; csrf_token: string;
+  authentication_method?: 'bootstrap' | 'passkey'; authenticated_at?: number;
+  credential_id?: string | null; owner_enrolled?: boolean;
+}
 export interface ControllerStatus { mode: string; enforcement: boolean; version: string; telemetry_enabled?: boolean; [key: string]: unknown }
 export interface AccessRequest {
   schema_version: 'f.access-request/v1'; idempotency_key: string;
@@ -27,10 +31,13 @@ let csrfToken: string | undefined;
 export function setCsrfToken(token: string | undefined) { csrfToken = token; }
 export async function api<T>(path: string, options: { body?: unknown; key?: string; ifMatch?: string; signal?: AbortSignal } = {}): Promise<ReadEnvelope<T>> {
   const headers: Record<string, string> = { Accept: 'application/json' };
+  // Cookies are shared across localhost ports. The separately held, in-memory
+  // proof is therefore required on authenticated reads as well as mutations.
+  // Reloading intentionally requires another passkey sign-in; never persist it.
+  if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
     headers['Idempotency-Key'] = options.key ?? crypto.randomUUID();
-    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
     if (options.ifMatch) headers['If-Match'] = options.ifMatch;
   }
   let response: Response;

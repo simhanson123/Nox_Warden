@@ -31,6 +31,12 @@ jobs:
           python scripts/smoke_cli.py
       - name: Device enrollment and certificate revocation
         run: python scripts/smoke_enrollment.py
+      - name: Install pinned browser test tools
+        run: |
+          python -m pip install -r scripts/requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Browser passkey login and credential revocation
+        run: python scripts/smoke_passkeys.py
       - name: Isolated Linux packet regression
         run: python scripts/linux-lab.py --report reports/linux-lab.json
       - name: Signed Linux execution and crash recovery
@@ -47,5 +53,6 @@ jobs:
             reports/linux-lab.json
             reports/enrollment-smoke.json
             reports/signed-linux-lab.json
+            reports/passkey-smoke.json
           retention-days: 7
           if-no-files-found: ignore

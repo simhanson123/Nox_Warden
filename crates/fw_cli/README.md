@@ -14,18 +14,30 @@ cargo run -p fw_cli -- enrollments
 cargo run -p fw_cli -- targets
 ```
 
-`FW_API_URL` selects the controller origin (default `http://127.0.0.1:8787`).
+`FW_API_URL` selects the controller origin (default `http://localhost:8787`).
 `FW_BOOTSTRAP_FILE` selects the protected one-use token file (default
 `state/bootstrap-token`). `FW_SESSION_FILE` selects the saved session (default
 `state/cli-session.json`). Token and cookie values are never accepted as command
 arguments or printed by login.
 
-The CLI uses the controller's Origin/CSRF-capable local session protocol. Login
-stores the cookie and CSRF token in a private, atomically replaced file bound to
-the exact API origin. It consumes the same one-use bootstrap credential as the
-browser. A token already consumed by either cannot be reused; restart the
-controller with the same state to issue a new token. Sessions expire with the
-server's policy and are invalidated on restart.
+The CLI uses the controller's Origin/CSRF-capable local session protocol. Before
+owner enrollment, login consumes the same one-use console token as the browser.
+After enrollment it prints an exact controller URL and eight-character uppercase
+code. Open the URL, authenticate with a passkey if needed, type the code from the
+terminal and explicitly approve CLI login. The CLI waits at most five minutes.
+The browser never receives the CLI's polling secret; that secret is exchanged
+once for a session and never appears in a URL or log. Logging out or replacing
+the authorizing browser session before exchange cancels the pending permission.
+
+Login stores the cookie and CSRF token in a private, atomically replaced file
+bound to the exact API origin. It sends both proofs on authenticated requests,
+including reads; browser sessions keep their equivalent proof only in memory.
+CLI authorization preserves the original passkey
+authentication time, so transferring a session cannot renew credential-management
+permission. Revoking its passkey invalidates the CLI session on subsequent
+requests. Sessions end on controller restart; run `login` again with the passkey
+flow. Restart does not issue a bootstrap credential after owner enrollment.
+See the [passkey guide](../../docs/passkey-login.md).
 
 ## Register and revoke devices
 
@@ -70,7 +82,7 @@ observe-only, and access requests cannot become active through registration.
 
 ## Credential and transport boundaries
 
-Operator transport permits HTTPS or loopback IPv4 HTTP, disables redirects,
+Operator transport permits HTTPS or exact `localhost`/loopback IPv4 HTTP, disables redirects,
 bounds response bytes and uses a ten-second timeout. HTTPS login requires a
 Secure cookie. This does not add a remote operator listener to the controller.
 Device enrollment uses the separate pinned TLS endpoint described in its guide.
@@ -81,8 +93,9 @@ credentials, public permissions and oversized files are rejected. Atomic
 replacement does not modify another hard-link target. Native protected
 credential-file handling on non-Unix platforms is not implemented; sensitive
 operations refuse rather than claiming Windows ACL guarantees. Unauthenticated
-health checks remain portable. OIDC, WebAuthn, policy authority bootstrap and
-certificate renewal remain unavailable.
+health checks remain portable. WebAuthn runs in the browser rather than asking
+the CLI to handle a private authenticator key. OIDC, policy authority bootstrap
+and certificate renewal remain unavailable.
 
 ## Validation
 
@@ -93,6 +106,8 @@ cargo build -p fw_control -p fw_cli -p fw_agent --locked
 python crates/fw_cli/tests/smoke_login.py
 python scripts/smoke_cli.py
 python scripts/smoke_enrollment.py
+# Requires the browser prerequisites in docs/passkey-login.md.
+python scripts/smoke_passkeys.py
 ```
 
 The first Python check uses a temporary protocol server; the remaining checks use

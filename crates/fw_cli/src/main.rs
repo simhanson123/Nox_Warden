@@ -1,5 +1,6 @@
 //! Local development login, device invitations and controller queries.
 mod enrollment;
+mod passkey_login;
 use serde_json::{Value, json};
 use std::{
     error::Error,
@@ -32,11 +33,11 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] {
         println!(
-            "fw_cli <login|health|status|requests|operations|audit|capabilities|assets|services|targets|enrollments>\n  fw_cli enroll-token --name NAME --platform linux --fingerprint SHA256 --output FILE\n  fw_cli revoke-target TARGET_UUID\nEnvironment:\n  FW_API_URL: controller origin (default http://127.0.0.1:8787)\n  FW_BOOTSTRAP_FILE: protected token file (default state/bootstrap-token)\n  FW_SESSION_FILE: private local session file (default state/cli-session.json)\nRun login once after starting the controller, then use authenticated read commands.\nLogin currently requires Unix private-file protections. No command changes the host firewall."
+            "fw_cli <login|health|status|requests|operations|audit|capabilities|assets|services|targets|enrollments>\n  fw_cli enroll-token --name NAME --platform linux --fingerprint SHA256 --output FILE\n  fw_cli revoke-target TARGET_UUID\nEnvironment:\n  FW_API_URL: controller origin (default http://localhost:8787)\n  FW_BOOTSTRAP_FILE: protected token file (default state/bootstrap-token)\n  FW_SESSION_FILE: private local session file (default state/cli-session.json)\nLogin uses the initial console token before passkey enrollment; afterward, approve the displayed code in your browser with a passkey.\nLogin currently requires Unix private-file protections. No command changes the host firewall."
         );
         return Ok(());
     }
-    let base = std::env::var("FW_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".into());
+    let base = std::env::var("FW_API_URL").unwrap_or_else(|_| "http://localhost:8787".into());
     validate_base(&base)?;
     let base = base.trim_end_matches('/');
     let session_path = PathBuf::from(
@@ -81,10 +82,17 @@ fn run() -> Result<()> {
     let mut req = client.get(format!("{base}{route}"));
     if args[0] != "health" {
         let session = load_session(&session_path, base)?;
-        req = req.header(
-            "Cookie",
-            session["cookie"].as_str().ok_or("invalid session file")?,
-        );
+        req = req
+            .header(
+                "Cookie",
+                session["cookie"].as_str().ok_or("invalid session file")?,
+            )
+            .header(
+                "X-CSRF-Token",
+                session["csrf_token"]
+                    .as_str()
+                    .ok_or("invalid session file")?,
+            );
     }
     let response: Value = req
         .call()
@@ -100,6 +108,21 @@ fn run() -> Result<()> {
 fn login(base: &str, token_path: &Path, session_path: &Path) -> Result<()> {
     // Validate destination before consuming the server's one-use credential.
     prepare_destination(session_path)?;
+    let status: Value = agent()
+        .get(format!("{base}/api/v1/auth/status"))
+        .call()
+        .map_err(request_error)?
+        .body_mut()
+        .with_config()
+        .limit(65_536)
+        .read_json()
+        .map_err(|_| "invalid authentication status")?;
+    if status["data"]["owner_enrolled"] == true {
+        return passkey_login::login(base, session_path);
+    }
+    if status["data"]["owner_enrolled"] != false {
+        return Err("controller did not provide its enrollment state".into());
+    }
     let bytes = read_private_file(token_path)?;
     let token = std::str::from_utf8(&bytes)
         .map_err(|_| "invalid bootstrap token file")?
@@ -206,7 +229,8 @@ fn validate_base(base: &str) -> Result<()> {
     }
     let uri: ureq::http::Uri = base.parse().map_err(|_| "invalid controller origin")?;
     let authority = uri.authority().ok_or("API authority missing")?;
-    let local = uri.scheme_str() == Some("http") && uri.host() == Some("127.0.0.1");
+    let local =
+        uri.scheme_str() == Some("http") && matches!(uri.host(), Some("127.0.0.1" | "localhost"));
     if authority.as_str().contains('@')
         || uri.query().is_some()
         || !["", "/"].contains(&uri.path())

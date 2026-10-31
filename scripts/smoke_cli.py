@@ -4,7 +4,7 @@ import json,os,pathlib,subprocess,tempfile,time,urllib.request
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='nox-cli-live-') as tmp:
     state=pathlib.Path(tmp)
-    env=dict(os.environ,FW_STATE_DIR=tmp,FW_PORT='8789',FW_API_URL='http://127.0.0.1:8789',FW_BOOTSTRAP_FILE=str(state/'bootstrap-token'),FW_SESSION_FILE=str(state/'session.json'))
+    env=dict(os.environ,FW_STATE_DIR=tmp,FW_PORT='8789',FW_API_URL='http://127.0.0.1:8789',FW_PUBLIC_ORIGIN='http://127.0.0.1:8789',FW_BOOTSTRAP_FILE=str(state/'bootstrap-token'),FW_SESSION_FILE=str(state/'session.json'))
     process=subprocess.Popen([str(ROOT/'target/debug/fw_control')],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     try:
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))

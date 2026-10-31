@@ -437,7 +437,7 @@ fn registry_audit_failure_rolls_back_revision_head_relations_outbox_and_idempote
     assert_eq!(store.security_revision(&t).unwrap(), 1);
 }
 #[test]
-fn v1_migration_preserves_existing_data_and_marks_version_three() {
+fn v1_migration_preserves_existing_data_and_marks_version_four() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db");
     let raw = Connection::open(&path).unwrap();
@@ -462,7 +462,7 @@ fn v1_migration_preserves_existing_data_and_marks_version_three() {
     assert_eq!(
         raw.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(
         raw.query_row(
@@ -477,7 +477,7 @@ fn v1_migration_preserves_existing_data_and_marks_version_three() {
         raw.query_row("SELECT count(*) FROM schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
 }
 #[test]
@@ -488,7 +488,7 @@ fn unknown_version_or_old_migration_checksum_prevents_upgrade() {
     let raw = Connection::open(&path).unwrap();
     raw.pragma_update(None, "user_version", 99).unwrap();
     assert!(matches!(Store::open(&path), Err(StoreError::Integrity(_))));
-    raw.pragma_update(None, "user_version", 3).unwrap();
+    raw.pragma_update(None, "user_version", 4).unwrap();
     raw.execute(
         "UPDATE schema_migrations SET checksum='tampered' WHERE version=1",
         [],

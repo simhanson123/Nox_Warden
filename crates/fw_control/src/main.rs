@@ -66,13 +66,31 @@ fn write_bootstrap_token(state_dir: &Path, token: &str) -> io::Result<PathBuf> {
     result
 }
 
+fn remove_bootstrap_token(state_dir: &Path) -> io::Result<()> {
+    let path = state_dir.join("bootstrap-token");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            fs::remove_file(path)?;
+            #[cfg(unix)]
+            fs::File::open(state_dir)?.sync_all()?;
+            Ok(())
+        }
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "bootstrap token path must be a regular file",
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_dir = PathBuf::from(std::env::var("FW_STATE_DIR").unwrap_or_else(|_| "state".into()));
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args == ["--help"] {
         println!(
-            "fw_control [init-enrollment-ca]\nFW_STATE_DIR: private controller state (default state)\nFW_ENROLLMENT_DIR: optional private enrollment PKI directory\nFW_ENROLLMENT_PORT: separate loopback TLS port (default 8791)\ninit-enrollment-ca creates fresh keys once; it never replaces existing keys.\nDevice enrollment does not enable host firewall enforcement."
+            "fw_control [init-enrollment-ca]\nFW_STATE_DIR: private controller state (default state)\nFW_PUBLIC_ORIGIN: exact localhost origin (default http://localhost:8787; port follows FW_PORT)\nAn explicit http://127.0.0.1 origin keeps legacy bootstrap access but disables passkeys.\nFW_ENROLLMENT_DIR: optional private enrollment PKI directory\nFW_ENROLLMENT_PORT: separate loopback TLS port (default 8791)\ninit-enrollment-ca creates fresh keys once; it never replaces existing keys.\nDevice enrollment does not enable host firewall enforcement."
         );
         return Ok(());
     }
@@ -104,6 +122,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()?;
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(address).await?;
+    let address = listener.local_addr()?;
+    let default_origin = format!("http://localhost:{}", address.port());
+    let origin = std::env::var("FW_PUBLIC_ORIGIN").unwrap_or_else(|_| default_origin.clone());
+    if origin != default_origin && origin != format!("http://{address}") {
+        return Err(
+            "FW_PUBLIC_ORIGIN must exactly match the bound localhost or 127.0.0.1 origin".into(),
+        );
+    }
     // Validate and bind enrollment before serving the public API. Missing/bad TLS
     // configuration must fail startup instead of leaving a usable token issuer.
     let enrollment = if let Some(directory) = std::env::var_os("FW_ENROLLMENT_DIR") {
@@ -121,9 +147,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let token = fw_control::generate_token();
-    let token_path = write_bootstrap_token(&state_dir, &token)?;
     let store = fw_store::Store::open(state_dir.join("controller.sqlite3"))?;
-    let state = fw_control::AppState::new(store, format!("http://{address}"), &token)?;
+    let tenant = fw_store::Tenant::new(fw_control::ORG, fw_control::PROJECT)?;
+    store.ensure_tenant(
+        fw_control::ORG,
+        fw_control::PROJECT,
+        "Local development",
+        chrono::Utc::now().timestamp(),
+    )?;
+    store.ensure_principal(
+        &tenant,
+        fw_control::PRINCIPAL,
+        "human",
+        chrono::Utc::now().timestamp(),
+    )?;
+    let owner_enrolled = store.passkey_owner_enrolled(&tenant, fw_control::PRINCIPAL)?;
+    let token_path = if owner_enrolled {
+        remove_bootstrap_token(&state_dir)?;
+        None
+    } else {
+        Some(write_bootstrap_token(&state_dir, &token)?)
+    };
+    let state = fw_control::AppState::new(store, origin.clone(), &token)?;
     let (state, enrollment_listener) = match enrollment {
         Some((listener, authority)) => (state.with_enrollment(authority), Some(listener)),
         None => (state, None),
@@ -131,12 +176,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(state);
     let web = PathBuf::from(std::env::var("FW_WEB_DIR").unwrap_or_else(|_| "web/dist".into()));
     eprintln!(
-        "fw_control listening on {address}; observe-only development profile; no native enforcement"
+        "fw_control listening on {address}; open {origin}; observe-only development profile; no native enforcement"
     );
-    eprintln!(
-        "One-use local login token (10-minute lifetime) stored at {}",
-        token_path.display()
-    );
+    if let Some(token_path) = token_path {
+        eprintln!(
+            "One-use local login token (10-minute lifetime) stored at {}",
+            token_path.display()
+        );
+    } else {
+        eprintln!(
+            "Local owner is enrolled; passkey authentication required; bootstrap login disabled."
+        );
+    }
     async fn shutdown() {
         let _ = tokio::signal::ctrl_c().await;
     }
@@ -206,6 +257,10 @@ mod tests {
             0o700
         );
         assert_eq!(fs::read_dir(&state).unwrap().count(), 1);
+        remove_bootstrap_token(&state).unwrap();
+        remove_bootstrap_token(&state).unwrap();
+        assert!(!token_file.exists());
+        assert_eq!(fs::read_to_string(&original).unwrap(), "original");
     }
 
     #[test]
@@ -227,6 +282,7 @@ mod tests {
         fs::write(&target, "original").unwrap();
         symlink(&target, state.join("bootstrap-token")).unwrap();
         assert!(write_bootstrap_token(&state, "local-test-token").is_err());
+        assert!(remove_bootstrap_token(&state).is_err());
         assert_eq!(fs::read_to_string(&target).unwrap(), "original");
     }
 }

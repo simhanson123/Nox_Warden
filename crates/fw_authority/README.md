@@ -34,7 +34,9 @@ released reservations cannot authorize another issuance. A backwards authority
 clock refuses fresh reservations. The supplied timestamp and limit values must
 come from the authority, not a client.
 
-Remaining M03 work includes real WebAuthn/role-proof adapters, durable independent
+Local-owner [WebAuthn login](../../docs/passkey-login.md) is implemented separately
+and does not authorize a plan. Remaining M03 work includes plan-bound WebAuthn
+approval/current-role proof adapters, durable independent
 signer jobs/trust ceremonies, signed grant/quota reconciliation, complete
 PostgreSQL authority transactions, and process/key isolation deployment. SQLite
 unit/race/reopen tests do not certify production crash recovery or privileged OS

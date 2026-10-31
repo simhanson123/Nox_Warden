@@ -9,6 +9,7 @@ flowchart LR
   UI[React UI / local CLI] --> API[fw_control: authenticated loopback HTTP]
   MCP[Read-only MCP] --> API
   API --> DB[fw_store: SQLite transactions / audit / outbox]
+  API --> WA[fw_webauthn: local-owner passkey verification]
   AG[fw_agent: Linux transport identity] --> TLS[Loopback TLS enrollment / mTLS reports]
   TLS --> PKI[fw_enrollment: transport CA / client certificates]
   TLS --> DB
@@ -26,7 +27,11 @@ The controller holds a separate enrollment CA key for transport certificates. It
 
 ## Runtime profile
 
-The executable is an explicit development profile. Operator HTTP and the optional separate device TLS listener both bind to loopback. The one-use token authenticates a local development operator; it does not enroll a signing authority or approve a plan. Cookies are HttpOnly/SameSite=Strict and are scoped to `/`; unsafe methods require exact Origin, CSRF and UUID idempotency key. Development HTTP does not set Secure; remote operator TLS/OIDC/WebAuthn are unsupported and cannot be enabled by changing a bind flag. Tenancy is server-selected; body IDs cannot change the session tenant. Store APIs enforce tenant/project isolation independently.
+The executable is an explicit development profile. Operator HTTP and the optional device TLS listener both bind to loopback. The browser origin defaults to `http://localhost:8787`; WebAuthn verifies the exact configured origin and `localhost` RP ID. The one-use console token permits initial local-owner enrollment. A durable enrollment marker then blocks bootstrap and previous bootstrap sessions, including after restart or an IP-origin configuration change. It does not enroll a signing authority or approve a plan.
+
+`fw_webauthn` uses pinned `webauthn-rs` for required user presence/verification, signed authentication, credential counters and backup-state handling. Registration uses no hardware attestation and creates a pending credential; only a subsequent verified signature activates it and issues a passkey session. Addition/revocation requires a passkey authentication less than five minutes old, and an unverified spare cannot justify revoking the last verified credential. Challenge verification, current credential checks, successful consumption, credential updates and proof/audit storage share a bounded SQLite transaction. Failed proofs do not successfully consume a challenge. The controller's credential database is local login authority, not an independent signer's trusted credential registry.
+
+Cookies are HttpOnly/SameSite=Strict and scoped to `/`. Passkey sessions require the memory-held CSRF proof on authenticated reads as well as writes, so a cookie received by a different localhost-port service cannot alone recover the session proof. Browser reload/new-tab login starts a new passkey authentication; no session secret is persisted in browser storage. Initial bootstrap reads remain cookie-only until enrollment invalidates bootstrap access, so setup requires trusted local services/processes. Authenticated writes additionally require exact Origin and a UUID idempotency key. Unauthenticated login ceremonies require exact Origin, bounded requests and a server-issued browser binding. Authentication completions are deliberately single-use: repeating a successful assertion cannot mint another session, and a lost response requires a fresh login. Sessions are memory-only and end on restart; credentials and owner enrollment remain durable. Each request checks that its bound credential is still verified and unrevoked. Development HTTP does not set Secure; remote operator TLS/OIDC remains unsupported. Tenancy is server-selected; body IDs cannot change the session tenant. Store APIs independently enforce tenant/project isolation. See the [passkey protocol and lifecycle](passkey-login.md).
 
 API syntax is bounded at 64 KiB and depth 32, rejects duplicate/unknown fields, floats and unsafe integers. Requests normalize local NFC fields and sort set-valued IDs before hashing. Reply JSON is capped at 256 KiB. Public error details contain stable codes, never SQL or credential values. Failed authentication/CSRF checks append denial audit events with unknown actor rather than trusting request identity. Bootstrap rate limiting is per process (10 failed attempts); remote authentication is not implemented.
 
@@ -38,6 +43,8 @@ The interface defaults to English and supports explicit selection of Korean, Jap
 
 - `/healthz`: process readiness.
 - `/api/v1/session/bootstrap`, `/session`, `/status`: explicitly documented development extensions.
+- `/auth/status`, `/auth/passkeys`, registration/login option and completion routes, credential revocations and `/auth/logout`: actual local-owner WebAuthn lifecycle. Completed authentication proofs cannot be replayed to retrieve session cookies.
+- `/auth/cli/requests` and request view/authorization/exchange routes: bounded browser-authorized CLI login. The browser confirms the terminal code with a recent passkey session; a separate one-use polling secret obtains the CLI session while retaining the original authentication time. Pending authorization is bound to that browser session and cannot survive its logout or replacement.
 - `/api/v1/access-requests` GET/POST and `/{id}`: strict core access request; atomic persistence and immutable idempotent response.
 - `/api/v1/operations` and `/{id}`, `/audit/events`: actual SQLite evidence.
 - `/assets`, `/services`, object GET and `/revisions` POST: actual immutable tenant-scoped catalogues with canonical hashes, exact ETags/If-Match, idempotency, retirement and audit/outbox transactions. Only manual provenance is accepted. Service creation requires existing same-tenant assets and a registered target with a current certificate and capability report.
@@ -65,7 +72,7 @@ Domain evaluation uses explicit time, tenant, target and original business-flow 
 
 Planner preserves the complete baseline, revision/hash preconditions and tombstones, forbids general-route allow expansion, and computes a bounded exact partition over IPv4/IPv6 TCP/UDP CIDR/port/interface/time boundaries. Unsupported ICMP, changed management context or resource exhaustion produces UNKNOWN. A sound business-domain diff does not certify OS enforcement.
 
-Authority validates Ed25519 DSSE domain separation, tenant/target/epoch/generation/content/expiry and immutable human approval requirements. Fixed Lab/Team/high-risk role profiles are enforced; production WebAuthn proof adapters are required and no permissive adapter is supplied. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
+Authority validates Ed25519 DSSE domain separation, tenant/target/epoch/generation/content/expiry and immutable human approval requirements. Fixed Lab/Team/high-risk role profiles are enforced. Local-owner WebAuthn login is implemented separately; immutable plan-bound WebAuthn approval and independent current-role/proof verification are still required. No login success is treated as policy approval. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
 
 Executor journals own a process lock and durable SQLite generation/time bounds. Native material acceptance atomically persists the signed grant, full baseline/candidate/recovery states and artifacts, installation binding and recovery scope before submission. Submission rechecks signed validity and confirmation ends at the earlier of submission+60 seconds or the signed absolute deadline. Recovery completion uses the same generation fence and retains the high-water mark. Restart and uncertain observations never create active-state evidence. The experimental confirmation domain is explicitly not the original F production protocol.
 
@@ -86,8 +93,12 @@ reproducible commands and CI links. Browser coverage includes asset lifecycle,
 immutable revisions, deep links and service prerequisites. CLI smoke checks use
 the real controller for login and authenticated reads. The enrollment smoke uses
 real processes, pinned TLS, client certificates and credential revocation; its
-optional browser mode checks registration-backed service creation. UI request
-controls select stored catalogue objects instead of inventing UUIDs.
+optional browser mode checks registration-backed service creation. A separate
+passkey smoke drives actual browser WebAuthn through Chromium's virtual CTAP2
+authenticator and real controller/CLI processes, covering enrollment, restart,
+credential management and CLI authorization. This is automated cryptographic
+protocol evidence, not physical authenticator or human-consent verification.
+UI request controls select stored catalogue objects instead of inventing UUIDs.
 
 The isolated Linux smoke exercises real IPv4/IPv6 packets in a disposable Docker
 network namespace with only NET_ADMIN. The bounded readback verifier compares

@@ -3,7 +3,7 @@
 This directory tracks the concise status summary, [task ledger](task-ledger.json)
 and [specification provenance](spec-import.json). Generated reports, logs and
 screenshots are ignored by Git. CI retains selected HTTP, CLI, enrollment and
-Linux packet and signed-execution reports as downloadable artifacts for seven days; logs and check status
+Linux packet, signed-execution and passkey reports as downloadable artifacts for seven days; logs and check status
 remain attached to [GitHub Actions runs](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 Keep tests and reproduction commands in source control. The supplied specification
 and its bundled fixtures remain unchanged under `docs/specs`.
@@ -18,23 +18,26 @@ bash scripts/check.sh
 cargo build -p fw_control -p fw_cli -p fw_agent --locked
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
+python crates/fw_cli/tests/smoke_login.py
+# Browser prerequisites: docs/passkey-login.md
+python scripts/smoke_passkeys.py
 python scripts/smoke_enrollment.py
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
 ```
 
-The full repository check passes: **244 Rust tests, 27 UI tests, 27 specification
+The full repository check passes: **280 Rust tests, 43 UI tests, 27 specification
 checks, 52 core and 28 extended contract fixtures, and nine Linux runner
 regressions**. Formatting, Clippy, frontend types, the production build and parity
-across eight locale catalogues with 169 keys also pass.
+across eight locale catalogues with 214 keys also pass.
 
-The real-controller HTTP and CLI smokes pass **24 and 11 checks**, respectively.
-The TLS enrollment smoke passes **23 checks**, including original contract
-validation for target, service and audit responses. The optional Chromium variant
-adds two checks for live target selection and persisted service creation. The
-suite uses real Ed25519 certificates, pinned TLS, mutual authentication, durable
-retries, conservative capability reports and credential revocation. Reports do
-not record private keys or credential values.
+The real-controller HTTP and CLI smokes pass **24 and 11 checks**, respectively;
+the separate CLI protocol fixture passes **five checks**. The TLS enrollment
+smoke with Chromium passes **25 checks**, including original contract validation,
+live target selection and persisted service creation. Its nonbrowser CI subset
+contains 23 checks. The suite uses real Ed25519 certificates, pinned TLS, mutual
+authentication, durable retries, conservative capability reports and credential
+revocation. Reports do not record private keys or credential values.
 
 The isolated compiler/readback suite passes **66 checks, including 40 actual
 packet probes**.
@@ -55,6 +58,15 @@ Signing and approval inputs are clearly marked synthetic fixtures, and the
 recovery process is not a qualified watchdog against a permanently hung lock
 owner. Expired rollback authority causes no unsigned fallback write.
 
+The [passkey browser suite](../docs/passkey-login.md) passes **48 checks** with
+actual Chromium WebAuthn backed by a CDP virtual CTAP2 authenticator and real
+controller/CLI processes. It covers durable owner enrollment across restart,
+signed login, credential management, bootstrap closure and browser-authorized CLI
+login. Both browser and CLI sessions work before credential revocation and are
+rejected afterward. Browser/controller cleanup succeeds. This verifies the
+protocol and cryptographic path with an automated authenticator; it does not
+establish physical-key compatibility or a human policy-approval decision.
+
 Live Chromium checks cover English-first startup and saved locale selection,
 asset revisions, deep links and service prerequisites. The enrollment browser
 check additionally verifies selecting an actual registered target, creating a
@@ -71,7 +83,9 @@ artifacts, rather than a continuing development diary.
 
 ## Release boundary
 
-The controller remains **observe-only**. Transport registration and measured
+The controller remains **observe-only**. Local-owner passkey login identifies the
+operator; plan-bound approval and independent signer authority remain separate
+unimplemented integrations. Transport registration and measured
 capability metadata now support real target/service inventory; they do not
 bootstrap policy authority, attest workloads or activate access requests.
 Certificate renewal and remote enrollment, full Linux qualification, Windows
