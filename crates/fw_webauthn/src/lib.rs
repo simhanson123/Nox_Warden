@@ -48,6 +48,60 @@ impl Credential {
     pub fn rp_id(&self) -> &str {
         &self.rp_id
     }
+    /// Stable key and identity binding for an independently provisioned registry.
+    /// Counters, backup state and transport hints are intentionally excluded.
+    /// This is an identity comparison, not proof of activation or authorization.
+    pub fn key_fingerprint(&self) -> Result<String> {
+        use webauthn_rs::prelude::{COSEAlgorithm, COSEKeyType, ECDSACurve};
+
+        principal_uuid(&self.principal_id)?;
+        self.validate(&self.principal_id)?;
+        // Match the algorithms offered by this local verifier. A deserialized
+        // record must not relabel an RSA key as ECDSA (or use an unsupported
+        // algorithm) merely because OpenSSL can decode its key material.
+        let public_key = self.passkey.get_public_key();
+        let supported_key = match (public_key.type_, &public_key.key) {
+            (COSEAlgorithm::ES256, COSEKeyType::EC_EC2(key)) => {
+                key.curve == ECDSACurve::SECP256R1
+                    && (1..=33).contains(&key.x.len())
+                    && (1..=33).contains(&key.y.len())
+            }
+            (COSEAlgorithm::RS256, COSEKeyType::RSA(key)) => {
+                // The pinned registration profile supports 2048-bit RSA with
+                // a three-byte exponent. Checking the high bit also rejects a
+                // weak modulus padded to the expected serialized length.
+                key.n.len() == 256
+                    && key.n.as_slice()[0] & 0x80 != 0
+                    && key.n.as_slice()[255] & 1 != 0
+                    && key.e[2] & 1 != 0
+                    && key.e != [0, 0, 1]
+            }
+            _ => false,
+        };
+        if !supported_key {
+            return Err(Error::Input);
+        }
+        // DER SubjectPublicKeyInfo canonicalizes the public key rather than
+        // fingerprinting mutable Passkey JSON or COSE coordinate encodings.
+        let der = public_key
+            .get_openssl_pkey()
+            .map_err(|_| Error::Input)?
+            .public_key_to_der()
+            .map_err(|_| Error::Input)?;
+        if der.len() > 8192 {
+            return Err(Error::Input);
+        }
+        let binding = serde_json::json!({
+            "principal_id": self.principal_id,
+            "rp_id": self.rp_id,
+            "credential_id": self.id(),
+            "algorithm": self.passkey.cred_algorithm(),
+            "spki_der": URL_SAFE_NO_PAD.encode(der),
+        });
+        let mut bytes = b"fw.webauthn-key-binding.v1\0".to_vec();
+        bytes.extend(fw_contracts::canonical_bytes(&binding).map_err(|_| Error::Input)?);
+        Ok(fw_contracts::hash_bytes(&bytes))
+    }
     fn validate(&self, principal: &str) -> Result<()> {
         if self.schema_version != "fw.local-passkey/v1"
             || self.principal_id != principal

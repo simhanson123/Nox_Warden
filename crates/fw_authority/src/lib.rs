@@ -11,6 +11,10 @@ pub use challenge::*;
 mod proof;
 #[cfg(feature = "approval-proofs")]
 pub use proof::*;
+#[cfg(feature = "approval-proofs")]
+mod store;
+#[cfg(feature = "approval-proofs")]
+pub use store::*;
 mod quota;
 pub use quota::*;
 

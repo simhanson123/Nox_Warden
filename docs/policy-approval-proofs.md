@@ -4,6 +4,9 @@ The authority library can bind a WebAuthn assertion to one immutable policy plan
 or authority-bootstrap subject. This is a cryptographic building block: the
 controller still refuses approval HTTP routes, and the application remains in
 observe mode. Local-owner login and CLI authorization do not approve a policy.
+The separate [authority store](authority-store.md) adds durable one-use admission
+and retained verification for plan decisions, using explicitly provisioned
+authority credentials and roles. It does not expose the human review workflow.
 
 ## Immutable challenge
 
@@ -74,26 +77,38 @@ These authority APIs use the default-enabled `approval-proofs` Cargo feature.
 The native executor and lab consumers disable it, so approval ceremony code and
 its WebAuthn/OpenSSL dependencies are not added to their grant-verification builds.
 
-## Authority integration still required
+## Durable plan admission and remaining integration
 
 A valid assertion proves a credential signed the supplied challenge. It does not
 by itself prove informed human consent, current role membership or permission to
-sign a firewall grant. The following remain unimplemented:
+sign a firewall grant. `AuthorityStore` resolves its own stored plan,
+requirements, active credential and scoped role. It atomically verifies and
+consumes a plan challenge, updates the credential, retains original proof
+evidence and records an immutable decision and audit event. Exact successful
+retries return the same result without renewing it. Retained proof verification
+uses original pre-authentication state and admission time, together with current
+key identity, revocation, role and plan checks.
+
+Credential pinning, principal provisioning, role grants and plan registration
+remain privileged inputs from a trusted embedding authority. There is no
+automatic trust transfer from the controller's login database. The following
+remain unimplemented:
 
 - Approval HTTP endpoints and a human-facing immutable plan review ceremony.
-- A durable authority transaction that consumes each challenge exactly once,
-  updates credential state and commits approval, audit and signing work atomically.
-- Independent resolution of active verified credentials, current roles,
-  revocation and approval requirements,
-  with credential keys pinned through a trusted out-of-band enrollment procedure.
+- Production out-of-band identity and credential enrollment, authenticated
+  authority IPC and independent verification of referenced plan artifacts/gates.
+- Durable authority-bootstrap admission, quorum/`ApprovalSet` aggregation and
+  signing jobs linked to current authority and quota.
 - A separate authority/signer daemon, protected keys and authenticated IPC.
 - Production authority bootstrap, authenticated host dispatch and the complete
   approval → application → expiry/recovery workflow.
 
 The local login database is not an independently protected signer credential
-registry. An in-process proof result must not be promoted into `HumanApproval` or
-signing authority without the remaining checks and durable consumption. Repeated
-verification of the same retained proof is not durable replay protection.
+registry. `finish_approval_proof` remains only a cryptographic primitive; callers
+must use the authority admission transaction for a durable decision. A separate
+SQLite file does not establish OS-process isolation, and a recorded decision
+does not grant signing or execution authority. Repeated verification of a
+retained proof does not issue another decision or consume another challenge.
 
 ## Verification scope
 

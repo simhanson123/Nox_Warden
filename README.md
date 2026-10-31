@@ -30,9 +30,11 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   leases, policy comparison, approval requirements, Ed25519 DSSE, atomic quotas,
   durable executor journals, audit verification and opt-in telemetry state.
 - Typed plan/bootstrap challenges and real WebAuthn verification of assertions
-  bound to their immutable context. These [approval proof primitives](docs/policy-approval-proofs.md)
-  still require an authority service, durable one-use approval storage and a
-  complete human review workflow.
+  bound to their immutable context. A separate [authority store](docs/authority-store.md)
+  durably admits plan decisions with current credential/role checks, original
+  proof retention and one-use challenge consumption. Trusted provisioning, an
+  isolated authority/signing service and the human review HTTP/UI workflow still
+  require integration; local login does not approve a policy.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.
 - Isolated Linux nftables suites for packet semantics and signed execution. The

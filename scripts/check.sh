@@ -10,6 +10,8 @@ python -m unittest discover -s native/linux -p 'test_*runner.py'
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+# Native executors consume grant verification without approval ceremony code.
+cargo test -p fw_authority --no-default-features --locked
 npm run check --prefix web
 npm test --prefix web -- --run
 npm run build --prefix web
