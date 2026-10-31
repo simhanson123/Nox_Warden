@@ -36,8 +36,17 @@ pub const ORG: &str = "00000000-0000-4000-8000-000000000001";
 pub const PROJECT: &str = "00000000-0000-4000-8000-000000000002";
 pub const PRINCIPAL: &str = "00000000-0000-4000-8000-000000000003";
 const SESSION_SECONDS: i64 = 28800;
+// This provenance is selected only by a verified server-side issuance path.
+// A CLI handoff delegates ordinary controller access, not browser UV authority.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SessionKind {
+    Bootstrap,
+    BrowserPasskey,
+    Cli,
+}
 #[derive(Clone)]
 struct Session {
+    kind: SessionKind,
     id: String,
     csrf: String,
     expires: i64,
@@ -131,6 +140,9 @@ fn header<'a>(h: &'a HeaderMap, name: &str) -> Result<&'a str, Problem> {
 }
 impl Session {
     fn passkey_authority(&self, at: i64) -> Result<fw_store::passkeys::PasskeyAuthority, Problem> {
+        if self.kind != SessionKind::BrowserPasskey {
+            return Err(Problem(StatusCode::FORBIDDEN, "BROWSER_PASSKEY_REQUIRED"));
+        }
         let id = self.credential_id.as_ref().ok_or(Problem(
             StatusCode::FORBIDDEN,
             "PASSKEY_REAUTHENTICATION_REQUIRED",
@@ -234,6 +246,20 @@ impl AppState {
         previous_token: Option<&str>,
         at: i64,
     ) -> Result<(String, Session), Problem> {
+        self.issue_credential_session(
+            SessionKind::BrowserPasskey,
+            credential_id,
+            previous_token,
+            at,
+        )
+    }
+    fn issue_credential_session(
+        &self,
+        kind: SessionKind,
+        credential_id: &str,
+        previous_token: Option<&str>,
+        at: i64,
+    ) -> Result<(String, Session), Problem> {
         self.store
             .active_passkey(&self.tenant, PRINCIPAL, credential_id)
             .map_err(|_| Problem(StatusCode::UNAUTHORIZED, "PASSKEY_SESSION_REVOKED"))?;
@@ -254,6 +280,7 @@ impl AppState {
         }
         let token = random_token();
         let session = Session {
+            kind,
             id: Uuid::new_v4().to_string(),
             csrf: random_token(),
             expires: at + SESSION_SECONDS,
@@ -382,6 +409,7 @@ async fn bootstrap_inner(State(s): State<Arc<AppState>>, h: HeaderMap, b: Bytes)
     let token = random_token();
     let csrf = random_token();
     let session = Session {
+        kind: SessionKind::Bootstrap,
         id: Uuid::new_v4().to_string(),
         csrf,
         expires: now() + SESSION_SECONDS,
@@ -855,6 +883,7 @@ mod session_tests {
         .unwrap();
         let token = "unit-session-token";
         let mut session = Session {
+            kind: SessionKind::Bootstrap,
             id: Uuid::new_v4().to_string(),
             csrf: "unit-csrf".into(),
             expires: now() + SESSION_SECONDS,

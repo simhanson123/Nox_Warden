@@ -174,10 +174,9 @@ async fn registration_options(State(s): State<Arc<AppState>>, h: HeaderMap, b: B
     let key = write_headers(&s, &h)?;
     let input: RegistrationStart =
         fw_contracts::parse_strict(&b).map_err(|_| bad("INVALID_JSON"))?;
-    let authority = if session.credential_id.is_some() {
-        session.passkey_authority(now())?
-    } else {
-        PasskeyAuthority::Bootstrap
+    let authority = match session.kind {
+        SessionKind::Bootstrap => PasskeyAuthority::Bootstrap,
+        _ => session.passkey_authority(now())?,
     };
     let ceremony = engine(&s)?
         .begin_registration(PRINCIPAL, "Local owner", &credentials(&s)?)
@@ -208,6 +207,11 @@ async fn registration_complete(
     b: Bytes,
 ) -> ApiResult {
     let session = s.auth(&h, true)?;
+    // Check again at completion: possession of another session's registration
+    // ceremony cannot promote a delegated CLI session into owner authority.
+    if session.kind != SessionKind::Bootstrap {
+        session.passkey_authority(now())?;
+    }
     let key = write_headers(&s, &h)?;
     let input: RegistrationFinish =
         fw_contracts::parse_strict(&b).map_err(|_| bad("INVALID_JSON"))?;

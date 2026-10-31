@@ -180,9 +180,10 @@ def tamper_client_origin(credential):
     return changed
 
 
-def raw_request(origin, path, body, cookie=None, csrf=None, request_origin=None):
+def raw_request(origin, path, body, cookie=None, csrf=None, request_origin=None, extra_headers=None):
     headers = {'Origin': request_origin or origin, 'Content-Type': 'application/json',
                'Idempotency-Key': str(uuid.uuid4())}
+    headers.update(extra_headers or {})
     if cookie:
         headers['Cookie'] = cookie
     if csrf:
@@ -461,6 +462,41 @@ def run(args, report):
                       cli_session.is_file() and cli_session.stat().st_mode & 0o777 == 0o600)
                 check(report, 'browser-authorized CLI session can read the real controller', cli_status(cli_environment) == 0)
                 report['cli_handoff_executed'] = True
+                cli_credentials = json.loads(cli_session.read_text())
+                cli_cookie, cli_csrf = cli_credentials['cookie'], cli_credentials['csrf_token']
+                spoofed_browser = {'X-Session-Kind': 'browser_passkey', 'X-Authentication-Method': 'passkey'}
+                for path, body, label in [
+                    ('/auth/passkeys/registration/options', {'name': 'CLI added key'},
+                     'delegated CLI cannot start credential registration even with forged browser headers'),
+                    (f'/auth/passkeys/{primary_id}/revocations', {},
+                     'delegated CLI cannot revoke an active spare credential during the fresh UV window'),
+                ]:
+                    status, result = raw_request(origin, path, body, cli_cookie, cli_csrf, extra_headers=spoofed_browser)
+                    check(report, label, status == 403 and result.get('detail') == 'BROWSER_PASSKEY_REQUIRED', (status, result))
+                status, registration = client.request('/auth/passkeys/registration/options', {'name': 'Browser-only ceremony'})
+                check(report, 'direct fresh browser session can still begin credential registration', status == 200)
+                # A distinct authenticator avoids the existing keys in excludeCredentials.
+                devices.select('borrowed-registration')
+                proof = page.evaluate(CEREMONY, {'kind': 'create', 'options': registration['data']['public_key']})
+                devices.select('secondary')
+                status, result = raw_request(origin, '/auth/passkeys/registration/complete', {
+                    'ceremony_id': registration['data']['ceremony_id'], 'credential': proof}, cli_cookie, cli_csrf)
+                check(report, 'CLI cannot complete a borrowed browser registration with a valid registration response',
+                      status == 403 and result.get('detail') == 'BROWSER_PASSKEY_REQUIRED', (status, result))
+                status, result = client.request('/auth/passkeys')
+                check(report, 'rejected CLI credential changes leave both existing owner credentials intact',
+                      status == 200 and len(result['data']['credentials']) == 2
+                      and all(row['revoked_at'] is None for row in result['data']['credentials']))
+                asset = {'definition': {'name': 'CLI scoped asset', 'asset_kind': 'host',
+                         'owner_id': '00000000-0000-4000-8000-000000000003',
+                         'addresses': [{'family': 'ipv4', 'cidr': '192.0.2.10/32', 'interface': None}],
+                         'criticality': 'normal', 'isolation': 'host', 'provenance': 'manual', 'source_evidence': None},
+                         'state': 'active'}
+                status, created = raw_request(origin, '/assets', asset, cli_cookie, cli_csrf)
+                check(report, 'delegated CLI retains ordinary authenticated catalogue writes', status == 201, (status, created))
+                status, result = raw_request(origin, '/assets/' + created['data']['asset_id'], None, cli_cookie, cli_csrf)
+                check(report, 'delegated CLI can read its actual catalogue mutation',
+                      status == 200 and result['data']['definition']['name'] == 'CLI scoped asset', (status, result))
 
                 status, pending = client.request('/auth/cli/requests', {})
                 check(report, 'CLI handoff issues a bounded one-use request', status == 201)
@@ -468,6 +504,10 @@ def run(args, report):
                 route = '/auth/cli/requests/' + pending['request_id']
                 status, _ = raw_request(origin, route + '/authorize', {'user_code': pending['user_code']})
                 check(report, 'knowing the code cannot authorize a CLI request without a passkey session', status == 401)
+                status, result = raw_request(origin, route + '/authorize', {'user_code': pending['user_code']},
+                                             cli_cookie, cli_csrf, extra_headers=spoofed_browser)
+                check(report, 'delegated CLI cannot authorize a second terminal even with its correct confirmation code',
+                      status == 403 and result.get('detail') == 'BROWSER_PASSKEY_REQUIRED', (status, result))
                 status, viewed = client.request(route)
                 check(report, 'authenticated CLI request view withholds confirmation and polling secrets',
                       status == 200 and 'user_code' not in viewed['data'] and 'poll_token' not in viewed['data'])
@@ -482,11 +522,36 @@ def run(args, report):
                 check(report, 'former bootstrap credentials cannot authorize a terminal session', status in (401, 403))
                 status, _ = client.request(route + '/authorize', {'user_code': pending['user_code']})
                 check(report, 'fresh passkey session authorizes the matching CLI request', status == 200)
-                status, _ = raw_request(origin, route + '/exchange', {'poll_token': pending['poll_token']})
+                delegated_context = browser.new_context()
+                cleanup.callback(delegated_context.close)
+                delegated_page = delegated_context.new_page()
+                delegated_page.goto(origin)
+                delegated = BrowserClient(delegated_page)
+                status, _ = delegated.complete(route + '/exchange', {'poll_token': pending['poll_token']})
                 check(report, 'CLI polling secret exchanges only an authorized request', status == 200)
                 status, _ = raw_request(origin, route + '/exchange', {'poll_token': pending['poll_token']})
                 check(report, 'CLI polling secret cannot be exchanged twice', status == 409)
                 del pending, code
+                delegated_cookie, delegated_csrf = delegated.cookie(), delegated.csrf
+                status, authentication = delegated.request('/auth/passkeys/login/options', {})
+                check(report, 'CLI credentials alone may request a public fresh browser ceremony', status == 200)
+                assertion = page.evaluate(CEREMONY, {'kind': 'get', 'options': authentication['data']['public_key']})
+                status, _ = delegated.request('/auth/passkeys/login/complete', {
+                    'ceremony_id': authentication['data']['ceremony_id'], 'credential': tamper_client_origin(assertion)})
+                check(report, 'invalid fresh proof cannot promote a delegated CLI session', status == 401)
+                status, result = delegated.request('/auth/passkeys/registration/options', {'name': 'Still delegated'})
+                check(report, 'failed reauthentication leaves the delegated session unable to manage credentials',
+                      status == 403 and result.get('detail') == 'BROWSER_PASSKEY_REQUIRED', (status, result))
+                status, _ = delegated.complete('/auth/passkeys/login/complete', {
+                    'ceremony_id': authentication['data']['ceremony_id'], 'credential': assertion})
+                check(report, 'a new verified browser assertion can replace a delegated session with browser authority', status == 200)
+                status, _ = raw_request(origin, '/session', None, delegated_cookie, delegated_csrf)
+                check(report, 'fresh browser login invalidates the replaced delegated session', status == 401)
+                status, _ = delegated.request('/auth/passkeys/registration/options', {'name': 'Fresh browser authority'})
+                check(report, 'freshly verified browser authority can begin credential management', status == 200)
+                status, _ = delegated.request('/auth/logout', {})
+                check(report, 'ending the replacement browser session preserves the separate real CLI session',
+                      status == 200 and cli_status(cli_environment) == 0)
 
                 # Keep a still-active browser session belonging to the credential
                 # about to be revoked, together with its in-memory request proof.

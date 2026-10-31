@@ -104,7 +104,19 @@ let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
 Use a protected existing backup directory and a new backup filename. The library
-holds an IMMEDIATE transaction against concurrent writers, copies the committed
+checks that source, backup, manifest and SQLite `-journal`/`-wal`/`-shm` paths
+do not overlap before opening the source. Every destination name, including its
+manifest and sidecars, must be unused; existing files or final symlinks are
+rejected without modifying them or creating an orphan backup. This path preflight
+also runs for an already current schema: its backup directory must exist and all
+destination names must remain unused even when no copy is needed.
+Maintenance source/backup/manifest basenames must be ASCII; Unicode parent
+directories remain supported. ASCII names compare without case within the same
+Unix directory identity, including directory aliases. Without a native directory
+identity adapter, non-Unix platforms conservatively reject matching basenames
+across directories as well. Migration qualification here is Linux only.
+
+The library holds an IMMEDIATE transaction against concurrent writers, copies the committed
 WAL-aware database through SQLite's online backup API, verifies the backup and
 fsyncs its private file and digest manifest before changing the source schema.
 Backup files and manifests contain restricted authority data and stay outside
@@ -218,10 +230,17 @@ basis. Its author and participating reviewers must have explicit human bindings;
 missing enrollment produces `AuthorityUnavailable`, never a fabricated quorum.
 For Team profiles, author aliases are excluded and each required role must be
 filled by a distinct canonical human. Lab owner and high-risk profiles retain
-their exact required roles. Matching searches up to 64 unexpired approval
-decisions and three roles, including non-greedy role assignments. Exceeding the
-candidate bound rolls back the new admission rather than silently truncating
-the candidate set.
+their exact required roles. Candidate lookup first excludes expired, withdrawn
+or currently ineligible decisions and known author aliases. It then selects the
+smallest approval ID for each canonical human/required-role pair. Duplicate votes
+and identity aliases therefore consume one meaningful candidate slot per role;
+revoked keys and memberships consume none. Every selected representative still
+undergoes original-proof and current-registry verification. Matching admits up
+to 64 such candidates and three roles, including non-greedy role assignments.
+An indexed SQLite query has a separate budget of approximately one million VM
+instructions to bound work over retained history. Exceeding either bound rolls
+back the new admission without truncating candidates or changing earlier votes.
+The scoped query handler is removed on success, failure and unwinding.
 
 The T4 `BEGIN IMMEDIATE` transaction rechecks every selected member's original
 WebAuthn proof and current key, role, revocation and validity, then runs the closed
@@ -239,6 +258,22 @@ authority changes and expiry can invalidate a stored set without changing its
 bytes. Fresh valid signed decisions can append a new immutable set after a prior
 set becomes stale; they never rewrite it or renew an identical selection. The
 current head advances without falling back to an older set.
+
+The privileged local `revoke_approval_set` API withdraws the named immutable set
+and atomically retains its tombstone, security revision and audit event. Repeating
+the withdrawal does not rewrite its actor/time or add another audit event. It does
+not withdraw another current set, the plan, or its member decisions; use the
+separate decision-withdrawal and plan-retirement operations for those scopes.
+Withdrawing an older historical set therefore leaves a different eligible
+current head valid. This API has no HTTP route and does not establish that an
+already applied network policy was removed.
+
+Set withdrawal does not automatically produce replacement authority. While the
+same deterministic eligible representatives remain selected, that already-used
+selection stays `Stale`, even if another person submits a fresh vote. A different
+selection requires relevant old decisions to expire or be withdrawn, or a new
+eligible representative to be selected, followed by a fresh signed admission.
+Original set bytes and historical admission receipts remain unchanged.
 
 `approval_review_status` returns typed current status and an optional verified
 set in one read snapshot. It never creates a set on GET, including after trusted

@@ -97,6 +97,14 @@ without refreshing its validity. A different invitation, key, controller or CA
 pin cannot reuse pending state silently. Exact retry recovery is bounded by the
 original invitation's expiry.
 
+An unfinished reservation also expires with that invitation. It cannot issue a
+certificate afterward or extend its deadline on retry. The repository retains
+the token hash, request ID, nonce and issuance binding for retry/replay history;
+it does not currently prune these records. There is no shared pool of reserved
+enrollment slots: an expired reservation does not prevent a separate, newly
+authorized invitation from enrolling. Retention and disk maintenance remain
+unfinished; do not delete reservation rows manually to retry an expired token.
+
 A device certificate lasts at most 24 hours. The response's eight-hour renewal
 hint does not mean renewal is implemented. Expired credentials fail closed;
 automatic renewal and replacement of an existing device identity remain future
@@ -136,9 +144,9 @@ credentials and expired certificates cannot establish a usable service target.
 This is device-supplied metadata authenticated by a transport identity, not an
 independent assessment of the machine or proof of installed firewall rules.
 
-To use the browser after CLI setup, restart the controller with the same state
-and PKI, then enter its new bootstrap token in the local login screen. Run a fresh
-agent `report` if needed. The Targets page shows the registered device. Create a
+To use the browser after CLI setup, open the local controller and sign in with
+an enrolled owner passkey. Restarting never recreates bootstrap access after
+owner enrollment. Run a fresh agent `report` if needed. The Targets page shows the registered device. Create a
 manual destination asset, then create a service selecting that destination and
 the registered target. The saved service remains visible after reload. Access
 requests still remain `needs_info`: workload binding, policy approval and native
@@ -156,7 +164,8 @@ Revocation is persistent. Subsequent device status and capability requests fail
 authentication, and new service references are rejected. It does not remove kernel
 rules or terminate traffic; this application has not installed a policy.
 The existing browser session and CLI cannot both consume the same bootstrap
-credential; restart and log in through the CLI if the browser consumed it.
+credential. Once the owner is enrolled, use `fw_cli login` and authorize its code
+from a directly authenticated browser session.
 
 ## Reproduce the integration check
 

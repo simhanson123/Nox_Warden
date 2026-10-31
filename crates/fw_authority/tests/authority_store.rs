@@ -574,6 +574,195 @@ fn migration_refuses_unknown_schema_and_never_overwrites_backup_files() {
 }
 
 #[test]
+fn migration_rejects_backup_paths_reserved_for_source_sidecars() {
+    for suffix in ["-journal", "-wal", "-shm"] {
+        let f = Fixture::new();
+        drop(f.store);
+        restore_v1_fixture(&f.path);
+        let db = rusqlite::Connection::open(&f.path).unwrap();
+        db.pragma_update(None, "journal_mode", "DELETE").unwrap();
+        drop(db);
+        let original = snapshot(&f.path);
+        let backup = PathBuf::from(format!("{}{suffix}", f.path.display()));
+        assert!(!backup.exists());
+        let result = AuthorityStore::migrate(&f.path, &backup);
+        assert!(
+            result.is_err(),
+            "migration accepted reserved backup suffix {suffix}"
+        );
+        assert!(!backup.exists(), "reserved backup was created for {suffix}");
+        assert!(!backup.with_extension("manifest.json").exists());
+        assert_eq!(snapshot(&f.path), original);
+        let db = rusqlite::Connection::open(&f.path).unwrap();
+        assert_eq!(
+            db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+}
+
+#[test]
+fn migration_rejects_reverse_sidecar_and_manifest_collisions_before_opening_source() {
+    for source_name in [
+        "backup.sqlite3-journal",
+        "backup.sqlite3-wal",
+        "backup.sqlite3-shm",
+        "backup.manifest.json",
+    ] {
+        let f = Fixture::new();
+        drop(f.store);
+        restore_v1_fixture(&f.path);
+        let db = rusqlite::Connection::open(&f.path).unwrap();
+        db.pragma_update(None, "journal_mode", "DELETE").unwrap();
+        drop(db);
+        let source = f.path.with_file_name(source_name);
+        std::fs::rename(&f.path, &source).unwrap();
+        let original = std::fs::read(&source).unwrap();
+        let backup = f.path.with_file_name("backup.sqlite3");
+        assert!(
+            AuthorityStore::migrate(&source, &backup).is_err(),
+            "{source_name}"
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert!(!backup.exists());
+    }
+}
+
+#[test]
+fn migration_refuses_preexisting_destination_sidecars_without_touching_them() {
+    for suffix in ["-journal", "-wal", "-shm"] {
+        let f = Fixture::new();
+        drop(f.store);
+        restore_v1_fixture(&f.path);
+        let source = std::fs::read(&f.path).unwrap();
+        let backup = f.path.with_file_name("backup.sqlite3");
+        let sidecar = backup.with_file_name(format!("backup.sqlite3{suffix}"));
+        std::fs::write(&sidecar, b"preexisting recovery material").unwrap();
+        assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+        assert!(!backup.exists());
+        assert!(!backup.with_extension("manifest.json").exists());
+        assert_eq!(std::fs::read(&f.path).unwrap(), source);
+        assert_eq!(
+            std::fs::read(sidecar).unwrap(),
+            b"preexisting recovery material"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn migration_resolves_parent_aliases_before_checking_sidecar_names() {
+    let f = Fixture::new();
+    drop(f.store);
+    restore_v1_fixture(&f.path);
+    let source = std::fs::read(&f.path).unwrap();
+    let alias = f.path.with_file_name("alias");
+    std::os::unix::fs::symlink(f.path.parent().unwrap(), &alias).unwrap();
+    let backup = alias.join("authority.sqlite3-journal");
+    assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+    assert!(!backup.exists());
+    assert_eq!(std::fs::read(&f.path).unwrap(), source);
+}
+
+#[test]
+fn migration_casefolds_ascii_sidecars_and_rejects_non_ascii_basenames_without_writes() {
+    let f = Fixture::new();
+    drop(f.store);
+    restore_v1_fixture(&f.path);
+    let source = std::fs::read(&f.path).unwrap();
+    for filename in [
+        "AUTHORITY.SQLITE3-journal",
+        "Authority.sqlite3-WAL",
+        "authority.SQLITE3-shm",
+        "백업.sqlite3",
+    ] {
+        let backup = f.path.with_file_name(filename);
+        assert!(
+            AuthorityStore::migrate(&f.path, &backup).is_err(),
+            "{filename}"
+        );
+        assert!(!backup.exists());
+        assert!(!backup.with_extension("manifest.json").exists());
+        assert_eq!(std::fs::read(&f.path).unwrap(), source);
+    }
+    let unicode_source = f.path.with_file_name("원본.sqlite3");
+    std::fs::rename(&f.path, &unicode_source).unwrap();
+    let backup = f.path.with_file_name("backup.sqlite3");
+    assert!(AuthorityStore::migrate(&unicode_source, &backup).is_err());
+    assert_eq!(std::fs::read(unicode_source).unwrap(), source);
+    assert!(!backup.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn migration_accepts_unicode_parent_directories_and_checks_parent_identity() {
+    use std::os::unix::fs::DirBuilderExt;
+
+    let f = Fixture::new();
+    drop(f.store);
+    restore_v1_fixture(&f.path);
+    let directory = f.path.with_file_name("권한저장소");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let source = directory.join("authority.sqlite3");
+    std::fs::rename(&f.path, &source).unwrap();
+    let alias = f.path.with_file_name("PARENT-ALIAS");
+    std::os::unix::fs::symlink(&directory, &alias).unwrap();
+    let original = std::fs::read(&source).unwrap();
+    let collision = alias.join("AUTHORITY.SQLITE3-journal");
+    assert!(AuthorityStore::migrate(&source, &collision).is_err());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert!(!collision.exists());
+    let backup = directory.join("before.sqlite3");
+    AuthorityStore::migrate(&source, &backup).unwrap();
+    assert!(backup.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn migration_preflights_existing_backup_and_manifest_aliases_before_creating_files() {
+    for (manifest, dangling) in [(false, false), (true, false), (false, true), (true, true)] {
+        let f = Fixture::new();
+        drop(f.store);
+        restore_v1_fixture(&f.path);
+        let source = std::fs::read(&f.path).unwrap();
+        let backup = f.path.with_file_name("before.sqlite3");
+        let alias = if manifest {
+            backup.with_extension("manifest.json")
+        } else {
+            backup.clone()
+        };
+        let target = if dangling {
+            f.path.with_file_name("absent.sqlite3")
+        } else {
+            f.path.clone()
+        };
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+        assert_eq!(std::fs::read_link(&alias).unwrap(), target);
+        assert_eq!(std::fs::read(&f.path).unwrap(), source);
+        if manifest {
+            assert!(
+                !backup.exists(),
+                "preflight must not create an orphan backup"
+            );
+        } else {
+            assert!(!backup.with_extension("manifest.json").exists());
+        }
+        assert!(!f.path.with_file_name("absent.sqlite3").exists());
+        let db = rusqlite::Connection::open(&f.path).unwrap();
+        assert_eq!(
+            db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+}
+
+#[test]
 fn migrated_database_requires_its_exact_migration_checksum() {
     let f = Fixture::new();
     let db = rusqlite::Connection::open(&f.path).unwrap();

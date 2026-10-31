@@ -96,3 +96,16 @@ refresh with exact retry behavior:
 cargo test --locked -p fw_store -p fw_control -p fw_cli
 python scripts/smoke_cli.py
 ```
+
+
+The real browser check (`scripts/smoke_catalogue_navigation.py`) writes bounded
+`stage`/`failure_stage` and category codes when a check fails. It does not retain
+Playwright assertion text, page input values, private paths or raw controller
+logs in its report or console summary. Locator assertions have an explicit
+15-second timeout; asset mutation waits for the actual successful POST response
+and the loaded detail heading before returning to the registry. These waits
+express readiness, not evidence that a timeout caused any previous failure.
+The disposable controller is health-checked and its process/browser are closed
+on failure. Use a separate `--port` for concurrent smoke runs. Diagnostic unit
+regressions run through `scripts/check.sh` and can be invoked separately with
+`python -m unittest discover -s scripts -p test_catalogue_smoke_diagnostics.py`.

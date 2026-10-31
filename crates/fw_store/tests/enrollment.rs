@@ -172,6 +172,60 @@ fn reservations_bind_csr_request_nonce_platform_key_and_deadline() {
         .is_err());
 }
 #[test]
+fn expired_reservation_stays_bound_without_blocking_a_new_invitation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store.db");
+    let store = Store::open(&path).unwrap();
+    let (tenant, principal) = prepare(&store);
+    let (_, abandoned) = token(&store, &tenant, &principal);
+    let reservation = store.reserve_enrollment(&abandoned, NOW + 1).unwrap();
+    drop(store);
+
+    let store = Store::open(&path).unwrap();
+    let deadline = NOW + 600;
+    assert!(matches!(
+        store.reserve_enrollment(&abandoned, deadline),
+        Err(StoreError::Conflict("ENROLLMENT_EXPIRED"))
+    ));
+    assert!(matches!(
+        store.complete_enrollment(
+            &reservation.job_id,
+            &hash(),
+            &response(&reservation),
+            deadline
+        ),
+        Err(StoreError::Conflict("ENROLLMENT_EXPIRED"))
+    ));
+    let (_, fresh) = token_at(&store, &tenant, &principal, deadline);
+    let new_job = store.reserve_enrollment(&fresh, deadline + 1).unwrap();
+    let fingerprint = hash();
+    store
+        .complete_enrollment(
+            &new_job.job_id,
+            &fingerprint,
+            &response(&new_job),
+            deadline + 2,
+        )
+        .unwrap();
+    let identity = store
+        .authenticate_enrollment(&fingerprint, deadline + 2)
+        .unwrap();
+    assert_eq!(identity.target_id, new_job.target_id);
+    assert_ne!(identity.target_id, reservation.target_id);
+    assert_eq!(store.count_enrollments(&tenant).unwrap(), 1);
+    // The target catalogue requires a current capability report as well.
+    assert_eq!(store.count_targets(&tenant).unwrap(), 0);
+    let raw = Connection::open(&path).unwrap();
+    let retained: (String, String, Option<Vec<u8>>) = raw
+        .query_row(
+            "SELECT request_id,nonce,response_bytes FROM enrollment_jobs WHERE job_id=?1",
+            [&reservation.job_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(retained, (abandoned.request_id, abandoned.nonce, None));
+}
+#[test]
 fn concurrent_csr_reservations_have_one_winner_and_recover_on_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("store.db");

@@ -217,8 +217,9 @@ async fn exchange(
         )
             .into_response());
     };
-    // Preserve the actual WebAuthn authentication time. Exchanging a CLI token
-    // must not refresh the ability to enroll or revoke another credential.
+    // Preserve the actual authentication time for handoff freshness and session
+    // lifetime. CLI provenance never conveys browser credential-management or
+    // further CLI-authorization authority, even during this fresh interval.
     if approval.authenticated_at > at || at - approval.authenticated_at >= LIFETIME {
         return Err(Problem(
             StatusCode::FORBIDDEN,
@@ -236,6 +237,7 @@ async fn exchange(
         .values()
         .any(|session| {
             session.id == approval.session_id
+                && session.kind == SessionKind::BrowserPasskey
                 && session.expires > at
                 && session.credential_id.as_deref() == Some(&approval.credential_id)
                 && session.authenticated_at == approval.authenticated_at
@@ -246,8 +248,12 @@ async fn exchange(
             "CLI_AUTHORIZER_SESSION_ENDED",
         ));
     }
-    let (token, session) =
-        s.issue_passkey_session(&approval.credential_id, None, approval.authenticated_at)?;
+    let (token, session) = s.issue_credential_session(
+        SessionKind::Cli,
+        &approval.credential_id,
+        None,
+        approval.authenticated_at,
+    )?;
     if let Err(error) =
         s.store
             .record_passkey_cli_event(&s.tenant, PRINCIPAL, &id, "cli_login_exchanged", at)
@@ -391,6 +397,157 @@ mod tests {
             bytes(json!({"poll_token":f["poll_token"]})),
         )
         .await
+    }
+    async fn delegated_session(s: &Arc<AppState>) -> (String, Session) {
+        let (browser_token, browser) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let request = flow(s).await;
+        approve(s, &request, &browser_token, &browser)
+            .await
+            .unwrap();
+        let response = poll(s, &request).await.unwrap();
+        let token = response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .strip_prefix("fw_session=")
+            .unwrap()
+            .to_owned();
+        let session = s.login.lock().unwrap().sessions[&hash(&token)].clone();
+        (token, session)
+    }
+    async fn route_post(
+        s: &Arc<AppState>,
+        token: &str,
+        session: &Session,
+        path: &str,
+        body: Value,
+    ) -> Response {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+        let app = crate::router(s.clone(), "/tmp/fw-absent-web".into());
+        let mut request = Request::post(path)
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        *request.headers_mut() = headers(s, Some((token, session)));
+        // These client claims cannot promote server-owned session provenance.
+        request
+            .headers_mut()
+            .insert("x-session-kind", "browser_passkey".parse().unwrap());
+        request
+            .headers_mut()
+            .insert("x-authentication-method", "passkey".parse().unwrap());
+        app.oneshot(request).await.unwrap()
+    }
+    #[tokio::test]
+    async fn delegated_cli_session_cannot_authorize_another_terminal() {
+        let s = setup();
+        let (token, session) = delegated_session(&s).await;
+        let next = flow(&s).await;
+        let response = route_post(
+            &s,
+            &token,
+            &session,
+            &format!(
+                "/api/v1/auth/cli/requests/{}/authorize",
+                next["request_id"].as_str().unwrap()
+            ),
+            json!({"user_code":next["user_code"]}),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            poll(&s, &next).await.unwrap().status(),
+            StatusCode::ACCEPTED
+        );
+        assert!(
+            s.auth(&headers(&s, Some((&token, &session))), false)
+                .is_ok()
+        );
+    }
+    #[tokio::test]
+    async fn delegated_cli_session_cannot_revoke_or_register_owner_credentials() {
+        let s = setup();
+        credential(&s, "second-key", Some("first-key"), now());
+        let (token, session) = delegated_session(&s).await;
+        // Revoke is a real mutation that succeeded before provenance separation.
+        for (path, body) in [
+            ("/api/v1/auth/passkeys/second-key/revocations", json!({})),
+            (
+                "/api/v1/auth/passkeys/registration/options",
+                json!({"name":"Injected owner"}),
+            ),
+            // Completion must reject CLI authority before parsing/proof processing,
+            // even if a caller skips the registration-options endpoint entirely.
+            ("/api/v1/auth/passkeys/registration/complete", json!({})),
+        ] {
+            let response = route_post(&s, &token, &session, path, body).await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+            let result: Value =
+                serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap())
+                    .unwrap();
+            assert_eq!(result["detail"], "BROWSER_PASSKEY_REQUIRED");
+        }
+        assert!(
+            s.store
+                .active_passkey(&s.tenant, PRINCIPAL, "second-key")
+                .is_ok()
+        );
+        assert_eq!(
+            s.store.list_passkeys(&s.tenant, PRINCIPAL).unwrap().len(),
+            2
+        );
+    }
+    #[tokio::test]
+    async fn delegated_cli_access_ends_on_logout_expiry_or_credential_revocation() {
+        for ending in ["logout", "expiry", "revocation"] {
+            let s = setup();
+            credential(&s, "second-key", Some("first-key"), now());
+            let (token, session) = delegated_session(&s).await;
+            let (browser_token, browser) =
+                s.issue_passkey_session("second-key", None, now()).unwrap();
+            let h = headers(&s, Some((&token, &session)));
+            assert!(s.auth(&h, false).is_ok());
+            assert!(s.auth(&h, true).is_ok());
+            match ending {
+                "logout" => {
+                    let response =
+                        route_post(&s, &token, &session, "/api/v1/auth/logout", json!({})).await;
+                    assert_eq!(response.status(), StatusCode::OK);
+                }
+                "expiry" => {
+                    s.login
+                        .lock()
+                        .unwrap()
+                        .sessions
+                        .get_mut(&hash(&token))
+                        .unwrap()
+                        .expires = now();
+                }
+                "revocation" => {
+                    let response = route_post(
+                        &s,
+                        &browser_token,
+                        &browser,
+                        "/api/v1/auth/passkeys/first-key/revocations",
+                        json!({}),
+                    )
+                    .await;
+                    assert_eq!(response.status(), StatusCode::OK);
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                matches!(s.auth(&h, false), Err(Problem(StatusCode::UNAUTHORIZED, _))),
+                "{ending}"
+            );
+            // Ending the delegated session cannot end an independent browser session.
+            assert!(
+                s.auth(&headers(&s, Some((&browser_token, &browser))), false)
+                    .is_ok()
+            );
+        }
     }
     #[tokio::test]
     async fn browser_request_view_never_discloses_the_terminal_confirmation_code() {
