@@ -91,15 +91,51 @@ primitive, but this storage slice accepts plan decisions only. It does not
 produce bootstrap approval proofs, reserve signing work, issue grants or
 dispatch policies.
 
+## Durable policy review evidence
+
+`register_reviewed_plan` is a trusted local importer, not a browser endpoint.
+It uses the shared `fw_planner::PolicyReviewEvidence` verifier to recompose the
+exact policy change from normalized full before/after StateIR. Tenant, target,
+source/capability references, candidate size/hash, patch hash and semantic effects
+must match the immutable plan. Serialization of plan plus snapshots is bounded
+at 128 KiB before canonical allocation. Its opaque `VerifiedPolicyReview` result
+cannot be constructed by supplying a client boolean.
+
+One IMMEDIATE transaction stores the full plan/requirements, immutable canonical
+review bytes and hashes, project security revision and required audit. Failure at
+either evidence or audit insertion rolls everything back. Exact repeat imports
+revalidate stored projections without replacing bytes or appending another audit
+record. `policy_review_evidence` returns and revalidates the stored content in one
+snapshot; missing evidence is distinct from corruption. Stored admission time
+must fall after plan registration and before expiry, and cannot be in the future.
+
+The independent review service imports its explicitly configured private files
+into already registered, uniquely resolved current plans. Subsequent display and
+approve requests read authority storage; removing the import files and clearing
+their configuration does not remove admitted review evidence. The service uses
+`issue_reviewed_challenge` and `admit_reviewed_decision`, which require durable
+review evidence for new approving decisions inside the same database transaction.
+A rejection remains possible without available review evidence, and an exact
+retry acknowledges its original decision without renewing authority.
+
+The low-level `register_plan`, `issue_challenge` and `admit_decision` APIs still
+serve trusted embeddings and preserved evidence tests. They do not certify that
+semantic review happened. Legacy plans are never assigned review evidence during
+migration, and retained decisions do not acquire dispatch authority by migration
+or later import. Neither the reviewed nor low-level API authenticates a compiler
+artifact, repeats every gate, validates current target observations, reserves
+quota, signs grants or dispatches firewall changes. Those checks remain required
+at the future signer boundary; semantic review is a separate prerequisite.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 3. The stable family identity
+Fresh authority databases use schema version 4. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1 or 2 database returns `MigrationRequired` without adding tables
+populated version 1, 2 or 3 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v3.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v4.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -130,12 +166,12 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 3 database makes no new backup or state change. Foreign and
+on a valid version 4 database makes no new backup or state change. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
-are rejected. Version 3 never invents a current epoch, role policy, human mapping
+are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
 retries return `NotEvaluated`. `migrate_v1` remains a compatibility alias for the
-explicit maintenance operation.
+explicit maintenance operation. The version 4 step adds an empty immutable review-evidence table; it never synthesizes semantic proof from historical plans or approvals.
 
 ## Issuance and atomic decision admission
 

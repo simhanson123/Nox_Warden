@@ -19,6 +19,59 @@ impl AuthorityStore {
         verifier: &WebAuthn,
         now: i64,
     ) -> Result<IssuedApproval> {
+        self.issue_challenge_inner(
+            tenant,
+            principal,
+            credential_id,
+            plan_id,
+            role,
+            decision,
+            verifier,
+            now,
+            false,
+        )
+    }
+
+    /// Review-service admission: approving requires independently recomposed,
+    /// durable evidence in the same transaction that issues the challenge.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_reviewed_challenge(
+        &mut self,
+        tenant: &AuthorityTenant,
+        principal: &str,
+        credential_id: &str,
+        plan_id: &str,
+        role: ApprovalRole,
+        decision: ApprovalDecision,
+        verifier: &WebAuthn,
+        now: i64,
+    ) -> Result<IssuedApproval> {
+        self.issue_challenge_inner(
+            tenant,
+            principal,
+            credential_id,
+            plan_id,
+            role,
+            decision,
+            verifier,
+            now,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn issue_challenge_inner(
+        &mut self,
+        tenant: &AuthorityTenant,
+        principal: &str,
+        credential_id: &str,
+        plan_id: &str,
+        role: ApprovalRole,
+        decision: ApprovalDecision,
+        verifier: &WebAuthn,
+        now: i64,
+        require_review: bool,
+    ) -> Result<IssuedApproval> {
         identifier(principal)?;
         identifier(plan_id)?;
         time(now)?;
@@ -30,6 +83,10 @@ impl AuthorityStore {
         credential.require(principal, "active", now)?;
         let membership = records::current_role(&tx, tenant, principal, role, now)?;
         let subject = records::plan(&tx, tenant, plan_id, now)?;
+        if require_review && decision == ApprovalDecision::Approve {
+            review_evidence::review_in_tx(&tx, tenant, &subject, now)?
+                .ok_or(AuthorityError::Binding)?;
+        }
         let context = records::context(tenant, principal, &subject, role, decision)?;
         sets::check_author_alias(&tx, tenant, &subject, principal, now)?;
         let outstanding: i64 = tx.query_row("SELECT count(*) FROM authority_challenges WHERE org_id=? AND project_id=? AND principal_id=?
@@ -89,6 +146,56 @@ impl AuthorityStore {
         verifier: &WebAuthn,
         now: i64,
     ) -> Result<DecisionResult> {
+        self.admit_decision_inner(
+            tenant,
+            principal,
+            challenge_id,
+            idempotency_key,
+            assertion,
+            verifier,
+            now,
+            false,
+        )
+    }
+
+    /// Review-service write boundary. New approving decisions recheck the exact
+    /// durable evidence inside proof/counter/decision/audit admission. Exact
+    /// retries still acknowledge history without renewing authority.
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit_reviewed_decision(
+        &mut self,
+        tenant: &AuthorityTenant,
+        principal: &str,
+        challenge_id: &str,
+        idempotency_key: &str,
+        assertion: &AuthenticationResponse,
+        verifier: &WebAuthn,
+        now: i64,
+    ) -> Result<DecisionResult> {
+        self.admit_decision_inner(
+            tenant,
+            principal,
+            challenge_id,
+            idempotency_key,
+            assertion,
+            verifier,
+            now,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn admit_decision_inner(
+        &mut self,
+        tenant: &AuthorityTenant,
+        principal: &str,
+        challenge_id: &str,
+        idempotency_key: &str,
+        assertion: &AuthenticationResponse,
+        verifier: &WebAuthn,
+        now: i64,
+        require_review: bool,
+    ) -> Result<DecisionResult> {
         identifier(principal)?;
         identifier(challenge_id)?;
         identifier(idempotency_key)?;
@@ -142,6 +249,10 @@ impl AuthorityStore {
             return Err(invalid("unsupported approval subject"));
         };
         let subject = records::plan(&tx, tenant, &plan_ref.plan_id, now)?;
+        if require_review && challenge.challenge.decision() == ApprovalDecision::Approve {
+            review_evidence::review_in_tx(&tx, tenant, &subject, now)?
+                .ok_or(AuthorityError::Binding)?;
+        }
         let context = records::context(
             tenant,
             principal,

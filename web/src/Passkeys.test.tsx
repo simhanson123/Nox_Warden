@@ -6,6 +6,7 @@ import { translator } from './i18n';
 import { encodeBase64Url } from './webauthn';
 
 const t = translator('en');
+const requestTicket = 'cli1.test_encrypted_request';
 const status = { passkey_available: true, passkey_unavailable_reason: null, owner_enrolled: true, bootstrap_available: false, rp_id: 'localhost', origin: 'http://localhost:8787' };
 const session = { authenticated: true, principal_id: 'owner', org_id: 'org', project_id: 'project', csrf_token: 'test-csrf', authentication_method: 'passkey' as const, authenticated_at: Math.floor(Date.now() / 1000), credential_id: 'AQI', owner_enrolled: true };
 const challenge = encodeBase64Url(Uint8Array.from(Array(32).fill(7)).buffer);
@@ -113,7 +114,7 @@ test('terminal sign-in is never authorized by visiting its URL or by entering a 
       ? response({ request_id: requestId, state: 'approved' })
       : response({ code: 'PERMISSION_DENIED', detail: 'CLI_CODE_MISMATCH' }, 403);
   });
-  render(<CliLoginPage requestId={requestId} t={t} locale="en" session={session} onSession={onSession} onSignedOut={vi.fn()}/>);
+  render(<CliLoginPage requestId={requestId} requestTicket={requestTicket} t={t} locale="en" session={session} onSession={onSession} onSignedOut={vi.fn()}/>);
   const input = await screen.findByLabelText('Code from your terminal');
   expect(input).toHaveValue(''); expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
   expect(screen.queryByText('4E2A91BF')).not.toBeInTheDocument();
@@ -121,16 +122,25 @@ test('terminal sign-in is never authorized by visiting its URL or by entering a 
   await userEvent.type(input, '00000000'); await userEvent.click(screen.getByRole('button', { name: 'Approve terminal sign-in' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('The code does not match');
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]!.body))).toEqual({ user_code: '00000000' });
+  expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]!.body))).toEqual({ user_code: '00000000', request_ticket: requestTicket });
   fireEvent.change(input, { target: { value: '4E2A91BF' } }); await userEvent.click(screen.getByRole('button', { name: 'Approve terminal sign-in' }));
   expect(await screen.findByRole('status')).toHaveTextContent('Terminal sign-in authorized');
-  expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]!.body))).toEqual({ user_code: '4E2A91BF' });
+  expect(JSON.parse(String(fetch.mock.calls.at(-1)![1]!.body))).toEqual({ user_code: '4E2A91BF', request_ticket: requestTicket });
 });
 
 test('terminal authorization stays disabled until fresh passkey authentication exists', async () => {
   browser(); const requestId = '11111111-1111-4111-8111-111111111111';
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ request_id: requestId, expires_at: '2026-10-31T09:00:00Z', state: 'pending', api_origin: 'http://localhost:8787' }));
-  render(<CliLoginPage requestId={requestId} t={t} locale="en" session={{ ...session, authenticated_at: 1 }} onSession={vi.fn()} onSignedOut={vi.fn()}/>);
+  render(<CliLoginPage requestId={requestId} requestTicket={requestTicket} t={t} locale="en" session={{ ...session, authenticated_at: 1 }} onSession={vi.fn()} onSignedOut={vi.fn()}/>);
   expect(await screen.findByLabelText('Code from your terminal')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Verify with a passkey' })).toBeEnabled();
+});
+
+
+test.each([undefined, '', 'cli1.', 'cli1.bad?query', 'cli1.' + 'x'.repeat(2044)])('missing or malformed terminal ticket never reads or authorizes a request (%s)', async ticket => {
+  const fetch = vi.spyOn(globalThis, 'fetch');
+  render(<CliLoginPage requestId="11111111-1111-4111-8111-111111111111" requestTicket={ticket} t={t} locale="en" session={session} onSession={vi.fn()} onSignedOut={vi.fn()}/>);
+  expect(await screen.findByRole('alert')).toHaveTextContent('CLI_REQUEST_TICKET_INVALID');
+  expect(fetch).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Approve terminal sign-in' })).not.toBeInTheDocument();
 });

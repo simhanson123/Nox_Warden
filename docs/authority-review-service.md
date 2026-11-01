@@ -160,8 +160,18 @@ specific private cause. They do not log configuration or weaken the refusal.
 
 A review bundle is closed JSON containing `before` and `after`, both complete
 `fw_planner::StateIr` objects. It comes from an explicitly selected private local
-file, never a browser request or controller response. The service snapshots it
-at startup. Restart is required to load an operator's changed file.
+file, never a browser request or controller response. Startup imports configured
+bundles into the authority database through `register_reviewed_plan`, which
+atomically retains the exact plan, requirements, verified review bytes and audit.
+Each configured plan must resolve unambiguously within the pinned authority
+tenants. Importing evidence does not create roles, identities or signing authority.
+
+After import, display and approval use the retained database evidence. The
+configuration's `review_evidence` map can be empty on later starts; the original
+file is no longer required to display that review. An exact import retry is
+idempotent, while changed evidence cannot replace an immutable review. A migrated
+legacy plan receives no evidence automatically. An expired or retired plan does
+not gain new authority from its old configuration entry.
 
 For `policy_change`, each display and approve request checks normalization,
 canonical baseline/candidate hashes, candidate reference hash and byte length,

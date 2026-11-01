@@ -1,10 +1,18 @@
-//! Browser-mediated CLI login. Only a short request identifier and matching
-//! display code are printed; the polling secret and session stay in memory or
-//! the existing private session file.
+//! Browser-mediated CLI login. The request URL includes an encrypted ticket;
+//! the matching display code is printed separately. The polling secret and
+//! session stay in memory or the existing private session file.
 use super::*;
 use std::time::Instant;
 
-fn request_fields(base: &str, body: &Value) -> Result<(String, String, String, String)> {
+struct CliRequest {
+    id: String,
+    uri: String,
+    code: String,
+    poll_token: String,
+    ticket: String,
+}
+
+fn request_fields(base: &str, body: &Value) -> Result<CliRequest> {
     let data = &body["data"];
     let id = data["request_id"]
         .as_str()
@@ -15,7 +23,19 @@ fn request_fields(base: &str, body: &Value) -> Result<(String, String, String, S
     let uri = data["verification_uri"]
         .as_str()
         .ok_or("invalid CLI login response")?;
-    if uri != format!("{base}/cli-login/{id}") {
+    let ticket = data["request_ticket"]
+        .as_str()
+        .filter(|value| {
+            value.len() <= 2048
+                && value.strip_prefix("cli1.").is_some_and(|encoded| {
+                    !encoded.is_empty()
+                        && encoded.bytes().all(|byte| {
+                            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+                        })
+                })
+        })
+        .ok_or("invalid CLI request ticket")?;
+    if uri != format!("{base}/cli-login/{id}#ticket={ticket}") {
         return Err("CLI login URL does not match the configured controller".into());
     }
     let code = data["user_code"]
@@ -30,7 +50,13 @@ fn request_fields(base: &str, body: &Value) -> Result<(String, String, String, S
         .as_str()
         .filter(|v| token_value(v))
         .ok_or("invalid CLI login response")?;
-    Ok((id.into(), uri.into(), code.into(), token.into()))
+    Ok(CliRequest {
+        id: id.into(),
+        uri: uri.into(),
+        code: code.into(),
+        poll_token: token.into(),
+        ticket: ticket.into(),
+    })
 }
 
 pub(super) fn login(base: &str, session_path: &Path) -> Result<()> {
@@ -51,7 +77,13 @@ pub(super) fn login(base: &str, session_path: &Path) -> Result<()> {
         .limit(65_536)
         .read_json()
         .map_err(|_| "invalid CLI login response")?;
-    let (id, uri, code, token) = request_fields(base, &body)?;
+    let CliRequest {
+        id,
+        uri,
+        code,
+        poll_token,
+        ticket,
+    } = request_fields(base, &body)?;
     eprintln!("Open this controller page in your browser: {uri}");
     eprintln!("Enter this code and approve CLI login: {code}");
     eprintln!("Waiting up to five minutes for passkey authorization.");
@@ -62,7 +94,7 @@ pub(super) fn login(base: &str, session_path: &Path) -> Result<()> {
             .header("Origin", base)
             .header("Idempotency-Key", Uuid::new_v4().to_string())
             .header("Content-Type", "application/json")
-            .send_json(json!({"poll_token":token}))
+            .send_json(json!({"poll_token":poll_token,"request_ticket":ticket}))
             .map_err(request_error)?;
         if response.status() == 202 {
             let body: Value = response
@@ -110,18 +142,37 @@ mod tests {
     fn cli_login_response_cannot_redirect_or_print_untrusted_text() {
         let origin = "http://localhost:8787";
         let id = Uuid::new_v4();
+        let ticket = "cli1.test_encoded_ticket";
         let mut body = json!({"data":{
-            "request_id":id,"verification_uri":format!("{origin}/cli-login/{id}"),
+            "request_id":id,"request_ticket":ticket,"verification_uri":format!("{origin}/cli-login/{id}#ticket={ticket}"),
             "user_code":"A123BC45","poll_token":"a".repeat(64)
         }});
         assert!(request_fields(origin, &body).is_ok());
         body["data"]["verification_uri"] = "https://untrusted.example/login".into();
         assert!(request_fields(origin, &body).is_err());
-        body["data"]["verification_uri"] = format!("{origin}/cli-login/{id}").into();
+        body["data"]["verification_uri"] =
+            format!("{origin}/cli-login/{id}#ticket={ticket}").into();
         body["data"]["user_code"] = "A123\nX45".into();
         assert!(request_fields(origin, &body).is_err());
         body["data"]["user_code"] = "A123BC45".into();
         body["data"]["poll_token"] = "short".into();
+        assert!(request_fields(origin, &body).is_err());
+        body["data"]["poll_token"] = "a".repeat(64).into();
+        for invalid in [
+            "".into(),
+            "cli1.".into(),
+            "cli1.hello\nworld".into(),
+            "cli1.a?b=c".into(),
+            format!("cli1.{}", "x".repeat(2044)),
+        ] {
+            body["data"]["request_ticket"] = Value::String(invalid.clone());
+            body["data"]["verification_uri"] =
+                format!("{origin}/cli-login/{id}#ticket={invalid}").into();
+            assert!(request_fields(origin, &body).is_err());
+        }
+        body["data"]["request_ticket"] = ticket.into();
+        body["data"]["verification_uri"] =
+            format!("{origin}/cli-login/{id}?ticket={ticket}").into();
         assert!(request_fields(origin, &body).is_err());
     }
 }

@@ -264,6 +264,24 @@ impl AppState {
             .active_passkey(&self.tenant, PRINCIPAL, credential_id)
             .map_err(|_| Problem(StatusCode::UNAUTHORIZED, "PASSKEY_SESSION_REVOKED"))?;
         let mut login = self.login.lock().map_err(|_| unavailable())?;
+        Ok(Self::insert_credential_session(
+            &mut login,
+            kind,
+            credential_id,
+            previous_token,
+            at,
+        ))
+    }
+    // The caller owns the session-registry guard. CLI handoff holds this guard
+    // across live-authorizer validation, mandatory audit and this insertion, so
+    // completed logout/replacement cannot race the final issuance check.
+    fn insert_credential_session(
+        login: &mut LoginState,
+        kind: SessionKind,
+        credential_id: &str,
+        previous_token: Option<&str>,
+        at: i64,
+    ) -> (String, Session) {
         login.sessions.retain(|_, session| session.expires > at);
         if let Some(token) = previous_token {
             login.sessions.remove(&hash(token));
@@ -288,7 +306,7 @@ impl AppState {
             credential_id: Some(credential_id.into()),
         };
         login.sessions.insert(hash(&token), session.clone());
-        Ok((token, session))
+        (token, session)
     }
     fn auth(&self, h: &HeaderMap, write: bool) -> Result<Session, Problem> {
         let result = self.auth_inner(h, write);

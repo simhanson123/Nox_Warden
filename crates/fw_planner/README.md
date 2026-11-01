@@ -22,10 +22,16 @@ budget is 4096 cells and 128 combined policy revisions. ICMP, changed context or
 management-baseline hashes, and a resource-bound excess return incomplete UNKNOWN.
 No partial result can pass `ensure_dispatchable`.
 
+`PolicyReviewEvidence::verify` checks full canonical before/after states against
+an immutable policy-change plan and independently recomposes its operations and
+semantic effects. It returns opaque `VerifiedPolicyReview` bytes/hashes for
+durable authority review. The combined plan and states are bounded at 128 KiB;
+missing, inconsistent or unsupported semantics are rejected without truncation.
+
 This proof concerns the normalized business-traffic predicate only. The protected
 management baseline must remain unchanged; independent baseline/scope gates must
 verify management constraints. Identity provenance, quota, approvals, kernel
 installation, original-flow/conntrack association, packet-time expiry, capability
 and readback remain separate mandatory checks. This crate alone never authorizes
-or performs a firewall write. ICMP proof, full plan wire generation and persisted
-proof-evidence integration remain outstanding.
+or performs a firewall write. ICMP proof, full plan wire generation and complete
+compiler/gate evidence integration remain outstanding.

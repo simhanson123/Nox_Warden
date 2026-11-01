@@ -12,6 +12,7 @@ mod migrations;
 mod provision;
 mod records;
 mod review;
+mod review_evidence;
 mod sets;
 mod subject;
 pub use audit_log::AuthorityAuditVerification;
@@ -127,8 +128,9 @@ impl AuthorityStore {
                 migrations::initialize_v1(&tx)?;
                 migrations::apply_v2(&tx)?;
                 migrations::apply_v3(&tx)?;
+                migrations::apply_v4(&tx)?;
             } else {
-                if application != APPLICATION_ID || ![1, 2, 3].contains(&version) {
+                if application != APPLICATION_ID || ![1, 2, 3, 4].contains(&version) {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -141,13 +143,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 3 {
+                if version < 4 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 3,
+                        required: 4,
                     });
                 }
-                migrations::validate_v3(&tx)?;
+                migrations::validate_v4(&tx)?;
             }
             tx.commit()?;
         }

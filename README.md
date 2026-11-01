@@ -48,6 +48,8 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
 
 See [implementation boundaries](docs/implementation.md), [platform status](docs/platform-support.md)
 and the concise [task ledger](reports/task-ledger.json) for remaining work.
+The [development handoff](docs/review-continuity.md) records the preserved design,
+independent review history and procedure for continuing after a lost conversation.
 
 ## Run locally
 

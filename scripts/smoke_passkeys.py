@@ -10,6 +10,7 @@ No private key, credential ID, assertion, cookie or console token enters reports
 import argparse
 import base64
 from contextlib import ExitStack
+from collections import Counter
 import hashlib
 import json
 import os
@@ -17,6 +18,7 @@ from pathlib import Path
 import re
 import selectors
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -59,9 +61,10 @@ CEREMONY = r"""async ({kind, options}) => {
     response, clientExtensionResults: credential.getClientExtensionResults()};
 }"""
 
-REQUEST = """async ({path, body, csrf, key}) => {
+REQUEST = """async ({path, body, csrf, key, requestTicket}) => {
   const headers = {Accept: 'application/json'};
   if (csrf) headers['X-CSRF-Token'] = csrf;
+  if (requestTicket) headers['X-CLI-Request-Ticket'] = requestTicket;
   if (body !== null) {
     headers['Content-Type'] = 'application/json';
     headers['Idempotency-Key'] = key;
@@ -137,7 +140,7 @@ def cli_prompt(child, origin):
             code = re.search(rb'^Enter this code and approve CLI login: ([0-9A-F]{8})$', received, re.MULTILINE)
             if uri and code:
                 destination = uri.group(1).decode('ascii')
-                if not re.fullmatch(re.escape(origin) + r'/cli-login/[0-9a-f-]{36}', destination):
+                if not re.fullmatch(re.escape(origin) + r'/cli-login/[0-9a-f-]{36}#ticket=cli1\.[A-Za-z0-9_-]{1,2043}', destination):
                     raise CheckFailed('CLI authorization stays on the exact local controller origin')
                 return destination, code.group(1).decode('ascii')
     raise CheckFailed('CLI login emits its browser prompt before timing out')
@@ -203,9 +206,10 @@ class BrowserClient:
         self.page = page
         self.csrf = None
 
-    def request(self, path, body=None, key=None):
+    def request(self, path, body=None, key=None, request_ticket=None):
         result = self.page.evaluate(REQUEST, {'path': path, 'body': body,
-                                            'csrf': self.csrf, 'key': key or str(uuid.uuid4())})
+                                            'csrf': self.csrf, 'key': key or str(uuid.uuid4()),
+                                            'requestTicket': request_ticket})
         return result['status'], result['body']
 
     def session(self):
@@ -439,11 +443,21 @@ def run(args, report):
                 report['stage'] = 'cli_browser_prompt'
                 destination, code = cli_prompt(cli, origin)
                 page.goto(destination)
+                page.wait_for_function("location.hash === ''")
+                check(report, 'encrypted CLI ticket is removed from the browser address before sign-in',
+                      urllib.parse.urlsplit(page.url).fragment == '')
                 report['stage'] = 'cli_page_signed_login'
                 ui_login(page, client)
                 report['stage'] = 'cli_browser_authorization'
                 code_input = page.get_by_label('Code from your terminal', exact=True)
                 code_input.wait_for()
+                skip_link = page.get_by_role('link', name='Skip to content', exact=True)
+                skip_link.focus()
+                skip_link.press('Enter')
+                page.wait_for_function("location.hash === '#main'")
+                code_input.wait_for()
+                check(report, 'keyboard skip link preserves the pending encrypted CLI ticket in memory',
+                      code_input.is_visible())
                 check(report, 'browser approval page does not display or prefill the terminal code',
                       code not in page.locator('body').inner_text() and code_input.input_value() == '')
                 check(report, 'browser cannot authorize a CLI request with no terminal code',
@@ -502,34 +516,48 @@ def run(args, report):
                 check(report, 'CLI handoff issues a bounded one-use request', status == 201)
                 pending = pending['data']
                 route = '/auth/cli/requests/' + pending['request_id']
-                status, _ = raw_request(origin, route + '/authorize', {'user_code': pending['user_code']})
+                # Public creation must not allocate the finite authenticated
+                # handoff pool or persist an attacker-controlled success event.
+                with sqlite3.connect(state / 'controller.sqlite3') as database:
+                    before = database.execute("SELECT count(*) FROM audit_events WHERE actor_id IS NULL AND outcome='success'").fetchone()[0]
+                statuses = Counter(raw_request(origin, '/auth/cli/requests', {})[0] for _ in range(1005))
+                report['anonymous_cli_creation_statuses'] = dict(statuses)
+                check(report, 'anonymous CLI request creation cannot exhaust protected handoff admission', statuses == {201: 1005})
+                with sqlite3.connect(state / 'controller.sqlite3') as database:
+                    after = database.execute("SELECT count(*) FROM audit_events WHERE actor_id IS NULL AND outcome='success'").fetchone()[0]
+                check(report, 'anonymous CLI request creation appends no public request success audits', before == after)
+                status, result = raw_request(origin, route + '/exchange', {
+                    'poll_token': pending['poll_token'], 'request_ticket': pending['request_ticket']})
+                check(report, 'an earlier legitimate CLI request survives unrelated anonymous creation',
+                      status == 202 and result['data']['state'] == 'pending')
+                status, _ = raw_request(origin, route + '/authorize', {'user_code': pending['user_code'], 'request_ticket': pending['request_ticket']})
                 check(report, 'knowing the code cannot authorize a CLI request without a passkey session', status == 401)
-                status, result = raw_request(origin, route + '/authorize', {'user_code': pending['user_code']},
+                status, result = raw_request(origin, route + '/authorize', {'user_code': pending['user_code'], 'request_ticket': pending['request_ticket']},
                                              cli_cookie, cli_csrf, extra_headers=spoofed_browser)
                 check(report, 'delegated CLI cannot authorize a second terminal even with its correct confirmation code',
                       status == 403 and result.get('detail') == 'BROWSER_PASSKEY_REQUIRED', (status, result))
-                status, viewed = client.request(route)
+                status, viewed = client.request(route, request_ticket=pending['request_ticket'])
                 check(report, 'authenticated CLI request view withholds confirmation and polling secrets',
                       status == 200 and 'user_code' not in viewed['data'] and 'poll_token' not in viewed['data'])
-                status, _ = client.request(route + '/authorize', {})
+                status, _ = client.request(route + '/authorize', {'request_ticket': pending['request_ticket']})
                 check(report, 'server rejects a missing CLI confirmation code', status == 400)
                 status, _ = raw_request(origin, route, None, client.cookie())
                 check(report, 'a session cookie alone cannot read a terminal authorization request', status in (401, 403))
-                status, _ = client.request(route + '/authorize', {'user_code': '00000000' if pending['user_code'] != '00000000' else 'FFFFFFFF'})
+                status, _ = client.request(route + '/authorize', {'user_code': '00000000' if pending['user_code'] != '00000000' else 'FFFFFFFF', 'request_ticket': pending['request_ticket']})
                 check(report, 'server rejects an incorrect CLI verification code', status == 403)
-                status, _ = raw_request(origin, route + '/authorize', {'user_code': pending['user_code']},
+                status, _ = raw_request(origin, route + '/authorize', {'user_code': pending['user_code'], 'request_ticket': pending['request_ticket']},
                                         bootstrap_cookie, bootstrap_csrf)
                 check(report, 'former bootstrap credentials cannot authorize a terminal session', status in (401, 403))
-                status, _ = client.request(route + '/authorize', {'user_code': pending['user_code']})
+                status, _ = client.request(route + '/authorize', {'user_code': pending['user_code'], 'request_ticket': pending['request_ticket']})
                 check(report, 'fresh passkey session authorizes the matching CLI request', status == 200)
                 delegated_context = browser.new_context()
                 cleanup.callback(delegated_context.close)
                 delegated_page = delegated_context.new_page()
                 delegated_page.goto(origin)
                 delegated = BrowserClient(delegated_page)
-                status, _ = delegated.complete(route + '/exchange', {'poll_token': pending['poll_token']})
+                status, _ = delegated.complete(route + '/exchange', {'poll_token': pending['poll_token'], 'request_ticket': pending['request_ticket']})
                 check(report, 'CLI polling secret exchanges only an authorized request', status == 200)
-                status, _ = raw_request(origin, route + '/exchange', {'poll_token': pending['poll_token']})
+                status, _ = raw_request(origin, route + '/exchange', {'poll_token': pending['poll_token'], 'request_ticket': pending['request_ticket']})
                 check(report, 'CLI polling secret cannot be exchanged twice', status == 409)
                 del pending, code
                 delegated_cookie, delegated_csrf = delegated.cookie(), delegated.csrf

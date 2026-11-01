@@ -12,6 +12,7 @@ use std::{
 
 const MIGRATION_2: &str = include_str!("migration_002.sql");
 const MIGRATION_3: &str = include_str!("migration_003.sql");
+const MIGRATION_4: &str = include_str!("migration_004.sql");
 
 fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
     let parent = path
@@ -160,6 +161,41 @@ fn known_v2_digest() -> Result<Vec<u8>> {
     schema_digest(&tx)
 }
 
+fn known_v3_digest() -> Result<Vec<u8>> {
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    tx.execute_batch(MIGRATION_2)?;
+    tx.execute_batch(MIGRATION_3)?;
+    schema_digest(&tx)
+}
+
+pub(super) fn apply_v4(tx: &Transaction<'_>) -> Result<()> {
+    validate_v3(tx)?;
+    if schema_digest(tx)? != known_v3_digest()? {
+        return Err(invalid("unexpected authority v3 schema"));
+    }
+    tx.execute_batch(MIGRATION_4)?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(4,?,4,4,?)",
+        params![hash(&hash_bytes(MIGRATION_4.as_bytes()))?, now()?],
+    )?;
+    let broken: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+        [],
+        |r| r.get(0),
+    )?;
+    if broken {
+        return Err(invalid("authority review migration foreign keys"));
+    }
+    tx.pragma_update(None, "user_version", 4)?;
+    Ok(())
+}
+
+pub(super) fn validate_v4(connection: &Connection) -> Result<()> {
+    validate_migrations(connection, 4)
+}
+
 pub(super) fn apply_v3(tx: &Transaction<'_>) -> Result<()> {
     validate_v2(tx)?;
     if schema_digest(tx)? != known_v2_digest()? {
@@ -183,6 +219,10 @@ pub(super) fn apply_v3(tx: &Transaction<'_>) -> Result<()> {
 }
 
 pub(super) fn validate_v3(connection: &Connection) -> Result<()> {
+    validate_migrations(connection, 3)
+}
+
+fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
     let mut query=connection.prepare("SELECT version,checksum,minimum_app_schema,maximum_app_schema FROM authority_schema_migrations ORDER BY version")?;
     let rows = query
         .query_map([], |r| {
@@ -194,11 +234,14 @@ pub(super) fn validate_v3(connection: &Connection) -> Result<()> {
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let expected = vec![
+    let mut expected = vec![
         (1, known_v1_digest()?, 1, 1),
         (2, hash(&hash_bytes(MIGRATION_2.as_bytes()))?, 2, 2),
         (3, hash(&hash_bytes(MIGRATION_3.as_bytes()))?, 3, 3),
     ];
+    if version == 4 {
+        expected.push((4, hash(&hash_bytes(MIGRATION_4.as_bytes()))?, 4, 4));
+    }
     if rows != expected {
         return Err(invalid("authority migration checksum or compatibility"));
     }
@@ -449,21 +492,24 @@ impl AuthorityStore {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if application == APPLICATION_ID && version == 3 {
-            validate_v3(&tx)?;
+        if application == APPLICATION_ID && version == 4 {
+            validate_v4(&tx)?;
             tx.commit()?;
             return Ok(());
         }
-        if application != APPLICATION_ID || ![1, 2].contains(&version) {
+        if application != APPLICATION_ID || ![1, 2, 3].contains(&version) {
             return Err(invalid("authority migration requires known prior database"));
         }
         if version == 2 {
             validate_v2(&tx)?;
         }
-        let original_schema = if version == 1 {
-            known_v1_digest()?
-        } else {
-            known_v2_digest()?
+        if version == 3 {
+            validate_v3(&tx)?;
+        }
+        let original_schema = match version {
+            1 => known_v1_digest()?,
+            2 => known_v2_digest()?,
+            _ => known_v3_digest()?,
         };
         if schema_digest(&tx)? != original_schema {
             return Err(invalid("unexpected authority v1 schema"));
@@ -474,7 +520,10 @@ impl AuthorityStore {
         if version == 1 {
             apply_v2(&tx)?;
         }
-        apply_v3(&tx)?;
+        if version < 3 {
+            apply_v3(&tx)?;
+        }
+        apply_v4(&tx)?;
         tx.commit()?;
         Ok(())
     }
