@@ -164,3 +164,35 @@ test('a reload without memory proof requires passkey sign-in and never restores 
   expect(fetch.mock.calls.every(([, init]) => !Object.hasOwn(init?.headers ?? {}, 'X-CSRF-Token'))).toBe(true);
   expect(localStorage.length).toBe(1);
 });
+
+
+test('terminal ticket survives the sign-in gate only in memory and is removed from the URL', async () => {
+  const requestId = '11111111-1111-4111-8111-111111111111';
+  const ticket = 'cli1.encrypted_terminal_fixture';
+  history.replaceState(null, '', `/cli-login/${requestId}#ticket=${ticket}`);
+  const fetch = mockController({ noSession: true });
+  const base = fetch.getMockImplementation()!;
+  fetch.mockImplementation(async (input, init) => String(input) === `/api/v1/auth/cli/requests/${requestId}`
+    ? response({ data: { request_id: requestId, expires_at: '2026-10-31T09:00:00Z', state: 'pending', api_origin: 'http://localhost:8787' } })
+    : base(input, init));
+  render(<App />);
+  const token = await screen.findByLabelText('Console token');
+  expect(location.hash).toBe('');
+  expect(history.state).toBeNull();
+  await userEvent.type(token, 'fixture-console-token');
+  await userEvent.click(screen.getByRole('button', { name: 'Start session' }));
+  await screen.findByLabelText('Code from your terminal');
+  const read = fetch.mock.calls.find(([input]) => String(input) === `/api/v1/auth/cli/requests/${requestId}`);
+  expect(read?.[1]?.headers).toMatchObject({ 'X-CLI-Request-Ticket': ticket, 'X-CSRF-Token': session.csrf_token });
+  expect(fetch.mock.calls.every(([input]) => !String(input).includes(ticket))).toBe(true);
+  expect(localStorage.length).toBe(1);
+  expect(localStorage.getItem('fw.locale')).toBe('en');
+  expect(sessionStorage.length).toBe(0);
+  expect(screen.queryByText(ticket)).not.toBeInTheDocument();
+  // Fragment anchors emit popstate as well as hashchange in browsers. An
+  // accessibility skip link must not discard the in-memory request ticket.
+  history.pushState(null, '', `/cli-login/${requestId}#main`);
+  fireEvent.popState(window);
+  expect(await screen.findByLabelText('Code from your terminal')).toBeInTheDocument();
+  expect(screen.queryByText('CLI_REQUEST_TICKET_INVALID')).not.toBeInTheDocument();
+});

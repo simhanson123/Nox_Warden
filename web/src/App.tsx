@@ -7,7 +7,7 @@ import type { Locale, MessageKey, Translate } from './i18n';
 import { Badge, Detail, Empty, ErrorNotice, Freshness, Icon, Loader } from './ui';
 import { RegistryPage, RegistryPicker } from './Registry';
 import { PageNavigation, usePagedCollection } from './Pagination';
-import { CliLoginPage, PasskeysPage, SessionGate } from './Passkeys';
+import { CliLoginPage, PasskeysPage, SessionGate, validCliRequestTicket } from './Passkeys';
 
 type CoreListView = 'requests' | 'policies' | 'targets' | 'audit';
 type View = 'overview' | CoreListView | 'assets' | 'services' | 'security';
@@ -88,9 +88,20 @@ function Overview({ t, locale, revision, onSelect, onNavigate, onRefresh }: { t:
     <section className="panel list-panel"><div className="section-heading"><h2>{t('overview.recent')}</h2><button className="text-button" onClick={() => onNavigate('audit')}>{t('nav.audit')} <Icon name="arrow" size={14}/></button></div>{audit.state === 'loading' ? <Loader t={t}/> : audit.state === 'error' ? <ErrorNotice error={audit.error} t={t} retry={onRefresh}/> : <><Freshness envelope={audit.envelope} t={t} locale={locale}/><RecordTable kind="audit" rows={listData(audit.envelope!).slice(0, 5)} t={t} locale={locale} onSelect={onSelect}/></>}</section>
     <section className="evidence-section"><div className="section-heading"><h2>{t('overview.layers')}</h2><span className="eyebrow">INTENT ≠ OBSERVATION</span></div><div className="evidence-grid">{(['intent', 'backend', 'traffic'] as const).map((key, index) => <article key={key}><span className="evidence-number">0{index + 1}</span><h3>{t(`overview.${key}`)}</h3><p>{t(`overview.${key}Text`)}</p></article>)}</div></section></>;
 }
+interface CliLink { requestId: string; ticket?: string }
+function currentCliLink(): CliLink | undefined {
+  const requestId = /^\/cli-login\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(location.pathname)?.[1];
+  if (!requestId) return undefined;
+  const ticket = location.hash.startsWith('#ticket=') ? location.hash.slice(8) : undefined;
+  return { requestId, ticket: validCliRequestTicket(ticket) ? ticket : undefined };
+}
 export default function App() {
   const [locale, setLocale] = useState<Locale>(initialLocale); const t = translator(locale);
   const currentView = (): View => { if (location.pathname.startsWith('/cli-login/')) return 'security'; const value = location.pathname.split('/')[1]; return views.includes(value as View) ? value as View : 'overview'; };
+  // Capture before the sign-in gate renders; keep the encrypted ticket only in
+  // memory and remove the fragment from browser history/address display.
+  const [cliLink, setCliLink] = useState<CliLink | undefined>(currentCliLink);
+  useEffect(() => { if (cliLink && location.hash.startsWith('#ticket=')) history.replaceState(null, '', location.pathname + location.search); }, [cliLink]);
   const [navigation, setNavigation] = useState(0);
   const [view, setView] = useState<View>(currentView); const [session, setSession] = useState<Session | null>(null); const [authLoading, setAuthLoading] = useState(true); const [canCreate, setCanCreate] = useState(false);
   const [signingOut, setSigningOut] = useState(false); const [passkeyRegistered, setPasskeyRegistered] = useState<string>();
@@ -104,7 +115,7 @@ export default function App() {
     catch (error) { setDetailError(error as ApiError); } finally { setSigningOut(false); }
   }
   useEffect(() => { const controller = new AbortController(); void api<Session>('/session', { signal: controller.signal }).then(result => acceptSession(result.data, result.actions)).catch(() => { if (!controller.signal.aborted) setAuthLoading(false); }); return () => controller.abort(); }, [acceptSession]);
-  useEffect(() => { const pop = () => { setNavigation(value => value + 1); setView(currentView()); setShowForm(location.pathname === '/requests/new'); setSelected(undefined); setRevision(value => value + 1); }; window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, []);
+  useEffect(() => { const pop = () => { const next = currentCliLink(); setCliLink(current => next?.requestId === current?.requestId && !location.hash.startsWith('#ticket=') ? current : next); setNavigation(value => value + 1); setView(currentView()); setShowForm(location.pathname === '/requests/new'); setSelected(undefined); setRevision(value => value + 1); }; const hash = () => { if (location.hash.startsWith('#ticket=')) pop(); }; window.addEventListener('popstate', pop); window.addEventListener('hashchange', hash); return () => { window.removeEventListener('popstate', pop); window.removeEventListener('hashchange', hash); }; }, []);
   useEffect(() => {
     const match = /^\/requests\/([^/]+)$/.exec(location.pathname);
     if (!session || !match || match[1] === 'new') return;
@@ -118,7 +129,7 @@ export default function App() {
     if (view === 'requests' && typeof id === 'string') history.pushState(null, '', '/requests/' + encodeURIComponent(id));
   };
   const closeRecord = () => { setSelected(undefined); if (/^\/requests\/[^/]+$/.test(location.pathname)) history.replaceState(null, '', '/requests'); };
-  const navigate = (next: View, newRequest = false) => { setNavigation(value => value + 1); setSelected(undefined); setDetailError(undefined); setView(next); setShowForm(newRequest); setSuccess(false); history.pushState(null, '', '/' + next + (newRequest ? '/new' : '')); };
+  const navigate = (next: View, newRequest = false) => { setCliLink(undefined); setNavigation(value => value + 1); setSelected(undefined); setDetailError(undefined); setView(next); setShowForm(newRequest); setSuccess(false); history.pushState(null, '', '/' + next + (newRequest ? '/new' : '')); };
   const cliRequest = /^\/cli-login\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(location.pathname)?.[1];
   const refresh = () => setRevision(value => value + 1);
   const descriptions: Record<View, MessageKey> = { overview: 'overview.description', requests: 'request.description', policies: 'policies.description', targets: 'targets.description', audit: 'audit.description', assets: 'registry.assetDescription', services: 'registry.serviceDescription', security: 'passkey.description' };
@@ -130,7 +141,7 @@ export default function App() {
       {showForm && view === 'requests' && !canCreate && <ErrorNotice error={new ApiError(403, 'ACTION_UNAVAILABLE', '')} t={t}/>}
       {showForm && canCreate && view === 'requests' && <RequestForm t={t} onCancel={() => navigate('requests')} onCreated={record => { setShowForm(false); setSuccess(true); setSelected(record); const id = recordValue(record, 'resource_id', 'request_id', 'id'); history.replaceState(null, '', typeof id === 'string' ? '/requests/' + encodeURIComponent(id) : '/requests'); refresh(); }}/>}
       {view === 'targets' && <PlatformMatrix t={t} revision={revision}/>}
-      {cliRequest ? <CliLoginPage key={cliRequest} requestId={cliRequest} t={t} locale={locale} session={session} onSession={acceptSession} onSignedOut={clearSession}/> : view === 'security' ? <PasskeysPage t={t} locale={locale} session={session} onSession={acceptSession} onSignedOut={clearSession} onRegistered={credentialId => { clearSession(); setPasskeyRegistered(credentialId); }} revision={revision}/> : view === 'overview' ? <Overview t={t} locale={locale} revision={revision} onSelect={openRecord} onNavigate={navigate} onRefresh={refresh}/> : view === 'assets' || view === 'services' ? <RegistryPage key={`${view}-${navigation}`} kind={view} t={t} locale={locale} principalId={session.principal_id} revision={revision}/> : <Listing kind={view} t={t} locale={locale} revision={revision} onSelect={openRecord} onRefresh={refresh}/>}
+      {cliRequest ? <CliLoginPage key={cliRequest} requestId={cliRequest} requestTicket={cliLink?.requestId === cliRequest ? cliLink.ticket : undefined} t={t} locale={locale} session={session} onSession={acceptSession} onSignedOut={clearSession}/> : view === 'security' ? <PasskeysPage t={t} locale={locale} session={session} onSession={acceptSession} onSignedOut={clearSession} onRegistered={credentialId => { clearSession(); setPasskeyRegistered(credentialId); }} revision={revision}/> : view === 'overview' ? <Overview t={t} locale={locale} revision={revision} onSelect={openRecord} onNavigate={navigate} onRefresh={refresh}/> : view === 'assets' || view === 'services' ? <RegistryPage key={`${view}-${navigation}`} kind={view} t={t} locale={locale} principalId={session.principal_id} revision={revision}/> : <Listing kind={view} t={t} locale={locale} revision={revision} onSelect={openRecord} onRefresh={refresh}/>}
       </>}
       <footer><span>{t('app.footer')}</span><span>Apache-2.0 · F-2.0</span></footer></main><div className="translation-note">{t('locale.preview')}</div></div>{selected && <Detail record={selected} t={t} close={closeRecord}/>}</div>;
 }

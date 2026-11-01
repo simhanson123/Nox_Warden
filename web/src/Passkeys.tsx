@@ -139,21 +139,26 @@ export function PasskeysPage({ t, locale, session, onSession, onSignedOut, onReg
   </div></section>;
 }
 
+export function validCliRequestTicket(value: string | undefined): value is string {
+  return typeof value === 'string' && value.length <= 2048 && /^cli1\.[A-Za-z0-9_-]+$/.test(value);
+}
 interface CliRequest { request_id: string; expires_at: string; state: 'pending' | 'approved' | 'consumed'; api_origin: string }
-export function CliLoginPage({ requestId, t, locale, session, onSession, onSignedOut }: { requestId: string; t: Translate; locale: Locale; session: Session; onSession: AcceptSession; onSignedOut: () => void }) {
+export function CliLoginPage({ requestId, requestTicket, t, locale, session, onSession, onSignedOut }: { requestId: string; requestTicket?: string; t: Translate; locale: Locale; session: Session; onSession: AcceptSession; onSignedOut: () => void }) {
   const [request, setRequest] = useState<CliRequest>(); const [error, setError] = useState<ApiError>();
   const [code, setCode] = useState(''); const [pending, setPending] = useState(false);
   const [forceVerification, setForceVerification] = useState(false); const operation = useRef<AbortController | null>(null);
   const fresh = !forceVerification && session.authentication_method === 'passkey' && typeof session.authenticated_at === 'number' && Date.now() / 1000 - session.authenticated_at < 300;
   useEffect(() => {
     const controller = new AbortController();
-    void api<CliRequest>('/auth/cli/requests/' + encodeURIComponent(requestId), { signal: controller.signal }).then(result => {
+    setRequest(undefined); setError(undefined); setCode('');
+    if (!validCliRequestTicket(requestTicket)) { setError(new ApiError(400, 'CLI_REQUEST_TICKET_INVALID', '')); return () => controller.abort(); }
+    void api<CliRequest>('/auth/cli/requests/' + encodeURIComponent(requestId), { cliRequestTicket: requestTicket, signal: controller.signal }).then(result => {
       const data = result.data;
       if (!data || data.request_id !== requestId || !['pending', 'approved', 'consumed'].includes(data.state) || typeof data.api_origin !== 'string') throw new ApiError(0, 'INVALID_RESPONSE', '');
       setRequest(data);
     }).catch((err: unknown) => { if (!controller.signal.aborted) setError(passkeyError(err)); });
     return () => { controller.abort(); operation.current?.abort(); };
-  }, [requestId]);
+  }, [requestId, requestTicket]);
   async function verify() {
     if (pending) return; setPending(true); setError(undefined);
     const controller = new AbortController(); operation.current = controller;
@@ -162,11 +167,11 @@ export function CliLoginPage({ requestId, t, locale, session, onSession, onSigne
     finally { if (!controller.signal.aborted) setPending(false); }
   }
   async function authorize(event: FormEvent) {
-    event.preventDefault(); if (pending || !fresh || request?.state !== 'pending') return;
+    event.preventDefault(); if (pending || !fresh || request?.state !== 'pending' || !validCliRequestTicket(requestTicket)) return;
     if (!/^[0-9A-F]{8}$/.test(code)) return;
     setPending(true); setError(undefined);
     try {
-      const result = await api<{ request_id: string; state: string }>('/auth/cli/requests/' + encodeURIComponent(requestId) + '/authorize', { body: { user_code: code } });
+      const result = await api<{ request_id: string; state: string }>('/auth/cli/requests/' + encodeURIComponent(requestId) + '/authorize', { body: { user_code: code, request_ticket: requestTicket } });
       if (result.data.request_id !== requestId || result.data.state !== 'approved') throw new ApiError(0, 'INVALID_RESPONSE', '');
       setCode(''); setRequest({ ...request, state: 'approved' });
     } catch (err) {

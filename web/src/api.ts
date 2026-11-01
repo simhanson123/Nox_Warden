@@ -29,12 +29,13 @@ export class ApiError extends Error {
 }
 let csrfToken: string | undefined;
 export function setCsrfToken(token: string | undefined) { csrfToken = token; }
-export async function api<T>(path: string, options: { body?: unknown; key?: string; ifMatch?: string; signal?: AbortSignal } = {}): Promise<ReadEnvelope<T>> {
+export async function api<T>(path: string, options: { body?: unknown; key?: string; ifMatch?: string; cliRequestTicket?: string; signal?: AbortSignal } = {}): Promise<ReadEnvelope<T>> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   // Cookies are shared across localhost ports. The separately held, in-memory
   // proof is therefore required on authenticated reads as well as mutations.
   // Reloading intentionally requires another passkey sign-in; never persist it.
   if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  if (options.cliRequestTicket) headers['X-CLI-Request-Ticket'] = options.cliRequestTicket;
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
     headers['Idempotency-Key'] = options.key ?? crypto.randomUUID();

@@ -73,6 +73,22 @@ console-token file. After enrollment:
    writes the existing private session file. The browser never receives this
    polling secret, and it is not placed in a URL or printed.
 
+The verification URL carries an opaque encrypted request ticket in its fragment
+(`#ticket=...`). Fragments are not sent with HTTP page requests or referrers. The
+browser captures it in memory before sign-in and removes it from the address
+bar; reloading afterwards requires reopening the original terminal URL. It
+never stores the ticket in local/session storage. The ticket conceals both the
+short confirmation-code hash and polling-secret hash, so possessing the URL
+does not permit offline code guessing or supply the polling secret. Authenticated
+request reads send the ticket in a fixed header; approval and polling send it
+in bounded JSON bodies. The ticket is scoped to the exact request, local origin,
+tenant, principal, purpose and original five-minute interval; restart invalidates it.
+Every CLI route checks a per-boot nondecreasing wall-time high-water mark and a
+monotonic elapsed-time floor before reading or pruning request state. Observed
+clock rollback returns `CLI_CLOCK_UNCERTAIN`; it cannot make expired tickets or
+pruned consumed/failed-code entries usable again. Recovery requires the clock
+to catch up or a restart, which discards the old ticket master and all sessions.
+
 The request expires after five minutes. Logging out or replacing the authorizing
 browser session before exchange cancels its authorization. A restart or lost
 exchange response requires a new CLI login request. Exchanging a CLI session
@@ -94,12 +110,32 @@ the request. Someone who creates a request still knows that request's code and
 could try to persuade an owner to enter it. Manual terminal confirmation is not
 a complete defense against social engineering or a compromised local host.
 
-The controller retains at most 16 CLI login requests until their five-minute
-expiry, including requests already exchanged. Creation does not require an
-existing session. A local client can fill these slots and temporarily prevent
-legitimate CLI login with `CLI_LOGIN_LIMIT` (HTTP 429); expiry clears old entries
-when another creation is attempted. This bound limits memory, but does not
-provide availability against a local requester repeatedly filling the queue.
+Public request creation stores no pending request, replay-key entry or durable
+audit event. Anonymous creation and polling cannot consume the protected approval
+budget or evict earlier valid requests. Initiation uses one boot-random AEAD master
+and checked monotonic nonce sequence; domain-separated epoch keys encrypt at most
+65,536 tickets each. Previous epoch keys remain derivable, so a creation flood
+cannot evict a key required to read an earlier unexpired ticket.
+
+A fresh direct browser passkey session is required before allocating one of 16
+protected entries. Each retains the original ticket binding, five failed-code
+attempt limit, approval and consumed marker until the original expiry. The next
+authenticated admission clears expired entries. Approved and exchanged entries
+cannot be displaced by public traffic; the same polling secret cannot mint two
+sessions. Approval and exchange still require successful durable audit writes.
+Exchange holds the session-registry lock across live browser-session checking,
+the mandatory audit and delegated-session insertion. A completed logout or
+browser-session replacement cannot slip between the check and issuance; logout
+after a completed exchange does not revoke the independently issued CLI session.
+Authenticated exhaustion returns `CLI_LOGIN_LIMIT` (HTTP 429); a successfully
+authenticated owner can still fill their own protected budget. This does not
+guarantee availability against sustained local CPU, HTTP or database saturation.
+
+Creation retries, including reuse of an `Idempotency-Key`, deliberately issue a
+new independent request and new polling secret. They neither recover an earlier
+secret nor replace its request. This is a development API change from the former
+`CLI_REQUEST_ALREADY_CREATED` response: there is no unauthenticated replay-key
+cache. Authorization and exchange retain their original one-use semantics.
 The [CLI guide](../crates/fw_cli/README.md) describes file permissions and settings.
 
 ## Origin and runtime boundaries
@@ -162,10 +198,10 @@ envelope and bounded JSON handling.
 | `POST /auth/passkeys/login/complete` | `{ceremony_id, credential}`; actual signed browser assertion, current credential, challenge and browser binding. |
 | `POST /auth/passkeys/{id}/revocations` | `{}`; recent direct browser passkey session, with last-verified-key protection. |
 | `POST /auth/logout` | `{}`; authenticated session and CSRF. |
-| `POST /auth/cli/requests` | `{}`; bounded, expiring CLI request. Returns the confirmation code and polling secret only to the initiating client. |
-| `GET /auth/cli/requests/{id}` | Authenticated request ID, controller origin, expiry and state; neither the confirmation code nor polling secret. |
-| `POST /auth/cli/requests/{id}/authorize` | `{user_code}`; explicit matching code, recent direct browser passkey session and CSRF. |
-| `POST /auth/cli/requests/{id}/exchange` | `{poll_token}`; pending response or one-use credential-bound session transfer. |
+| `POST /auth/cli/requests` | `{}`; expiring stateless initiation. Returns `request_ticket`, the confirmation code and polling secret only to the initiating client. |
+| `GET /auth/cli/requests/{id}` | Authenticated read with `X-CLI-Request-Ticket`; returns request ID, controller origin, expiry and state, without confirmation code, polling secret or ticket. |
+| `POST /auth/cli/requests/{id}/authorize` | `{user_code, request_ticket}`; explicit matching code, recent direct browser passkey session and CSRF. |
+| `POST /auth/cli/requests/{id}/exchange` | `{poll_token, request_ticket}`; pending response or one-use credential-bound session transfer. |
 
 Mutations require a UUID `Idempotency-Key`, exact Origin and JSON content type;
 passkey-authenticated reads and all authenticated mutations also require the
