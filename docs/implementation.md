@@ -13,15 +13,16 @@ meaningful completion percentage.
 | Area | Implemented boundary | Remaining acceptance |
 | --- | --- | --- |
 | Local control and authentication | Real passkeys, browser-authorized CLI, catalogues, audit pagination, device registration and eight locales | Recovery/renewal, remote production identity, complete workflows and accessibility/translation review |
-| Independent approval and evidence | Current distinct-human quorum, immutable review, separately pinned signed metadata, recompilation and signed native observations | Production bootstrap, qualified evidence/build identity, atomic approval/generation/quota signing intents and authenticated dispatch |
+| Independent approval and evidence | Current distinct-human quorum, immutable review, separately pinned signed metadata, recompilation, signed native observations and durable signing/quota mechanics | Production bootstrap, qualified evidence/build identity, core request cost binding, protected signer and authenticated dispatch |
 | Linux enforcement | Actual nftables, packet probes, signed lab execution and conservative recovery in disposable namespaces | Installed-host lifecycle, management connectivity, watchdog, reboot/physical NIC/coexistence and full common-host qualification |
 | Windows and macOS | Preserved design and explicit unsupported boundaries | WFP/callout and Network Extension implementations, supported OS runners, signing and real kernel tests |
 | Distribution and operations | Source, pinned builds and CI | Signed installers, upgrade/uninstall, restore epochs, provider/channel acceptance and production operations |
 
-The next large implementation dependency is durable signing intent and quota
-integration in the same authority transaction. Qualified production evidence and
-protected signer deployment remain mandatory separate gates; passing a lab or
-returning a current evidence summary cannot open policy dispatch.
+[Durable signing intent and quota coordination](signing-coordination.md) now
+share the authority transaction. The next dependencies are protected authority
+bootstrap and generation initialization, qualified production evidence, original
+core request cost binding and protected signer/dispatch deployment. Passing a lab
+or returning a current evidence summary cannot open policy dispatch.
 
 ## Trust and process boundaries
 
@@ -116,8 +117,9 @@ does not attest caller-declared compiler/validator build digests, and an observe
 signature does not establish protected kernel provenance. Expected installation
 bytes do not prove an approved journal operation. All results remain unqualified
 and unable to dispatch; production observer isolation, management baseline
-qualification, signing/quota transactions and authenticated host dispatch remain
-open requirements.
+qualification and authenticated host dispatch remain open requirements. Schema 7
+adds two-phase signing/quota transaction mechanics, but its protected production
+resolver refuses all preparation and worker operations.
 
 The separate [target metadata flow](target-metadata.md) lets a trusted local
 operator pin a device key, certificate binding and validity independently of
@@ -139,7 +141,7 @@ Authority validates Ed25519 DSSE domain separation, tenant/target/epoch/generati
 
 The separate `AuthorityStore` adds SQLite plan-decision admission using its own explicitly provisioned principal, pinned credential and scoped-role records. Credentials require a persisted signed activation before use. Full immutable plan and requirements bytes are admitted with closed contract validation and locally computed canonical hashes. This validates their form and binding, not the truth of referenced compiler artifacts, gate evidence or authorship; a trusted importer and future signer must establish those independently. Challenge state is persisted before browser options are returned. `BEGIN IMMEDIATE` admission rechecks current authority records and atomically verifies the assertion, consumes the challenge, updates the credential and stores original proof, immutable decision and audit. Exact retries return the same result without new authority or renewed expiry. Retained proofs use saved pre-authentication state and admission time for cryptography, plus present stable key identity, revocation, role and plan validity checks.
 
-The [independent review service](authority-review-service.md) adds a separately configured loopback origin with pinned-key authentication, immutable plan review and fresh decision-bound WebAuthn assertions. Since authority schema 4, the store retains full before/after StateIr evidence after an independently recomposed policy change matches the plan. Plan, requirements, review bytes and audit commit atomically. The service reads retained evidence after restart, and its checked approval challenge/admission APIs revalidate evidence inside the same transactions as their writes. Missing evidence blocks approve; legacy plans gain no evidence automatically. These checks do not certify the original target observations, compiler artifacts or referenced gates. The controller still refuses approval routes and never imports its login credentials into authority trust. The authority atomically aggregates independently verified decisions when explicit authority basis and human mappings are configured. The review API exposes immutable admission outcomes separately from revalidated current ApprovalSet snapshots; stale, missing-trust and dissent-blocked authority never becomes a current set. Production identity provisioning and authority bootstrap, signer jobs, authenticated IPC and OS-account isolation remain separate work. A second process/database under the same writable account is not a protected security boundary. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
+The [independent review service](authority-review-service.md) adds a separately configured loopback origin with pinned-key authentication, immutable plan review and fresh decision-bound WebAuthn assertions. Since authority schema 4, the store retains full before/after StateIr evidence after an independently recomposed policy change matches the plan. Plan, requirements, review bytes and audit commit atomically. The service reads retained evidence after restart, and its checked approval challenge/admission APIs revalidate evidence inside the same transactions as their writes. Missing evidence blocks approve; legacy plans gain no evidence automatically. These checks do not certify the original target observations, compiler artifacts or referenced gates. The controller still refuses approval routes and never imports its login credentials into authority trust. The authority atomically aggregates independently verified decisions when explicit authority basis and human mappings are configured. The review API exposes immutable admission outcomes separately from revalidated current ApprovalSet snapshots; stale, missing-trust and dissent-blocked authority never becomes a current set. Production identity provisioning and authority bootstrap, signer deployment, authenticated IPC and OS-account isolation remain separate work. A second process/database under the same writable account is not a protected security boundary. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
 
 Executor journals own a writer lock and durable SQLite generation/time bounds. Journal schema 3 retains immutable recovery attempts and distinct submission evidence. Validated unsubmitted operations close without releasing their generation fence; fresh baseline reconciliation refuses to erase prior candidate, probe or recovery history. Native material acceptance atomically persists the signed grant, full baseline/candidate/recovery states and artifacts, installation binding and recovery scope before submission. Submission rechecks signed validity and confirmation ends at the earlier of submission+60 seconds or the signed absolute deadline. Recovery completion uses the same generation fence and retains the high-water mark. Restart and uncertain observations never create active-state evidence. The experimental confirmation domain is explicitly not the original F production protocol.
 

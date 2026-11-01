@@ -86,6 +86,7 @@ pub fn restore_v4(path: &std::path::Path) {
 
 #[allow(dead_code)]
 pub fn restore_v5(path: &std::path::Path) {
+    restore_v6(path);
     let db = rusqlite::Connection::open(path).unwrap();
     db.pragma_update(None, "foreign_keys", "OFF").unwrap();
     for table in [
@@ -112,4 +113,27 @@ pub fn restore_v5(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=6;").unwrap();
     db.execute_batch(&trigger).unwrap();
     db.pragma_update(None, "user_version", 5).unwrap();
+}
+
+#[allow(dead_code)]
+pub fn restore_v6(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    // Reconstruct only the test database; product migration never downgrades.
+    for line in include_str!("../../src/store/migration_007.sql").lines() {
+        if let Some(table) = line.strip_prefix("CREATE TABLE ") {
+            let table = table.split_whitespace().next().unwrap();
+            db.execute_batch(&format!("DROP TABLE {table};")).unwrap();
+        }
+    }
+    let trigger: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=7;").unwrap();
+    db.execute_batch(&trigger).unwrap();
+    db.pragma_update(None, "user_version", 6).unwrap();
 }

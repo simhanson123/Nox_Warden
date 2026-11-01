@@ -13,7 +13,7 @@ std::thread_local! {
 #[cfg(test)]
 #[allow(dead_code)]
 #[path = "../../tests/support/approval_authenticator.rs"]
-mod budget_authenticator;
+pub(super) mod budget_authenticator;
 
 // AuthorityStore exclusively owns this connection and installs no other progress
 // handler. Always remove this scoped handler, including errors and unwinding.
@@ -616,7 +616,7 @@ fn expiry(subject: &subject::ValidatedSubject, basis: &BasisRecord, members: &[&
         .fold(subject.valid_until.min(basis.basis.not_after), i64::min)
 }
 
-fn current_set(
+pub(super) fn current_set(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     plan_id: &str,

@@ -1,6 +1,9 @@
 //! Pure grant verification and persistent quota primitives for an isolated authority.
 //! Bound WebAuthn proof primitives do not provide a production approval/signing
 //! service or an API that accepts client-supplied approval booleans.
+#[cfg(all(test, feature = "approval-proofs"))]
+extern crate self as fw_authority;
+
 mod approval;
 pub use approval::*;
 #[cfg(feature = "approval-proofs")]
@@ -17,6 +20,8 @@ mod store;
 pub use store::*;
 mod quota;
 pub use quota::*;
+mod signing;
+pub use signing::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};

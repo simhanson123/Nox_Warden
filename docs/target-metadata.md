@@ -178,13 +178,13 @@ An existing output path is refused, so a retry cannot silently replace the proof
 
 ### Schema migration
 
-Target metadata was introduced in schema 5. The current authority schema **6**
-requires an explicit validated private backup to migrate known schemas 1–5.
+Target metadata was introduced in schema 5. The current authority schema **7**
+requires an explicit validated private backup to migrate known schemas 1–6.
 It imports no target trust from legacy controller records:
 
 ```sh
 target/debug/fw_authority_admin migrate \
-  --database authority/authority.sqlite3 --backup authority/authority-before-v6.sqlite3
+  --database authority/authority.sqlite3 --backup authority/authority-before-v7.sqlite3
 ```
 
 See [authority storage](authority-store.md) for backup/path/collision rules.
@@ -202,5 +202,7 @@ with a clearly synthetic fixture pin. It tests tampering, tenant substitution,
 reopen, exact replay and revocation; it never changes a host firewall. Unit tests
 also cover migration, atomic failures, races, expiry/clock rollback and corrupted
 retained bindings. Native measurements and gate evidence, independently trusted
-baseline/artifacts, durable signing intents with quota, protected signer/dispatch
-deployment and three-OS qualification remain separate requirements.
+baseline/artifacts, protected signer/dispatch deployment and three-OS
+qualification remain separate requirements. [Durable signing coordination](signing-coordination.md)
+now retains transactional intent and quota mechanics; its production resolver
+remains closed.

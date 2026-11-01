@@ -263,13 +263,13 @@ archival maintenance and protected collector/IPC deployment remain future work.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 6. The stable family identity
+Fresh authority databases use schema version 7. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2, 3, 4 or 5 database returns `MigrationRequired` without adding tables
+populated version 1, 2, 3, 4, 5 or 6 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v6.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v7.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -300,7 +300,7 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 6 database makes no new backup or state change. Foreign and
+on a valid version 7 database makes no new backup or state change. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
 are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
@@ -312,7 +312,11 @@ observation-clock and metadata evidence tables. It never imports controller
 trust, invents target reports or grants existing approvals dispatch authority.
 Version 6 adds empty native reference/observer registries, compilation records,
 challenges and observation history. It preserves prior target metadata without
-inferring observer trust or qualified baseline evidence.
+inferring observer trust or qualified baseline evidence. Version 7 adds empty
+signing intents, jobs, results, target generation heads, independent quota
+registries, reservations, work transitions and dispatch outbox records. It
+preserves prior evidence without inferring signer authority, a generation, quota
+configuration or dispatch permission. See [durable signing coordination](signing-coordination.md).
 
 ## Issuance and atomic decision admission
 
@@ -459,7 +463,8 @@ set or `None`. A still-valid plan and authority basis returns `Pending` after ol
 member approvals expire, are withdrawn, or lose a current key/role, allowing
 fresh signed reviews to create a new immutable set. An invalid plan or basis,
 or an explicitly revoked current set, remains `Stale`. These results are review snapshots, not signing capabilities. The
-future signing transaction must repeat current checks before granting authority.
+signing transaction repeats current checks before granting authority; its public
+production resolver currently remains closed.
 
 ## Retained proof verification
 
@@ -478,7 +483,7 @@ The store must verify the saved evidence and its projections rather than trust
 an unchecked `approved` flag or a client-supplied evidence hash.
 
 This read uses a consistent SQLite snapshot. Its returned value does not reserve
-authorization against a later revocation. A future signing transaction must
+authorization against a later revocation. The signing transaction must
 repeat current authority checks when it commits; this library does not provide
 an `AuthorityEvidence` or `ProofVerifier` adapter that can bypass that step.
 

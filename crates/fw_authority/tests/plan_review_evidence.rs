@@ -161,7 +161,21 @@ fn exact_review_survives_reopen_retry_and_retains_no_dispatch_authority() {
         fw_contracts::hash_bytes(review.canonical_bytes())
     );
     let db = Connection::open(&f.path).unwrap();
-    assert_eq!(db.query_row::<i64,_,_>("SELECT count(*) FROM sqlite_schema WHERE name IN ('authority_signer_jobs','dispatch_outbox')",[],|r|r.get(0)).unwrap(),0);
+    for table in [
+        "authority_signing_intents",
+        "authority_signing_jobs",
+        "authority_signing_results",
+        "authority_signing_outbox",
+        "authority_signing_quota_reservations",
+    ] {
+        assert_eq!(
+            db.query_row::<i64, _, _>(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                .get(0))
+                .unwrap(),
+            0,
+            "semantic review created signing state in {table}"
+        );
+    }
     assert_eq!(
         db.query_row::<i64, _, _>(
             "SELECT count(*) FROM authority_audit WHERE kind='plan_review_evidence_registered'",
@@ -472,7 +486,7 @@ fn v3_migration_requires_validated_backup_and_does_not_invent_legacy_evidence() 
         AuthorityStore::open(&f.path),
         Err(AuthorityError::MigrationRequired {
             found: 3,
-            required: 6
+            required: 7
         })
     ));
     assert_eq!(snapshot(&f.path), original);

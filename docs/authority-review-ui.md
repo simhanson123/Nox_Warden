@@ -50,6 +50,7 @@ assertion to the authority. The server repeats all authorization checks.
 The API contract uses plain JSON under `/authority/v1` and
 `X-Authority-CSRF` on all authenticated reads and writes. It includes `/session`,
 `/auth/options`, `/auth/verify`, `/plans`, `/plans/{id}`, `/plans/{id}/native-evidence`,
+`/plans/{id}/signing-readiness`,
 `/approvals/challenges`, `/approvals/assertions`, and `/logout`. A detail response
 contains the exact `plan`, `requirements`, `plan_hash`, `requirements_hash`,
 `roles`, `review:{available:true,before,after}` (or `available:false`), and
@@ -97,6 +98,28 @@ private keys are not returned to the screen. This panel neither collects consent
 nor changes the existing signed approval workflow. Its labels and remaining
 requirements have translations in all eight authority catalogues; automated
 parity does not replace human language review.
+
+The separate read-only **Signing readiness** panel shows exact unmet prerequisites
+and the selected plan's latest retained signing intent. It distinguishes the
+current independent approval hash, configured quotas and current target generation
+from the intent's historical job, delivery and reservation states. An intent or
+retained signed-grant hash never becomes an active-policy or dispatch claim.
+UNKNOWN delivery explicitly keeps quota held after expiry; a cancelled or released
+record is displayed only as returned by the authority.
+
+The browser validates the closed summary, immutable plan/tenant/target bindings,
+epoch and proposed generation, fixed blocker codes, canonical times, lifecycle
+states and held-reservation consistency. Both signing/dispatch flags and the
+intent's current eligibility must remain false. Its check lasts at most 60 seconds
+and is bounded by the plan and current inputs. Request latency is spent from that
+window; monotonic elapsed time and the snapshot's highest observed wall clock
+prevent revival after rollback. Expiry updates without polling or changing quota.
+Expired checks hide the current approval hash, target generation and positive
+quota-configuration indicator while retaining the intent's historical state.
+Refresh and changed approval context perform only authenticated GETs, discard
+previous results, and ignore responses for previous plans. No passkey, consent,
+quota reservation, signing request or deployment is triggered by this panel.
+All labels and blockers are translated in the eight authority catalogues.
 
 A lost assertion response leaves the exact signed request and its idempotency
 key in memory for an explicit retry. A terminal denial clears that request and

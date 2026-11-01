@@ -79,6 +79,15 @@ state hash. A protected read-only service/UI presents historical versus current
 eligibility. No result qualifies a native backend or issues a grant. See the
 [native evidence workflow](../../docs/native-evidence.md).
 
+Schema 7 adds [durable signing coordination](../../docs/signing-coordination.md):
+atomic intent/generation/quota preparation, exact signed-result verification,
+current-evidence rechecks and outbox finalization, fenced retries and conservative
+UNKNOWN accounting. Independent root/project quota administration and read-only
+readiness are available. Production preparation and workers remain blocked until
+protected bootstrap, native qualification, build identity and signer deployment
+exist. Successful mechanics are exercised only through private test witnesses.
+Core access cost resolution and rootless policy preparation remain unsupported.
+
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
 feature. Native executor and lab consumers disable default features, keeping
 these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
@@ -98,11 +107,11 @@ Local-owner [WebAuthn login](../../docs/passkey-login.md) is implemented separat
 and does not authorize a plan. A separate approval HTTP service and UI are
 implemented. Remaining M03 work includes the complete production approval flow,
 out-of-band enrollment and authority bootstrap, trusted artifact/gate
-admission, independent signer jobs/trust
-ceremonies, signed grant/quota reconciliation, complete PostgreSQL authority
-transactions, and process/key isolation deployment. The store accepts plan
-decisions and development evidence only; it does not issue grants or turn its provisioning API into an
-authenticated production service. SQLite unit/race/reopen tests do not certify
+admission, independent signer deployment/trust
+ceremonies, authenticated grant delivery/reconciliation, complete PostgreSQL
+authority transactions, and process/key isolation deployment. Public store paths
+accept plan decisions and development evidence but do not issue grants. The
+provisioning API is not an authenticated production service. SQLite unit/race/reopen tests do not certify
 production crash recovery or privileged OS enforcement. The separate
 [signed Linux lab](../../docs/signed-linux-execution.md)
 uses clearly marked synthetic plan/approval and signing fixtures to test native
