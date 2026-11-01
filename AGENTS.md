@@ -22,11 +22,18 @@ needed to reconstruct the development baseline. Use parallel agents with disjoin
 file ownership for implementation and independent review. Repeat the
 review → implementation → relevant checks → independent review cycle when new
 changes or reproducible failures justify it; preserve the next concrete task and
-unresolved blockers in the compact ledger. External-model review prompts live in
-`docs/review-prompts.md`; do not claim a named model reviewed a change unless it
-actually did.
+unresolved blockers in the compact ledger. The user now prefers substantial
+integrated batches across parallel components, followed by one consolidated
+review; do not interrupt development with repeated tiny review handoffs. Keep
+necessary automated checks during implementation and correct failures before the
+batch review. External reviewers may be reviewing a fixed prior commit while new
+work proceeds on a separate branch; retain exact review bases and targets.
+External-model review prompts live in `docs/review-prompts.md`; also print the
+complete copyable prompts in the conversation when handing off review, rather
+than providing only a file link. Do not claim a named model reviewed a change
+unless it actually did.
 
-Follow task IDs and dependencies in `docs/specs/F_08_Codex_Cloud_작업계획.md`. Implement a testable slice per change. Update affected schemas, API, docs, tests, and migration together. Run the applicable checks and report exact commands/results. A skipped native OS test is not a pass. Do not call the product complete after Linux alone works.
+Follow task IDs and dependencies in `docs/specs/F_08_Codex_Cloud_작업계획.md`. Implement a coherent, testable batch per change. Update affected schemas, API, docs, tests, and migration together. Run the applicable checks and report exact commands/results. A skipped native OS test is not a pass. Do not call the product complete after Linux alone works.
 
 The bundled Python validator checks design artifacts only. Product commands listed in F_08 become required after their corresponding implementation task creates them. Do not invent passing output or create empty programs merely to make a command succeed.
 

@@ -70,6 +70,15 @@ challenges, admits, reads and revokes targets without creating human approval or
 signing authority. See the [target metadata guide](../../docs/target-metadata.md).
 Existing databases require an explicit validated private-backup migration.
 
+Schema 6 extends this with independently pinned lab references and purpose-scoped
+observers. Reviewed plans compile into exact retained baseline/candidate
+artifacts; signed observations bind the compilation, current metadata, expected
+installation and prior target head. The authority recomputes readback
+correspondence and retains negative or unknown evidence without an observed
+state hash. A protected read-only service/UI presents historical versus current
+eligibility. No result qualifies a native backend or issues a grant. See the
+[native evidence workflow](../../docs/native-evidence.md).
+
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
 feature. Native executor and lab consumers disable default features, keeping
 these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
@@ -92,7 +101,7 @@ out-of-band enrollment and authority bootstrap, trusted artifact/gate
 admission, independent signer jobs/trust
 ceremonies, signed grant/quota reconciliation, complete PostgreSQL authority
 transactions, and process/key isolation deployment. The store accepts plan
-decisions and metadata only; it does not issue grants or turn its provisioning API into an
+decisions and development evidence only; it does not issue grants or turn its provisioning API into an
 authenticated production service. SQLite unit/race/reopen tests do not certify
 production crash recovery or privileged OS enforcement. The separate
 [signed Linux lab](../../docs/signed-linux-execution.md)

@@ -114,8 +114,11 @@ task ledger and verification summary rather than a continuing chat transcript.
    implementation boundaries before selecting work along F_08 dependencies.
 2. Give parallel agents disjoint file ownership and explicit review scopes.
    Treat the three supplied reviews as evidence to check, not blanket approval.
-3. Implement one coherent slice, run its regression checks, and have an
-   independent agent examine security boundaries and failure behavior.
+3. Implement a substantial coherent batch across parallel components and run
+   necessary automated checks. The user's latest preference is one consolidated
+   independent review after the integrated batch works, rather than repeated
+   small review handoffs. External reviewers can examine a fixed prior commit
+   while new work continues on a separate branch.
 4. Correct reproducible failures, repeat the affected checks, then run the
    integration checks required by the change. Record unavailable prerequisites
    and unrun native tests explicitly.

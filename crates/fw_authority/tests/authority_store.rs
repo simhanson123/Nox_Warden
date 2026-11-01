@@ -471,7 +471,7 @@ fn backed_up_v1_migration_preserves_original_decisions_proofs_and_exact_retries(
         AuthorityStore::open(&f.path),
         Err(fw_authority::AuthorityError::MigrationRequired {
             found: 1,
-            required: 5
+            required: 6
         })
     ));
     assert_eq!(snapshot(&f.path), original);

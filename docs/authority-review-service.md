@@ -158,6 +158,36 @@ specific private cause. They do not log configuration or weaken the refusal.
 
 ## Authoritative review content
 
+Authenticated `GET /authority/v1/plans/{id}/native-evidence` presents the
+[development native evidence](native-evidence.md) retained separately for an
+existing visible plan. It repeats the live reviewer/profile and plan-access
+checks using the server-selected tenant, requires the memory-held CSRF proof,
+rejects query parameters and request bodies, and returns bounded `no-store`
+JSON. There is no corresponding POST provisioning/admission route.
+
+The `fw.native-evidence-status/v1` response binds organization, project, target,
+plan ID/hash and check time. Nullable compilation and observation summaries expose
+only hashes, revisions, UTC admission/measurement/expiry times and current
+eligibility. Original signatures and stored projections are reverified by the
+authority; raw nft captures, installation artifacts and private keys are not
+serialized. The observation comparison is `match`, `mismatch` or `unknown`, and
+only a match has an observed state hash. Its provenance is explicitly
+`signed_lab_observer_claim`. `observation_head_hash` is the target-global CAS
+head. A selected plan's latest retained observation remains visible when another
+plan takes that head, but its `current` flag is false. Only a plan without any
+retained observation returns an absent observation; historical receipts never
+replace or restore the target's current head.
+
+Fixed reason codes distinguish missing or stale compilation/observation and
+mismatched or unknown observations. Every response still requires native
+qualification and protected signer/dispatch integration, with
+`production_qualified:false` and `dispatch_allowed:false`. A verified lab
+producer's signature authenticates submitted bytes; it does not establish
+protected kernel collection or independent machine attestation. Current reads
+can retain a durable time fence, but do not create pins, challenges, observations,
+human decisions or dispatch authority. Presentation of this separate evidence
+does not promote a plan's caller-supplied gate strings into verified gates.
+
 A review bundle is closed JSON containing `before` and `after`, both complete
 `fw_planner::StateIr` objects. It comes from an explicitly selected private local
 file, never a browser request or controller response. Startup imports configured
@@ -216,6 +246,7 @@ localhost behavior is exercised by the Chromium smoke; remote HTTP is unsupporte
 | `POST /logout` | `{}` | Invalidates old session and returns a new anonymous binding |
 | `GET /plans` | Cookie and CSRF | At most 100 live tenant plans, newest first |
 | `GET /plans/{id}` | Cookie and CSRF | Exact `plan`, `requirements`, hashes, eligible `roles`, `review`, current principal's retained decisions, live `aggregation` and `current_approval_set` |
+| `GET /plans/{id}/native-evidence` | Cookie and CSRF; visible plan | Bounded retained/current development compilation and observation summaries; no raw captures, qualification or dispatch permission |
 | `POST /approvals/challenges` | `{plan_id,plan_hash,requirements_hash,decision,role}` | `{challenge,options}` from the authority's immutable plan |
 | `POST /approvals/assertions` | `{challenge_id,idempotency_key,assertion}` | `{approval,replayed,aggregation}` from atomic cryptographic admission |
 

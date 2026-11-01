@@ -1,7 +1,8 @@
 #[path = "support/authenticator.rs"]
 mod authenticator;
-#[path = "support/plans.rs"]
-mod plans;
+#[path = "../../fw_authority/tests/support/native_fixture.rs"]
+mod native_fixture;
+use native_fixture::plans;
 #[path = "../../fw_authority/tests/support/private_directory.rs"]
 mod private_directory;
 use authenticator::{Authenticator, ORIGIN, PRINCIPAL};
@@ -117,6 +118,9 @@ impl Fixture {
         Self::configured(false)
     }
     fn configured(evidence: bool) -> Self {
+        Self::prepared(evidence, false)
+    }
+    fn prepared(evidence: bool, native: bool) -> Self {
         let directory = private_directory::private_directory();
         let db = directory.path().join("authority.sqlite3");
         let mut store = AuthorityStore::open(&db).unwrap();
@@ -154,10 +158,18 @@ impl Fixture {
                 NOW,
             )
             .unwrap();
-        let (admitted_plan, admitted_requirements, bundle) = plans::complete_plan(NOW);
+        let (admitted_plan, admitted_requirements, bundle) = if native {
+            let (_, plan, requirements, review, _) = native_fixture::setup(&mut store, NOW);
+            (plan, requirements, review)
+        } else {
+            plans::complete_plan(NOW)
+        };
         let bundle_path = directory.path().join("review.json");
         write_new_private_fixture(&bundle_path, &serde_json::to_vec(&bundle).unwrap());
-        if evidence {
+        if native {
+            // setup retained the exact reviewed native plan; no automatic
+            // compilation or observation is admitted by service configuration.
+        } else if evidence {
             store
                 .register_plan(&tenant, &admitted_plan, &admitted_requirements, NOW)
                 .unwrap();
@@ -1902,4 +1914,426 @@ fn evidence_import_refuses_same_plan_uuid_in_multiple_configured_tenants() {
         .unwrap(),
         0
     );
+}
+
+#[tokio::test]
+async fn native_evidence_summary_requires_live_review_access_and_never_exposes_raw_captures() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let path = format!("/authority/v1/plans/{PLAN}/native-evidence");
+    let anonymous = session(addr).await;
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            anonymous.cookie.as_deref(),
+            anonymous.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    let auth = login(&f, addr, 1).await;
+    assert_eq!(auth.status, 200);
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            auth.cookie.as_deref(),
+            None,
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        403
+    );
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            "http://localhost:8799"
+        )
+        .await
+        .status,
+        403
+    );
+    let response = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(response.status, 200, "{}", response.raw);
+    assert!(
+        response
+            .raw
+            .to_lowercase()
+            .contains("cache-control: no-store")
+    );
+    assert!(response.raw.len() < 4096);
+    assert_eq!(
+        response.body["schema_version"],
+        "fw.native-evidence-status/v1"
+    );
+    assert_eq!(response.body["org_id"], ORG);
+    assert_eq!(response.body["project_id"], PROJECT);
+    assert_eq!(response.body["plan_id"], PLAN);
+    assert_eq!(response.body["checked_at"], time(NOW + 1));
+    assert_eq!(response.body["production_qualified"], false);
+    assert_eq!(response.body["dispatch_allowed"], false);
+    assert_eq!(response.body["compilation"], Value::Null);
+    assert_eq!(response.body["observation"], Value::Null);
+    assert_eq!(response.body["observation_head_hash"], Value::Null);
+    assert_eq!(
+        response.body["reasons"],
+        json!([
+            "NATIVE_QUALIFICATION_REQUIRED",
+            "SIGNER_DISPATCH_UNAVAILABLE",
+            "COMPILATION_MISSING",
+            "OBSERVATION_MISSING"
+        ])
+    );
+    let fields = response.body.as_object().unwrap();
+    assert_eq!(fields.len(), 13);
+    for forbidden in [
+        "readback",
+        "payload",
+        "signature",
+        "private_key",
+        "nft_template",
+        "installation",
+    ] {
+        assert!(!response.raw.contains(forbidden));
+    }
+    // The presentation endpoint never provisions a pin, issues a challenge or
+    // admits a proof, even if a caller supplies an otherwise authenticated POST.
+    assert_eq!(
+        request(
+            addr,
+            "POST",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            Some(json!({})),
+            ORIGIN
+        )
+        .await
+        .status,
+        404
+    );
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &(path.clone() + "?project_id=" + OTHER),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        400
+    );
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    for table in [
+        "authority_native_pins",
+        "authority_native_compilations",
+        "authority_native_challenges",
+        "authority_native_observations",
+    ] {
+        let count: i64 = db
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+    let logout = request(
+        addr,
+        "POST",
+        "/authority/v1/logout",
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        Some(json!({})),
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(logout.status, 200);
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn native_evidence_endpoint_cannot_select_another_tenant_or_revoked_reviewer() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    let other_tenant = AuthorityTenant::new(ORG, OTHER).unwrap();
+    store
+        .provision_principal(
+            &other_tenant,
+            PRINCIPAL,
+            "https://identity.example.test",
+            "alice",
+            NOW,
+        )
+        .unwrap();
+    let (mut other_plan, requirements, _) = plans::complete_plan(NOW);
+    other_plan["plan_id"] = json!(OTHER);
+    other_plan["project_id"] = json!(OTHER);
+    store
+        .register_plan(&other_tenant, &other_plan, &requirements, NOW)
+        .unwrap();
+    let hidden = request(
+        addr,
+        "GET",
+        &format!("/authority/v1/plans/{OTHER}/native-evidence"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(hidden.status, 409);
+    assert!(!hidden.raw.contains("plan_id"));
+    assert!(!hidden.raw.contains("observation"));
+    store
+        .revoke_credential(
+            &AuthorityTenant::new(ORG, PROJECT).unwrap(),
+            &f.credential_id,
+            NOW + 1,
+        )
+        .unwrap();
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &format!("/authority/v1/plans/{PLAN}/native-evidence"),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn native_evidence_http_keeps_signed_lab_match_separate_from_revoked_current_eligibility() {
+    let f = Fixture::prepared(false, true);
+    let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    let compilation = store
+        .register_native_compilation(&tenant, PLAN, 1, NOW)
+        .unwrap();
+    let (plan, _, review, references) = native_fixture::native_plan(NOW);
+    let artifact = fw_backend_linux::compile_portable(&review.after, &references).unwrap();
+    let (challenge, installation) =
+        native_fixture::challenge(&mut store, &tenant, PLAN, &artifact, None, NOW);
+    let capture = native_fixture::snapshot(&installation.native);
+    let proof = native_fixture::proof(&challenge, installation, capture, NOW);
+    let admission = store
+        .admit_native_observation(&tenant, &proof, NOW)
+        .unwrap();
+    assert_eq!(admission.receipt.comparison, "match");
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    assert_eq!(auth.status, 200);
+    let path = format!("/authority/v1/plans/{PLAN}/native-evidence");
+    let current = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(current.status, 200, "{}", current.raw);
+    assert_eq!(
+        current.body["plan_hash"],
+        fw_contracts::canonical_hash(&plan).unwrap()
+    );
+    assert_eq!(
+        current.body["compilation"]["evidence_hash"],
+        compilation.evidence_hash
+    );
+    assert_eq!(current.body["compilation"]["current"], true);
+    assert_eq!(current.body["observation"]["current"], true);
+    assert_eq!(current.body["observation"]["signature_valid"], true);
+    assert_eq!(
+        current.body["observation"]["provenance"],
+        "signed_lab_observer_claim"
+    );
+    assert_eq!(current.body["observation"]["comparison"], "match");
+    assert_eq!(
+        current.body["observation"]["observed_state_hash"],
+        plan["desired_state_hash"]
+    );
+    assert_eq!(
+        current.body["observation_head_hash"],
+        admission.receipt_hash
+    );
+    assert_eq!(current.body["production_qualified"], false);
+    assert_eq!(current.body["dispatch_allowed"], false);
+    assert_eq!(
+        current.body["reasons"],
+        json!([
+            "NATIVE_QUALIFICATION_REQUIRED",
+            "SIGNER_DISPATCH_UNAVAILABLE"
+        ])
+    );
+    for forbidden in [
+        "readback",
+        "payload_base64",
+        "private_key",
+        "nft_template",
+        "installation",
+        "public_key",
+        "signature\":",
+    ] {
+        assert!(!current.raw.contains(forbidden), "{forbidden}");
+    }
+    assert!(current.raw.len() < 8192);
+    store
+        .revoke_native_observer(&tenant, native_fixture::TARGET, 1, NOW + 1)
+        .unwrap();
+    // The trust mutation advances the security revision. A fresh signed login
+    // reestablishes review access before reading the retained observation.
+    let fresh = login(&f, addr, 2).await;
+    assert_eq!(fresh.status, 200, "{}", fresh.raw);
+    let retained = request(
+        addr,
+        "GET",
+        &path,
+        fresh.cookie.as_deref(),
+        fresh.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(retained.status, 200, "{}", retained.raw);
+    assert_eq!(retained.body["compilation"]["current"], true);
+    assert_eq!(
+        retained.body["observation"]["receipt_hash"],
+        current.body["observation"]["receipt_hash"]
+    );
+    assert_eq!(retained.body["observation"]["comparison"], "match");
+    assert_eq!(retained.body["observation"]["signature_valid"], true);
+    assert_eq!(retained.body["observation"]["current"], false);
+    assert!(
+        retained.body["reasons"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("OBSERVATION_STALE"))
+    );
+    assert_eq!(retained.body["production_qualified"], false);
+    assert_eq!(retained.body["dispatch_allowed"], false);
+    task.abort();
+}
+
+#[tokio::test]
+async fn native_evidence_http_retains_plan_a_history_after_plan_b_takes_the_same_target_head() {
+    let f = Fixture::prepared(false, true);
+    let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    store
+        .register_native_compilation(&tenant, PLAN, 1, NOW)
+        .unwrap();
+    let (mut later_plan, requirements, review, references) = native_fixture::native_plan(NOW);
+    let artifact = fw_backend_linux::compile_portable(&review.after, &references).unwrap();
+    let (first_challenge, first_installation) =
+        native_fixture::challenge(&mut store, &tenant, PLAN, &artifact, None, NOW);
+    let first_capture = native_fixture::snapshot(&first_installation.native);
+    let first_proof =
+        native_fixture::proof(&first_challenge, first_installation, first_capture, NOW);
+    let first = store
+        .admit_native_observation(&tenant, &first_proof, NOW)
+        .unwrap();
+    let later_plan_id = "55555555-5555-4555-8555-555555555555";
+    later_plan["plan_id"] = json!(later_plan_id);
+    store
+        .register_reviewed_plan(&tenant, &later_plan, &requirements, &review, NOW + 1)
+        .unwrap();
+    store
+        .register_native_compilation(&tenant, later_plan_id, 1, NOW + 1)
+        .unwrap();
+    let (next_challenge, next_installation) = native_fixture::challenge(
+        &mut store,
+        &tenant,
+        later_plan_id,
+        &artifact,
+        Some(&first.receipt_hash),
+        NOW + 1,
+    );
+    let next_capture = native_fixture::snapshot(&next_installation.native);
+    let next_proof =
+        native_fixture::proof(&next_challenge, next_installation, next_capture, NOW + 1);
+    let next = store
+        .admit_native_observation(&tenant, &next_proof, NOW + 1)
+        .unwrap();
+    assert_ne!(first.receipt_hash, next.receipt_hash);
+    let (addr, task) = f.start(NOW + 2).await;
+    let auth = login(&f, addr, 1).await;
+    assert_eq!(auth.status, 200);
+    for (id, expected, current) in [
+        (PLAN, &first.receipt_hash, false),
+        (later_plan_id, &next.receipt_hash, true),
+    ] {
+        let result = request(
+            addr,
+            "GET",
+            &format!("/authority/v1/plans/{id}/native-evidence"),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN,
+        )
+        .await;
+        assert_eq!(result.status, 200, "{}", result.raw);
+        assert_eq!(result.body["observation_head_hash"], next.receipt_hash);
+        assert_eq!(result.body["observation"]["receipt_hash"], *expected);
+        assert_eq!(result.body["observation"]["current"], current);
+        assert_eq!(result.body["observation"]["comparison"], "match");
+        assert_eq!(result.body["observation"]["signature_valid"], true);
+        assert_eq!(result.body["compilation"]["current"], true);
+        assert_eq!(result.body["production_qualified"], false);
+        assert_eq!(result.body["dispatch_allowed"], false);
+        let reasons = result.body["reasons"].as_array().unwrap();
+        assert!(!reasons.contains(&json!("OBSERVATION_MISSING")));
+        assert_eq!(reasons.contains(&json!("OBSERVATION_STALE")), !current);
+    }
+    task.abort();
 }

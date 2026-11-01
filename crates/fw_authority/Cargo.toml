@@ -9,11 +9,18 @@ name = "fw_authority_admin"
 path = "src/bin/fw_authority_admin.rs"
 required-features = ["approval-proofs"]
 
+[[example]]
+name = "native_evidence_fixture"
+path = "examples/native_evidence_fixture.rs"
+required-features = ["approval-proofs"]
+
 [features]
 default = ["approval-proofs"]
-approval-proofs = ["dep:fw_webauthn", "dep:fw_domain", "dep:fw_planner", "dep:fw_target_evidence", "dep:openssl", "dep:sha2", "rusqlite/backup", "rusqlite/hooks"]
+approval-proofs = ["dep:fw_webauthn", "dep:fw_domain", "dep:fw_planner", "dep:fw_target_evidence", "dep:fw_native_evidence", "dep:fw_backend_linux", "dep:openssl", "dep:sha2", "rusqlite/backup", "rusqlite/hooks"]
 
 [dependencies]
+fw_native_evidence = { path = "../fw_native_evidence", optional = true }
+fw_backend_linux = { path = "../fw_backend_linux", optional = true }
 fw_target_evidence = { path = "../fw_target_evidence", optional = true }
 fw_contracts = { path = "../fw_contracts" }
 fw_webauthn = { path = "../fw_webauthn", optional = true }

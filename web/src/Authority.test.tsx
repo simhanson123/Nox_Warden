@@ -35,6 +35,7 @@ function server(authenticated = true) {
     if (path.endsWith('/auth/verify')) return reply(session);
     if (path.endsWith('/plans')) return reply({ plans: [{ plan_id: 'plan-1', plan_hash: hash, change_kind: 'policy_change', valid_until: '2099-01-01T00:00:00Z' }] });
     if (path.endsWith('/plans/plan-1')) return reply(nextDetail);
+    if (path.endsWith('/plans/plan-1/native-evidence')) return reply({ schema_version: 'fw.native-evidence-status/v1', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash, checked_at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z'), production_qualified: false, dispatch_allowed: false, compilation: null, observation: null, observation_head_hash: null, reasons: ['NATIVE_QUALIFICATION_REQUIRED', 'SIGNER_DISPATCH_UNAVAILABLE', 'COMPILATION_MISSING', 'OBSERVATION_MISSING'] });
     if (path.endsWith('/challenges')) {
       const body = JSON.parse(String(init?.body));
       return reply({ challenge: { challenge_id: 'bound-challenge', decision: body.decision, role: body.role, requirements_hash: requirementsHash, principal_id: session.principal_id, org_id: session.org_id, project_id: session.project_id, subject: { subject_type: 'plan', plan_ref: { plan_id: 'plan-1', plan_hash: hash, plan_kind: 'policy_change' } }, rp_id: 'localhost', origin: 'http://localhost:8790', expires_at: '2099-01-01T00:00:00Z' }, options });

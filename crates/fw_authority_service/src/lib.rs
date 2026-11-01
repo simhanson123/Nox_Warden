@@ -551,6 +551,20 @@ impl Runtime {
         }
         if method == "GET" && path.starts_with("/authority/v1/plans/") {
             let plan_id = path.trim_start_matches("/authority/v1/plans/");
+            if let Some(plan_id) = plan_id.strip_suffix("/native-evidence") {
+                if uuid::Uuid::parse_str(plan_id).is_err() {
+                    return Err(Failure::Invalid);
+                }
+                // Reuse plan visibility and the live authenticated principal;
+                // the URL cannot select a different tenant or provision trust.
+                self.store
+                    .review_plan(&tenant, &identity.principal_id, plan_id, now)?;
+                let status = self.store.native_evidence_status(&tenant, plan_id, now)?;
+                return Ok(json_response(
+                    serde_json::to_value(status).map_err(|_| Failure::Unavailable)?,
+                    None,
+                ));
+            }
             if uuid::Uuid::parse_str(plan_id).is_err() {
                 return Err(Failure::Invalid);
             }

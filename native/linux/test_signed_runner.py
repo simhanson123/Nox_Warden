@@ -24,7 +24,8 @@ class SignedOutcomes(unittest.TestCase):
                      'native/linux/signed_lifecycle.py', 'scripts/signed-linux-lab.py',
                      'target/debug/fw_linux_executor', 'target/debug/fw_signed_lab_fixture']
             for crate in ('fw_linux_executor', 'fw_backend_linux', 'fw_authority', 'fw_executor',
-                          'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab'):
+                          'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab',
+                          'fw_native_evidence', 'fw_target_evidence'):
                 paths.extend(['crates/' + crate + '/Cargo.toml', 'crates/' + crate + '/src/lib.rs'])
             for name in paths:
                 path = root / name

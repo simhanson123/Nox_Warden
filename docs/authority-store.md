@@ -191,15 +191,85 @@ silently deleted or capped by a lifetime issuance quota. Long-running deployment
 still need an authorized retention/archival maintenance procedure; no public
 issuance endpoint or maintenance deletion operation is supplied by this slice.
 
+## Recomputed compilation and signed lab observations
+
+Schema 6 adds explicitly provisioned development native evidence. Its local
+maintenance APIs do not create a production observer, authority bootstrap,
+compiler qualification or signing permission. Every compilation/observation
+receipt and status response retains `production_qualified:false` and
+`dispatch_allowed:false`.
+
+`pin_native_references` records the full isolated Linux scope, management
+baseline, asset snapshot and unqualified capability bytes with a target-scoped
+revision and lifetime. Reference updates use expected-revision CAS; withdrawal
+is retained separately. The compiler accepts only its existing loopback lab
+profile. Its `fw.isolated-lab-capability/v1` reference hash remains distinct from
+the independently authenticated `f.target-capability/v1` metadata report.
+
+`register_native_compilation` requires a current retained policy review, reference
+pin and signed Linux/nftables metadata. It reconstructs both full baseline and
+candidate artifacts, checks exact immutable plan bindings including its candidate
+artifact hash, then rechecks input revisions, review and metadata inside the
+committing transaction. Compilation bytes, historical receipt, current plan head
+and mandatory audit commit together. Repeating the same current input tuple
+returns its original receipt without renewed validity. The deadline is the
+minimum of the plan, reference pin and metadata deadlines; metadata refresh
+requires explicit revalidation and produces a new retained receipt.
+
+`pin_native_observer` establishes a separate Ed25519 key purpose. Observer keys
+have organization-wide target/project ownership and permanent revocation records.
+Transport and observer key registries reject reuse in **both** directions,
+including after rotation or revocation. Renewing a still-active observer pin is
+an explicit CAS operation. A purpose label alone does not isolate a producer
+process or establish that its signed capture came from the actual kernel.
+
+An observation challenge binds the current compilation, separate metadata
+receipt/report hashes, observer/reference revisions, immutable plan epoch and
+generation, baseline state, artifact role, exact installation and expected
+previous observation receipt hash. It carries a fresh random nonce, lasts at
+most 300 seconds, and is clipped to compilation/observer validity. At most four
+live challenges exist for the current observer pin. The actual collection command
+and transfer channel are separate from these privileged storage APIs.
+
+Admission revalidates current pins, compilation and target-global head, verifies
+the real signature, reconstructs the installation and recomputes correspondence
+with the signed raw nft capture. Challenge consumption, proof, receipt, next head
+and audit commit atomically. A valid signed `mismatch` or `unknown` is retained
+without an observed state hash; it does not fall back to an older matching
+capture. The next challenge authenticates the predecessor receipt, which current
+reads verify through one bounded predecessor lookup rather than recursively
+loading all history. Epoch/generation and observation time cannot regress.
+
+Exact retries acknowledge the original history even after expiry/revocation;
+they do not restore present eligibility. `native_evidence_status` revalidates
+retained compilation/proof/projections at the original admission time and
+separately reports current validity. It exposes only bounded hashes, times,
+comparison and provenance, never raw capture bytes. The selected plan's latest
+retained observation remains visible after another plan advances the target head,
+with `current:false` and `OBSERVATION_STALE`. A separate indexed lookup retrieves
+that historical proof and revalidates it in full. `observation_head_hash` always
+identifies the actual latest target-global receipt for CAS, and only that receipt
+can be current. A plan with no observation returns `OBSERVATION_MISSING` even if
+another plan owns the global head. Expired and retired plan evidence also remains
+visible as historical, with `current:false`.
+
+Native operations share the durable per-target observation clock. A failed or
+expired request may advance that fence before the main transaction, preventing
+rollback from reviving old evidence; proof/head/audit writes remain atomic.
+References/receipts are bounded, compilation records are limited to 1 MiB,
+challenges to 4 KiB, and signed proof envelopes to 3 MiB. Trusted-local history
+retention has no silent truncation or permanent lifetime issuance cap. Authorized
+archival maintenance and protected collector/IPC deployment remain future work.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 5. The stable family identity
+Fresh authority databases use schema version 6. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2, 3 or 4 database returns `MigrationRequired` without adding tables
+populated version 1, 2, 3, 4 or 5 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v5.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v6.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -230,7 +300,7 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 5 database makes no new backup or state change. Foreign and
+on a valid version 6 database makes no new backup or state change. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
 are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
@@ -240,6 +310,9 @@ review-evidence table; it never synthesizes semantic proof from historical plans
 or approvals. Version 5 adds empty target key, pin, revocation, challenge,
 observation-clock and metadata evidence tables. It never imports controller
 trust, invents target reports or grants existing approvals dispatch authority.
+Version 6 adds empty native reference/observer registries, compilation records,
+challenges and observation history. It preserves prior target metadata without
+inferring observer trust or qualified baseline evidence.
 
 ## Issuance and atomic decision admission
 

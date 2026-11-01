@@ -19,6 +19,10 @@ flowchart LR
   AG --> ME[fw_target_evidence: offline signed metadata]
   MP[Explicit independent target pins] --> AS
   ME --> AS
+  P --> NE[fw_native_evidence: compilation and signed observation verification]
+  NE --> AS
+  LC[Guarded Linux read-only collector] --> NE
+  AS --> ES[Authenticated evidence summary / authority UI]
   A --> E[fw_executor: verified-grant journal]
   E --> L[fw_linux_executor: isolated lab driver]
   L --> N[fw_backend_linux: portable compiler / semantic readback]
@@ -74,10 +78,30 @@ The Linux agent measures its kernel version, executable hash and available nftab
 
 ## Pure policy and authority semantics
 
+The [native evidence workflow](native-evidence.md) extends reviewed plans into
+retained compilation and observation evidence. Authority schema 6 preserves
+explicit reference/observer pins, independently rebuilt artifacts, bounded
+observation challenges, exact signed raw captures and current heads. Admission
+rechecks current metadata and trust, then atomically commits consumption,
+evidence, receipt and audit. The collector reads the actual owned nft table under
+the existing disposable namespace guard; the authority independently recomputes
+installation/readback correspondence. UNKNOWN and MISMATCH retain no observed
+state hash. The authenticated summary endpoint and eight-locale authority panel
+show current eligibility separately from retained history and human approval.
+
+This is explicitly development evidence. The compiler's isolated-lab capability
+hash and signed device metadata hash remain separate references. Recompilation
+does not attest caller-declared compiler/validator build digests, and an observer
+signature does not establish protected kernel provenance. Expected installation
+bytes do not prove an approved journal operation. All results remain unqualified
+and unable to dispatch; production observer isolation, management baseline
+qualification, signing/quota transactions and authenticated host dispatch remain
+open requirements.
+
 The separate [target metadata flow](target-metadata.md) lets a trusted local
 operator pin a device key, certificate binding and validity independently of
 controller enrollment. A fresh authority nonce binds a real Ed25519 signature
-over exact conservative capability bytes. Authority schema 5 atomically retains
+over exact conservative capability bytes. Since authority schema 5, the store retains
 challenge consumption, proof, receipt, current head and audit; current reads
 revalidate bindings, revocation and effective expiry. Durable clock observations
 prevent expired evidence from reviving after rollback. Exact retries acknowledge

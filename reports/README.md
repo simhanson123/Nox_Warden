@@ -29,6 +29,7 @@ python scripts/smoke_enrollment.py --authority-metadata --report reports/target-
 python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+python scripts/smoke_native_evidence.py --report reports/native-evidence-smoke.json
 ```
 
 Browser suites start actual loopback services and use Chromium CDP virtual CTAP2
@@ -38,13 +39,14 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **603 workspace Rust tests, 23 authority
-tests without default features, and 95 UI tests**. It also passes formatting,
+The integrated repository check passes **650 workspace Rust tests, 23 authority
+tests without default features, and 125 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
 six catalogue-diagnostic regressions and
+three native-evidence diagnostic regressions, plus
 vendored-source verification. English remains the default. Eight controller
-catalogues have 229 messages each; eight authority catalogues have 58, with
+catalogues have 229 messages each; eight authority catalogues have 96, with
 complete key and placeholder parity. Human translation acceptance is pending.
 
 | Runtime suite | Passing checks | Exercised boundary |
@@ -57,21 +59,22 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
 | TLS enrollment/browser | 25 | Ed25519 certificates, mTLS, reports, service creation and revocation; CI nonbrowser subset has 23 |
 | Independently pinned target metadata | 41 | Existing 23 enrollment checks plus 18 signed-metadata checks across real agent/admin processes, explicit fixture pin, tamper/tenant refusal, reopen, replay and revocation |
-| Independent authority browser | 31 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
+| Independent authority browser | 36 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
 | Isolated Linux compiler/readback | 66 | Includes 40 actual IPv4/IPv6 TCP/UDP packet probes |
 | Signed Linux execution | 98 | Includes 43 actual packet probes, expiry and interrupted submission/recovery |
+| Retained native evidence | 33 | Five actual signed kernel captures across MATCH, MISMATCH, UNKNOWN and restoration; independent admission, replay, revocation, strict failure diagnostics and cleanup |
 
-The recovered `d5cb339` baseline was rerun during recovery, including all then
-existing runtime suites and both isolated Linux suites (66/98 checks, 40/43
-packets). PR #14 then passed its updated checks and full CI at merged baseline
-`f400d03`. The present target-metadata slice freshly passed the integrated check
-(603+23 Rust, 95 UI), actual enrollment/metadata processes (41), authority browser
-(31), and authority/service tests under `umask 0002` (229). Other runtime counts
-above remain the retained suite expectations; CI reruns them on the reviewed PR.
-The compact
-[review handoff](../docs/review-continuity.md) distinguishes the user-supplied
-external reports from these fresh executions. The earlier reviewers' private
-probe A/B programs were unavailable and were not claimed as reproduced.
+The recovered baseline and prior metadata batch were verified separately. The
+current comparison base is merged PR #15, `43146fd`, whose
+[full main CI passed](https://github.com/simhanson123/Nox_Warden/actions/runs/41278538402).
+This integrated batch freshly passed the repository check (650+23 Rust, 125 UI),
+authority/service tests under `umask 0002` (258), the real authority browser (36),
+native evidence processes (33 with five captures), and signed Linux execution
+(98 with 43 actual packets). Other runtime rows retain their suite expectations;
+CI reruns every listed nonbrowser enrollment and runtime suite on the reviewed PR.
+The [review handoff](../docs/review-continuity.md) distinguishes supplied external
+reports from fresh executions. Earlier external private probes were not recovered
+or claimed as reproduced. The current external reviews still target PR #15.
 
 ## Security and persistence coverage
 
@@ -136,7 +139,7 @@ Tests cover traversal beyond 100 rows, byte caps, mutation isolation, projection
 integrity, migration, clock rollback and concurrent capability renewal. Current
 certificate and report eligibility is checked by both service writes and pickers.
 
-[Authority schema 5](../docs/authority-store.md) preserves original signatures,
+[Authority schema 6](../docs/authority-store.md) preserves original signatures,
 immutable plans, credential snapshots and public-key tombstones. Explicit
 migrations validate private online backups before changing known older schemas;
 they never infer trusted epochs or human identities from plans. The tests cover
@@ -180,8 +183,51 @@ failure assertions; requested external models were not called.
 Metadata evidence authenticates its device key and exact bytes, without machine
 attestation, qualified enforcement or policy authority. The local operator must
 independently maintain pin/certificate trust and revocation. A signed unverified
-report cannot satisfy a native gate. Baseline observations, compiler/gate evidence,
+report cannot satisfy a native gate. Production baseline/gate qualification,
 durable signer/quota integration and protected dispatch remain unfinished.
+
+The [native evidence workflow](../docs/native-evidence.md) adds independent
+recompilation from the retained reviewed plan and explicitly pinned lab
+references. The candidate must match the exact plan artifact hash; device metadata
+and lab capability hashes remain distinct. A purpose-scoped observer signs
+captured raw nft state and installation/clock context. The authority rechecks
+signatures and actual correspondence, records negative/unknown observations
+without an observed state hash, and atomically advances consumption, receipts,
+head and audit. Current checks revalidate metadata, reference/observer pins,
+plan, exclusive expiry and the target-global head. Earlier plan observations
+remain visible as history when another plan replaces that head.
+
+Coverage includes real Ed25519 signatures, canonical bounds, TTL refresh,
+platform substitution, bidirectional transport/observer key separation,
+permanent key ownership, revision/head CAS, competing connections, audit rollback,
+clock fences after failed or expired requests, zero epoch/generation, retained
+proof/projection corruption and validated schema-5 backup migration. The separate
+API checks live reviewer/proof/origin/tenant boundaries and returns summaries
+without raw captures. Its eight-locale UI checks plan/response binding, current
+versus historical evidence, local expiry and request-delay/clock rollback.
+
+One consolidated independent review covered the complete batch. Three reproduced
+findings were corrected: an earlier plan's retained observation disappeared from
+its display after a different plan advanced the target head; valid zero
+epoch/generation values were refused by the admin CLI; and request latency was
+omitted from displayed freshness when the client clock moved backward. These
+reviewers ran focused independent reproductions, separately from the implementation
+tests. The user's external PR #15 reviews remain pending and cover their fixed
+earlier target, not this new batch.
+
+The actual Docker/process smoke uses synthetic independent trust, five signed
+kernel captures and no host firewall changes. In this environment the older
+pinned Debian image emits a nonfatal GLIBC_2.39 weak-version loader warning for
+the host-built executable. Only that exact single leading warning is classified
+separately; unexpected stderr, repeated warnings, panic or a missing refusal
+remain failures. Three Python regressions enforce that distinction. This is not
+portable binary or installed-host qualification.
+
+Compilation correspondence does not attest the plan's declared compiler/validator
+build identity. Signed lab observations do not establish protected kernel
+provenance, production management baseline qualification or authority to sign
+and dispatch. Both result constants remain false, and read-only evidence refresh
+never submits a passkey decision or promotes a human approval into native evidence.
 
 Authority audit checks include rollback of a genuine zero-counter activation
 when audit time moves backward, plus restart, independent tenants, exact retries,
@@ -209,7 +255,7 @@ and exact retry after query interruption. Named-set withdrawal commits a retaine
 tombstone and audit atomically; withdrawing an old set cannot invalidate a
 different current head, and an unchanged selection cannot silently be reminted.
 
-The [independent review service](../docs/authority-review-service.md) has 26
+The [independent review service](../docs/authority-review-service.md) has 30
 HTTP/P-256 regressions plus five review-adapter tests. It requires separately
 pinned private authority trust and a distinct origin. Tests cover exact
 Host/Origin, cookie plus memory proof, tenant isolation, bounded requests,
@@ -227,7 +273,7 @@ The 8+8 work reservation protects admission capacity; shared runtime work and
 fresh public sign-in still have no availability guarantee under sustained local
 TCP/CPU/database saturation. No protected OS deployment is inferred.
 
-The [authority UI](../docs/authority-review-ui.md) has a separate build and 35
+The [authority UI](../docs/authority-review-ui.md) has a separate build and 65
 unit/catalogue tests within the UI total. It requires explicit consent, a current
 role and a fresh decision-bound assertion. Uncertain requests allow exact retry;
 401 clears pending browser authority and requires explicit sign-in. The real
