@@ -127,12 +127,13 @@ challenge response occupies its slot until expiry; issuing another challenge
 does not recover the lost one. Retained history has no destructive automatic
 cleanup; bounded retention/maintenance remains future work.
 
-Authority schema **5** requires an explicit validated private backup to migrate
-known schemas 1–4. It imports no target trust from legacy controller records:
+Target metadata was introduced in schema 5. The current authority schema **6**
+requires an explicit validated private backup to migrate known schemas 1–5.
+It imports no target trust from legacy controller records:
 
 ```sh
 target/debug/fw_authority_admin migrate \
-  --database authority/authority.sqlite3 --backup authority/authority-before-v5.sqlite3
+  --database authority/authority.sqlite3 --backup authority/authority-before-v6.sqlite3
 ```
 
 See [authority storage](authority-store.md) for backup/path/collision rules.

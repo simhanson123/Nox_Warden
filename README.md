@@ -22,6 +22,11 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   keys, fresh signed reports, durable exact retries and revocation in the separate
   authority store. Device signatures authenticate metadata without qualifying
   enforcement or permitting policy dispatch.
+- [Compilation and native observation evidence](docs/native-evidence.md): rebuild
+  reviewed Linux artifacts from pinned references, collect actual isolated-kernel
+  state with a separate observation signature, and retain current versus
+  historical results. The authority screen shows this evidence without treating
+  lab correspondence as host qualification or policy authorization.
 - Authenticated local asset and service catalogues with immutable revisions,
   ETags, tenant isolation and transactional audit records. Services can reference
   registered targets with current credentials and reports. Authenticated audit

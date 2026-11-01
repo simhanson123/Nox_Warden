@@ -49,7 +49,7 @@ assertion to the authority. The server repeats all authorization checks.
 
 The API contract uses plain JSON under `/authority/v1` and
 `X-Authority-CSRF` on all authenticated reads and writes. It includes `/session`,
-`/auth/options`, `/auth/verify`, `/plans`, `/plans/{id}`,
+`/auth/options`, `/auth/verify`, `/plans`, `/plans/{id}`, `/plans/{id}/native-evidence`,
 `/approvals/challenges`, `/approvals/assertions`, and `/logout`. A detail response
 contains the exact `plan`, `requirements`, `plan_hash`, `requirements_hash`,
 `roles`, `review:{available:true,before,after}` (or `available:false`), and
@@ -63,6 +63,40 @@ RP, origin and expiry. Browser request options remain under
 `options.publicKey`; the existing WebAuthn bridge converts only its base64url
 browser fields. The UI does not interpret a role string or a checked box
 as authorization.
+
+The read-only **Development execution evidence** panel makes a separate
+authenticated request for the selected plan. It shows retained compilation and
+observation summaries, their hashes/revisions/times, and whether each remains
+eligible at the latest read. Its refresh clears the previous current badges
+before requesting new status; a failure leaves evidence unavailable. Expiry
+removes current badges without a new request. A monotonic elapsed-time bound and
+the highest wall-clock time observed for that snapshot prevent an expired badge
+from becoming current again after browser-clock rollback, including an earlier
+forward clock jump. The server's freshness window also spends the complete
+monotonic duration since request start, so a delayed response cannot restart
+validity when the browser wall clock is behind. A late response for a previously
+selected plan is ignored.
+
+The response is a closed development contract. The browser validates exact
+tenant/target/plan bindings, hashes, positive decimal revisions, canonical UTC
+times, current-versus-historical consistency, fixed reason codes and the constant
+`production_qualified:false` / `dispatch_allowed:false` fields. A matching
+observation must carry the corresponding immutable StateIR hash; mismatch or
+unknown observations cannot carry an observed state hash. The target-global
+observation head is only an opaque CAS reference: another plan's head never
+supplies observation evidence for the displayed plan. The displayed plan's own
+latest retained observation remains visible as history after another plan takes
+the target head; only a current observation must match that global head. An old
+matching observation cannot restore current eligibility.
+
+The panel separates the observer signature from recomputed rule correspondence.
+It explicitly states that a signed submission does not independently prove
+actual kernel acquisition, and lab correspondence does not qualify host
+protection or grant signing/deployment permission. Raw captures, signatures and
+private keys are not returned to the screen. This panel neither collects consent
+nor changes the existing signed approval workflow. Its labels and remaining
+requirements have translations in all eight authority catalogues; automated
+parity does not replace human language review.
 
 A lost assertion response leaves the exact signed request and its idempotency
 key in memory for an explicit retry. A terminal denial clears that request and

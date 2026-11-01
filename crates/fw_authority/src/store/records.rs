@@ -166,12 +166,16 @@ pub(super) fn principal(
     Ok(json!({"principal_id":id,"issuer":issuer,"subject":subject,"authentication_time":at(now)?}))
 }
 
-pub(super) fn plan(
+pub(super) struct RetainedPlan {
+    pub subject: subject::ValidatedSubject,
+    pub registered_at: i64,
+    pub retired: bool,
+}
+pub(super) fn retained_plan(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     id: &str,
-    now: i64,
-) -> Result<subject::ValidatedSubject> {
+) -> Result<RetainedPlan> {
     let r = tx.query_row("SELECT p.plan_kind,p.plan_hash,p.requirements_hash,p.author_id,p.created_at,p.valid_until,p.registered_at,p.canonical_bytes,
         r.profile,r.max_age,r.author_may_approve,r.canonical_bytes FROM authority_plans p JOIN authority_requirements r
         ON p.org_id=r.org_id AND p.project_id=r.project_id AND p.requirements_hash=r.requirements_hash
@@ -219,14 +223,31 @@ pub(super) fn plan(
     }
     let retired: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_plan_retirements WHERE org_id=? AND project_id=? AND plan_id=?)",
         params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
-    if retired {
+    Ok(RetainedPlan {
+        subject: checked,
+        registered_at: r.6,
+        retired,
+    })
+}
+pub(super) fn plan(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    id: &str,
+    now: i64,
+) -> Result<subject::ValidatedSubject> {
+    let retained = retained_plan(tx, tenant, id)?;
+    if retained.retired {
         return Err(AuthorityError::Binding);
     }
-    if now < checked.created_at || now < r.6 || now >= checked.valid_until {
+    if now < retained.subject.created_at
+        || now < retained.registered_at
+        || now >= retained.subject.valid_until
+    {
         return Err(AuthorityError::Time);
     }
-    Ok(checked)
+    Ok(retained.subject)
 }
+
 pub(super) fn context(
     tenant: &AuthorityTenant,
     principal: &str,

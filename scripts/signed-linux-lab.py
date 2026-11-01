@@ -65,7 +65,8 @@ def main():
                         ROOT / 'scripts/signed-linux-lab.py', ROOT / 'target/debug/fw_linux_executor',
                         ROOT / 'target/debug/fw_signed_lab_fixture']
         for crate in ('fw_linux_executor', 'fw_backend_linux', 'fw_authority', 'fw_executor',
-                      'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab'):
+                      'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab',
+                      'fw_native_evidence', 'fw_target_evidence'):
             source_paths.append(ROOT / 'crates' / crate / 'Cargo.toml')
             source_paths.extend(sorted((ROOT / 'crates' / crate / 'src').rglob('*.rs')))
         source_bytes = {str(path.relative_to(ROOT)): path.read_bytes() for path in source_paths}

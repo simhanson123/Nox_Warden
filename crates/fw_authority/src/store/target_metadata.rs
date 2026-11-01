@@ -192,7 +192,12 @@ fn pin_current(tx: &Transaction<'_>, tenant: &AuthorityTenant, pin: &Pin, now: i
     }
     Ok(())
 }
-fn clock(tx: &Transaction<'_>, tenant: &AuthorityTenant, target: &str, now: i64) -> Result<()> {
+pub(super) fn clock(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    target: &str,
+    now: i64,
+) -> Result<()> {
     let observed:Option<i64>=tx.query_row("SELECT observed_at FROM authority_target_clocks WHERE org_id=? AND project_id=? AND target_id=?",params![tenant.org_id,tenant.project_id,target],|r|r.get(0)).optional()?;
     match observed {
         Some(previous) if (0..=MAX_TIME).contains(&previous) && now >= previous => Ok(()),
@@ -251,7 +256,7 @@ impl AuthorityStore {
     // expired/invalid-proof refusal must prevent resurrection after rollback.
     // This intentional security-state write never consumes a challenge or
     // appends report/audit/head state. The mutation rechecks the floor too.
-    fn observe_target_time(
+    pub(super) fn observe_target_time(
         &mut self,
         tenant: &AuthorityTenant,
         target: &str,
@@ -290,6 +295,16 @@ impl AuthorityStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         security_revision(&tx, tenant)?;
+        // Purpose ownership is bidirectional and retained after revocation.
+        // A lab observer key must never later become a transport identity.
+        let observer_key: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM authority_native_observer_keys WHERE org_id=? AND key_fingerprint=?)",
+            params![tenant.org_id, hash(&fingerprint)?],
+            |r| r.get(0),
+        )?;
+        if observer_key {
+            return Err(AuthorityError::Binding);
+        }
         let previous = current_pin(&tx, tenant, &pin.target_id)?;
         if previous.is_some() {
             clock(&tx, tenant, &pin.target_id, now)?;
@@ -607,38 +622,7 @@ impl AuthorityStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         clock(&tx, tenant, target, now)?;
-        let pin = current_pin(&tx, tenant, target)?.ok_or(AuthorityError::Binding)?;
-        let metadata = metadata_head(&tx, tenant, target)?;
-        let current = match pin_current(&tx, tenant, &pin, now) {
-            Ok(()) => true,
-            Err(AuthorityError::Time) => false,
-            Err(error) => return Err(error),
-        };
-        let result = if let Some(saved) = metadata {
-            if now
-                < fw_target_evidence::parse_time(&saved.receipt.admitted_at)
-                    .map_err(evidence_error)?
-            {
-                return Err(AuthorityError::Time);
-            }
-            if !current
-                || saved.receipt.key_revision != pin.revision.to_string()
-                || now
-                    >= fw_target_evidence::parse_time(&saved.receipt.valid_until)
-                        .map_err(evidence_error)?
-            {
-                None
-            } else {
-                Some(CurrentTargetMetadata {
-                    receipt: saved.receipt,
-                    report: fw_contracts::parse_strict_with_limit(&saved.report_bytes, 65536)
-                        .map_err(|_| invalid("target report bytes"))?,
-                    enforcement_status: "unverified",
-                })
-            }
-        } else {
-            None
-        };
+        let result = current_metadata_in_tx(&tx, tenant, target, now)?;
         tx.commit()?;
         Ok(result)
     }
@@ -784,4 +768,63 @@ fn metadata_head(
         return Err(invalid("target metadata head"));
     }
     head.map(|id| metadata_in_tx(tx, tenant, &id)).transpose()
+}
+
+pub(super) fn current_metadata_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    target: &str,
+    now: i64,
+) -> Result<Option<CurrentTargetMetadata>> {
+    let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_target_pin_heads WHERE org_id=? AND project_id=? AND target_id=?)",params![tenant.org_id,tenant.project_id,target],|r|r.get(0))?;
+    if !exists {
+        return Ok(None);
+    }
+    clock(tx, tenant, target, now)?;
+    let pin = current_pin(tx, tenant, target)?.ok_or(AuthorityError::Binding)?;
+    let metadata = metadata_head(tx, tenant, target)?;
+    let current = match pin_current(tx, tenant, &pin, now) {
+        Ok(()) => true,
+        Err(AuthorityError::Time) => false,
+        Err(error) => return Err(error),
+    };
+    let result = if let Some(saved) = metadata {
+        if now
+            < fw_target_evidence::parse_time(&saved.receipt.admitted_at).map_err(evidence_error)?
+        {
+            return Err(AuthorityError::Time);
+        }
+        if !current
+            || saved.receipt.key_revision != pin.revision.to_string()
+            || now
+                >= fw_target_evidence::parse_time(&saved.receipt.valid_until)
+                    .map_err(evidence_error)?
+        {
+            None
+        } else {
+            Some(CurrentTargetMetadata {
+                receipt: saved.receipt,
+                report: fw_contracts::parse_strict_with_limit(&saved.report_bytes, 65536)
+                    .map_err(|_| invalid("target report bytes"))?,
+                enforcement_status: "unverified",
+            })
+        }
+    } else {
+        None
+    };
+    Ok(result)
+}
+
+pub(super) fn retained_metadata_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    id: &str,
+) -> Result<CurrentTargetMetadata> {
+    let saved = metadata_in_tx(tx, tenant, id)?;
+    Ok(CurrentTargetMetadata {
+        receipt: saved.receipt,
+        report: parse_strict_with_limit(&saved.report_bytes, 65536)
+            .map_err(|_| invalid("retained metadata report"))?,
+        enforcement_status: "unverified",
+    })
 }

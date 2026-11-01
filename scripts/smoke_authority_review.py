@@ -209,7 +209,38 @@ def run(args, report):
 
                 login()
                 check(report, 'pinned authority credential signs in through browser WebAuthn', True)
-                detail = review(fixture['plan_id'])
+                evidence_url = ORIGIN + '/authority/v1/plans/' + fixture['plan_id'] + '/native-evidence'
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == evidence_url) as evidence_response:
+                    detail = review(fixture['plan_id'])
+                evidence = evidence_response.value.json()
+                check(report, 'authenticated native evidence summary binds the plan without raw captures or dispatch authority',
+                      evidence_response.value.status == 200
+                      and set(evidence) == {'schema_version', 'org_id', 'project_id', 'target_id',
+                                            'plan_id', 'plan_hash', 'checked_at', 'production_qualified',
+                                            'dispatch_allowed', 'reasons', 'observation_head_hash',
+                                            'compilation', 'observation'}
+                      and evidence['schema_version'] == 'fw.native-evidence-status/v1'
+                      and all(evidence[field] == detail['plan'][field]
+                              for field in ('org_id', 'project_id', 'target_id', 'plan_id'))
+                      and evidence['plan_hash'] == detail['plan_hash']
+                      and evidence['production_qualified'] is False
+                      and evidence['dispatch_allowed'] is False
+                      and evidence['compilation'] is None and evidence['observation'] is None)
+                native_panel = page.get_by_role('region', name='Development execution evidence', exact=True)
+                expect(native_panel.get_by_text('No retained evidence.', exact=True)).to_have_count(2)
+                expect(native_panel).to_contain_text('These lab results do not qualify host protection or permit policy signing or deployment.')
+                check(report, 'native evidence panel distinguishes missing compilation and observation from qualification', True)
+                before_evidence_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == evidence_url) as refreshed_evidence:
+                    native_panel.get_by_role('button', name='Refresh execution evidence', exact=True).click()
+                expect(native_panel.get_by_text('No retained evidence.', exact=True)).to_have_count(2)
+                after_evidence_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                check(report, 'execution evidence refresh performs an authenticated read without another signature or consent',
+                      refreshed_evidence.value.status == 200
+                      and before_evidence_refresh == after_evidence_refresh
+                      and not page.get_by_role('checkbox').is_checked())
                 check(report, 'actual policy-change plan and requirements conform to both preserved schemas',
                       matches_contract(validators, 'PolicyChangePlan', detail['plan'])
                       and matches_contract(validators, 'ApprovalRequirements', detail['requirements']))
@@ -242,6 +273,9 @@ def run(args, report):
                 expect(aggregate).to_contain_text('Included signed approvals: 1')
                 expect(page.get_by_text('Admission result (historical)', exact=True)).to_be_visible()
                 check(report, 'fresh detail verifies current set separately from historical admission acknowledgement', True)
+                expect(native_panel.get_by_text('No retained evidence.', exact=True)).to_have_count(2)
+                expect(native_panel).to_contain_text('These lab results do not qualify host protection or permit policy signing or deployment.')
+                check(report, 'human approval does not create native observations or remove the deployment qualification boundary', True)
                 current = read_detail(fixture['plan_id'], lambda: page.get_by_role('button', name='Refresh', exact=True).click())
                 approval_set = current['current_approval_set']['content']
                 check(report, 'actual current human ApprovalSet conforms to both preserved schemas and includes the admitted approval',
@@ -323,6 +357,8 @@ def run(args, report):
                 expect(page.get_by_role('status')).to_contain_text('approve')
                 expect(page.get_by_role('region', name='Current authority status', exact=True)).to_contain_text('Blocked by signed rejection')
                 check(report, 'fresh passkey sign-in after service restart restores only the retained decision', True)
+                expect(native_panel.get_by_text('No retained evidence.', exact=True)).to_have_count(2)
+                check(report, 'restarted authority still shows missing native evidence without inventing observations', True)
                 check(report, 'shipped review runs without browser exceptions', not errors)
                 context.close()
         stop(process)

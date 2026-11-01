@@ -572,8 +572,10 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "ed25519-dalek",
+ "fw_backend_linux",
  "fw_contracts",
  "fw_domain",
+ "fw_native_evidence",
  "fw_planner",
  "fw_target_evidence",
  "fw_webauthn",
@@ -595,9 +597,13 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "ed25519-dalek",
  "fw_authority",
+ "fw_backend_linux",
  "fw_contracts",
+ "fw_native_evidence",
  "fw_planner",
+ "fw_target_evidence",
  "fw_webauthn",
  "hyper",
  "hyper-util",
@@ -733,10 +739,12 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "ed25519-dalek",
  "fw_authority",
  "fw_backend_linux",
  "fw_contracts",
  "fw_executor",
+ "fw_native_evidence",
  "libc",
  "serde",
  "serde_json",
@@ -750,6 +758,23 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fw_native_evidence"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "fw_backend_linux",
+ "fw_contracts",
+ "fw_domain",
+ "fw_planner",
+ "fw_target_evidence",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]

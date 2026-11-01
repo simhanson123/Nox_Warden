@@ -1,6 +1,8 @@
 #![cfg(all(feature = "approval-proofs", target_os = "linux"))]
 //! Actual local maintenance processes. Keys and certificates here are synthetic
 //! fixture pins, never production enrollment or native qualification.
+#[path = "support/native_fixture.rs"]
+mod native_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 use ed25519_dalek::SigningKey;
@@ -193,4 +195,130 @@ fn slow_stdin_does_not_use_command_start_time_to_accept_expired_proof() {
     refused(child.wait_with_output().unwrap(), "TARGET_REPORT_REJECTED");
     let read = success(run(&db, "read-target", &json!({"target_id":TARGET})));
     assert!(read["receipt"].is_null());
+}
+
+#[test]
+fn native_maintenance_requires_closed_typed_requests_and_preserves_existing_target() {
+    let (_directory, db) = fixture(300);
+    let input = proof(&db);
+    let admitted = success(run(&db, "admit-target", &input));
+    for operation in [
+        "register-reviewed-plan",
+        "pin-native-references",
+        "pin-native-observer",
+        "revoke-native-references",
+        "revoke-native-observer",
+        "compile-native",
+        "challenge-native",
+        "admit-native",
+        "read-native",
+    ] {
+        refused(
+            run(&db, operation, &json!({"private_marker":"DO_NOT_PRINT"})),
+            "INPUT_REJECTED",
+        );
+    }
+    // A valid metadata envelope is not a native observation proof, even when it
+    // was accepted by its own protocol and target trust is current.
+    refused(run(&db, "admit-native", &input), "INPUT_REJECTED");
+    let current = success(run(&db, "read-target", &json!({"target_id":TARGET})));
+    assert_eq!(current["receipt"], admitted["receipt"]);
+    assert_eq!(current["dispatch_allowed"], false);
+}
+
+#[test]
+fn native_maintenance_bounds_stdin_and_rejects_numeric_revision_aliases() {
+    let (_directory, db) = fixture(300);
+    refused(
+        run(
+            &db,
+            "compile-native",
+            &json!({"plan_id":TARGET,"expected_reference_revision":1}),
+        ),
+        "INPUT_REJECTED",
+    );
+    refused(
+        run(
+            &db,
+            "compile-native",
+            &json!({"plan_id":TARGET,"expected_reference_revision":"01"}),
+        ),
+        "INPUT_REJECTED",
+    );
+    let mut child = command(&db, "admit-native").spawn().unwrap();
+    let mut bytes = vec![b' '; 4 * 1024 * 1024];
+    bytes.extend_from_slice(b"{}");
+    let _ = child.stdin.take().unwrap().write_all(&bytes);
+    refused(child.wait_with_output().unwrap(), "INPUT_REJECTED");
+}
+
+#[test]
+fn native_challenge_accepts_zero_epoch_and_generation_but_not_counter_aliases() {
+    let directory = private_directory::private_directory();
+    let database = directory.path().join("authority.sqlite3");
+    let now = chrono::Utc::now().timestamp();
+    let mut store = fw_authority::AuthorityStore::open(&database).unwrap();
+    let (_, mut plan, requirements, evidence, references) = native_fixture::setup(&mut store, now);
+    let plan_id = "77777777-7777-4777-8777-777777777778";
+    plan["plan_id"] = json!(plan_id);
+    plan["authority_epoch"] = json!("0");
+    plan["target_generation"] = json!("0");
+    let artifact = fw_backend_linux::compile_portable(&evidence.after, &references).unwrap();
+    let installation = native_fixture::installation(&artifact, now);
+    drop(store);
+
+    // Exercise the actual executable against real pins and signed metadata,
+    // then retain and independently compile the exact reviewed zero-counter plan.
+    let registered = success(run(
+        &database,
+        "register-reviewed-plan",
+        &json!({
+            "plan":plan,"requirements":requirements,"evidence":evidence
+        }),
+    ));
+    assert_eq!(registered["dispatch_allowed"], false);
+    refused(
+        run(
+            &database,
+            "compile-native",
+            &json!({
+                "plan_id":plan_id,"expected_reference_revision":"0"
+            }),
+        ),
+        "INPUT_REJECTED",
+    );
+    let compilation = success(run(
+        &database,
+        "compile-native",
+        &json!({
+            "plan_id":plan_id,"expected_reference_revision":"1"
+        }),
+    ));
+    assert_eq!(compilation["dispatch_allowed"], false);
+    let request = json!({"plan_id":plan_id,"artifact_role":"candidate",
+        "installation":installation,"expected_head":null,"authority_epoch":"0","generation":"0"});
+    for field in ["authority_epoch", "generation"] {
+        for alias in [
+            json!("00"),
+            json!("+0"),
+            json!("-0"),
+            json!("18446744073709551616"),
+            json!(0),
+        ] {
+            let mut malformed = request.clone();
+            malformed[field] = alias;
+            refused(
+                run(&database, "challenge-native", &malformed),
+                "INPUT_REJECTED",
+            );
+        }
+    }
+    let challenge = success(run(&database, "challenge-native", &request));
+    assert_eq!(challenge["authority_epoch"], "0");
+    assert_eq!(challenge["generation"], "0");
+    assert_eq!(challenge["reference_revision"], "1");
+    assert_eq!(challenge["observer_revision"], "1");
+    let parsed: fw_native_evidence::NativeObservationChallenge =
+        serde_json::from_value(challenge).unwrap();
+    parsed.validate(chrono::Utc::now().timestamp()).unwrap();
 }

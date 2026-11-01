@@ -1,5 +1,8 @@
 //! Native writes are confined to the deliberately disposable, loopback-only lab.
-//! This binary has no signing key, approval endpoint, or production enable switch.
+//! No policy signing key, approval endpoint, or production enable switch exists.
+//! The read-only collector accepts a separate lab observation signing key.
+#[path = "collector.rs"]
+mod collector;
 #[path = "files.rs"]
 mod files;
 #[path = "native.rs"]
@@ -1045,15 +1048,26 @@ pub fn run_main() {
     }
 }
 fn run() -> Result<Option<Value>> {
-    let mut arguments = std::env::args().skip(1);
+    let arguments = std::env::args_os()
+        .skip(1)
+        .map(|argument| {
+            argument
+                .into_string()
+                .map_err(|_| Error::new("ARGUMENT_ENCODING"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut arguments = arguments.into_iter();
     let command = arguments.next().ok_or(Error::new("COMMAND_REQUIRED"))?;
     if command == "--help" {
         println!(
-            "fw_linux_executor init|apply --state-dir DIR --bundle FILE --trust FILE\nfw_linux_executor observe|status|recover --state-dir DIR --operation-id UUID --trust FILE\nfw_linux_executor probe [same options] --output FILE\nfw_linux_executor confirm [same options] --confirmation FILE\nDisposable loopback lab only; never a production firewall command."
+            "fw_linux_executor init|apply --state-dir DIR --bundle FILE --trust FILE\nfw_linux_executor observe|status|recover --state-dir DIR --operation-id UUID --trust FILE\nfw_linux_executor probe [same options] --output FILE\nfw_linux_executor confirm [same options] --confirmation FILE\nfw_linux_executor collect-evidence --artifact FILE --installation FILE --observer-key FILE --challenge FILE --output FILE\nDisposable loopback lab only; never a production firewall command."
         );
         return Ok(None);
     }
     native::guard()?;
+    if command == "collect-evidence" {
+        return collector::run(arguments).map(Some);
+    }
     let mut options = BTreeMap::new();
     let mut crash_commit = None;
     let mut crash_recovery = None;
