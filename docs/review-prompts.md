@@ -1,10 +1,12 @@
 # Independent review prompts
 
-The user has dispatched PR #15 reviews at `43146fd753ab288f8e1618f5fdead6b8b2093d3b`
-against `f400d03f0bca873d42a1af114fb4632e2357d03a`; those external results are still
-pending. These updated prompts cover the subsequent integrated native-evidence
-batch on `feat/native-evidence-workflow`, with comparison base
-`43146fd753ab288f8e1618f5fdead6b8b2093d3b`. Pin and report the actual reviewed SHA;
+All three PR #15 reviews at `43146fd753ab288f8e1618f5fdead6b8b2093d3b`
+against `f400d03f0bca873d42a1af114fb4632e2357d03a` have been supplied by the user;
+their results and follow-up belong in review-continuity and the task ledger.
+These retained prompts cover the subsequent integrated native-evidence batch,
+PR #16 head `feab5c310761386d33aefb19ceb8a6f8aec1cd84`, with comparison base
+`43146fd753ab288f8e1618f5fdead6b8b2093d3b`. They are not another review request
+for each reliability correction. Pin and report the actual reviewed SHA;
 never assume a prior review covers new code. Preparing prompts is not execution.
 Print complete copyable prompts in the user conversation at review handoff.
 
@@ -14,7 +16,7 @@ Print complete copyable prompts in the user conversation at review handoff.
 Nox_Warden의 이번 기능 묶음을 독립 보안 검토하세요.
 저장소: https://github.com/simhanson123/Nox_Warden
 비교 기준: 43146fd753ab288f8e1618f5fdead6b8b2093d3b
-대상: 전달받은 feat/native-evidence-workflow 커밋을 정확한 SHA로 고정.
+대상: feab5c310761386d33aefb19ceb8a6f8aec1cd84 (PR #16 head).
 독립 worktree를 사용하고 제품 수정·커밋·푸시·병합 없이 진행하세요.
 AGENTS.md, docs/review-continuity.md, docs/native-evidence.md,
 docs/specs의 F00/F01 우선순위와 F03/F04/F12를 읽으세요.
@@ -45,7 +47,7 @@ cargo test --locked -p fw_native_evidence -p fw_authority -p fw_linux_executor
 Nox_Warden의 이번 기능 묶음을 독립 저장소·동시성·native 통합 검토하세요.
 저장소: https://github.com/simhanson123/Nox_Warden
 비교 기준: 43146fd753ab288f8e1618f5fdead6b8b2093d3b
-대상: 전달받은 feat/native-evidence-workflow 커밋을 정확한 SHA로 고정.
+대상: feab5c310761386d33aefb19ceb8a6f8aec1cd84 (PR #16 head).
 독립 worktree에서 제품 수정·커밋·푸시·병합 없이 진행하세요.
 AGENTS.md, docs/authority-store.md, docs/native-evidence.md, reports/README.md,
 원본 F03/F04/F07/F12를 읽고 실제 diff를 확인하세요.
@@ -83,7 +85,7 @@ Docker 검사는 폐기 namespace/NET_ADMIN에서만 실행하세요. 호스트 
 Nox_Warden의 이번 기능 묶음을 독립 API·브라우저·명령 흐름 검토하세요.
 저장소: https://github.com/simhanson123/Nox_Warden
 비교 기준: 43146fd753ab288f8e1618f5fdead6b8b2093d3b
-대상: 전달받은 feat/native-evidence-workflow 커밋을 정확한 SHA로 고정.
+대상: feab5c310761386d33aefb19ceb8a6f8aec1cd84 (PR #16 head).
 독립 worktree에서 제품 수정·커밋·푸시·병합 없이 진행하세요.
 AGENTS.md, docs/native-evidence.md, authority-review-service.md,
 authority-review-ui.md와 reports/README.md를 읽으세요.

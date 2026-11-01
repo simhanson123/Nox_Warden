@@ -93,6 +93,16 @@ not established by the Unix development profile.
 
 ## File modes, inherited ACLs and startup diagnostics
 
+The browser smoke retains a recognized startup stage/code in its JSON report
+before deleting temporary service files. For example, refused writable UI assets
+produce `status: FAIL`, `failure_stage: service_ready` and
+`startup_failure: {stage: ui_assets, code: AUTHORITY_UI_ASSETS_REJECTED}`.
+Only exact known diagnostics are retained. A successful run requires the two
+expected startup-ready messages; missing, oversized or unrecognized extra lines
+remain failure evidence without raw paths or log text.
+An incomplete run or an unwritable report cannot produce PASS. This preserves
+the first refusal for diagnosis without weakening service permission checks.
+
 The authority build output is an input to protected installation. Vite's output
 can inherit a default ACL from a developer checkout; `umask 022` alone does not
 remove inherited ACL entries. In particular, an output file with mode `0646`

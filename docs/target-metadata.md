@@ -120,12 +120,63 @@ expired pin/report. That clock fence may advance when proof admission fails;
 challenge/proof/head/audit changes still roll back together. The CLI samples time
 after reading stdin so waiting for input cannot preserve expired authority.
 
+### Incorrect forward clock and recovery
+
+An incorrect future system-clock sample can persist a floor beyond real time.
+Restarting the process, reopening the database or correcting the OS clock does
+not lower that floor. Pin, challenge, admission (including exact historical
+retry), current read and revocation refuse earlier time. A read or refused
+operation can advance the target floor without changing evidence. A successful
+audited future mutation also advances the project's audit timestamp: earlier
+audited writes to other targets in that project can then fail, even when their
+unaudited current reads remain available.
+
+1. Suspend new authority work while checking the host's trusted UTC/NTP source;
+   preserve the database and evidence using the documented consistent-backup
+   procedure. Do not keep an incorrect future clock merely to make commands pass.
+2. Correct the time source. Existing records and clock floors remain intact.
+   Resume only once trusted time reaches all relevant target and audit floors;
+   reaching a floor is allowed, but expired pins/proofs still fail normally.
+3. Recheck independent trust, renew eligible pins where needed, obtain a fresh
+   challenge/report and read the current result. A retained historical receipt
+   does not restore expired authority.
+
+There is no immediate operator clock-reset API or qualified new-epoch recovery
+workflow yet. If waiting is unacceptable, this is an unresolved availability
+limitation, not permission to lower SQL clock values, delete the database,
+restore an older snapshot or reuse past grants. Such changes could revive expired
+authority and erase the anti-replay history. The reopened-store regression proves
+catch-up with fresh evidence and no fence reset; it does not qualify production
+disaster recovery.
+
+### Command output and retained state
+
 The executable emits fixed error codes without input values or private paths.
-An output-write failure can occur after a durable commit: it does not establish
-rollback. Re-read current state or retry the exact proof as appropriate. A lost
-challenge response occupies its slot until expiry; issuing another challenge
-does not recover the lost one. Retained history has no destructive automatic
-cleanup; bounded retention/maintenance remains future work.
+Successful exit requires the complete response to be written and explicitly
+flushed, including `--help`. A full destination, a read-only output handle,
+or a pipe without a reader returns exit 1
+with `AUTHORITY_ADMIN code=OUTPUT_FAILED` when stderr is writable. A broken stderr
+does not turn that failure into a panic. Success confirms delivery to the output
+stream, not that a downstream reader processed or durably saved the response.
+A writable discard sink such as `/dev/null` remains a valid successful destination.
+The Rust runtime may restore descriptors closed before program startup to that
+sink; after startup this is indistinguishable from intentional redirection.
+
+An output failure can occur after a durable database commit: it does not
+establish rollback. Re-read current state or retry the exact proof as appropriate;
+the original receipt is retained without renewing authority. A lost challenge
+response still occupies its original quota slot until expiry or successful
+consumption; issuing another challenge neither recovers nor deletes the lost
+one. Retained history has no destructive automatic cleanup; bounded
+retention/maintenance remains future work.
+
+For `fw_agent sign-metadata`, a failed stdout summary returns exit 1
+with the fixed JSON error code `COMMAND_OUTPUT_FAILED` when stderr is writable.
+The signed proof file may already be durable. Preserve and validate that file
+before deciding how to recover; do not delete it or repeat collection blindly.
+An existing output path is refused, so a retry cannot silently replace the proof.
+
+### Schema migration
 
 Target metadata was introduced in schema 5. The current authority schema **6**
 requires an explicit validated private backup to migrate known schemas 1–5.

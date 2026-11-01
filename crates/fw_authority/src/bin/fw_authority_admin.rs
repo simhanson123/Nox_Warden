@@ -395,20 +395,58 @@ fn run() -> Result<Value> {
     }
 }
 
-fn main() {
-    if std::env::args_os().skip(1).collect::<Vec<_>>() == [std::ffi::OsString::from("--help")] {
-        println!("{HELP}");
-        return;
-    }
-    let outcome = run().and_then(|value| {
-        let bytes = canonical_bytes(&value).map_err(|_| "OUTPUT_FAILED")?;
-        std::io::stdout()
-            .lock()
-            .write_all(&bytes)
+fn write_stdout(bytes: &[u8]) -> Result<()> {
+    // Stdout intentionally suppresses some invalid-handle errors. A checked
+    // duplicate preserves EBADF/invalid-handle failures and never closes the
+    // process's original stdout handle.
+    #[cfg(unix)]
+    let mut output = {
+        use std::os::fd::AsFd;
+        let descriptor = std::io::stdout()
+            .as_fd()
+            .try_clone_to_owned()
+            .map_err(|_| "OUTPUT_FAILED")?;
+        fs::File::from(descriptor)
+    };
+    #[cfg(windows)]
+    let mut output = {
+        use std::os::windows::io::AsHandle;
+        let handle = std::io::stdout()
+            .as_handle()
+            .try_clone_to_owned()
+            .map_err(|_| "OUTPUT_FAILED")?;
+        fs::File::from(handle)
+    };
+    #[cfg(any(unix, windows))]
+    {
+        output
+            .write_all(bytes)
+            .and_then(|()| output.flush())
             .map_err(|_| "OUTPUT_FAILED")
-    });
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = bytes;
+        Err("PLATFORM_UNSUPPORTED")
+    }
+}
+
+fn main() {
+    let outcome = if std::env::args_os().skip(1).collect::<Vec<_>>()
+        == [std::ffi::OsString::from("--help")]
+    {
+        write_stdout(format!("{HELP}\n").as_bytes())
+    } else {
+        run().and_then(|value| {
+            let bytes = canonical_bytes(&value).map_err(|_| "OUTPUT_FAILED")?;
+            write_stdout(&bytes)
+        })
+    };
     if let Err(code) = outcome {
-        eprintln!("AUTHORITY_ADMIN code={code}");
+        // Reporting a failed output must not panic when stderr is broken too.
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "AUTHORITY_ADMIN code={code}");
+        let _ = stderr.flush();
         std::process::exit(1);
     }
 }

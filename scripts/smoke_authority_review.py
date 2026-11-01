@@ -25,6 +25,81 @@ import jsonschema
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'http://localhost:8790'
 
+# Keep service diagnostics separate from smoke phases. Only these exact pairs
+# may survive private-directory cleanup; never retain arbitrary log lines.
+STARTUP_DIAGNOSTICS = {
+    'arguments': 'AUTHORITY_ARGUMENTS_REJECTED',
+    'config': 'AUTHORITY_CONFIG_REJECTED',
+    'session_key': 'AUTHORITY_SESSION_KEY_REJECTED',
+    'origin': 'AUTHORITY_ORIGIN_REJECTED',
+    'database': 'AUTHORITY_DATABASE_REJECTED',
+    'trust': 'AUTHORITY_TRUST_REJECTED',
+    'ui_assets': 'AUTHORITY_UI_ASSETS_REJECTED',
+    'review_evidence': 'AUTHORITY_REVIEW_EVIDENCE_REJECTED',
+    'runtime_key': 'AUTHORITY_RUNTIME_KEY_UNAVAILABLE',
+    'bind': 'AUTHORITY_BIND_UNAVAILABLE',
+    'listener': 'AUTHORITY_LISTENER_STOPPED',
+}
+SERVICE_LOG_LIMIT = 1024
+SERVICE_READY_LINE = (b'Authority review is listening on its configured loopback origin. '
+                      b'No signer or host enforcement is enabled.\n')
+EXPECTED_SERVICE_STARTS = 2
+STAGES = frozenset({
+    'initialization', 'fixture_provision', 'service_start', 'service_ready',
+    'browser_start', 'browser_checks', 'service_restart', 'service_restart_ready',
+    'session_recovery', 'cleanup', 'complete',
+})
+
+
+def retain_service_diagnostic(report, path):
+    """Called after child shutdown and before its temporary directory is removed."""
+    report.pop('startup_failure', None)
+    report.pop('service_ready_count', None)
+    try:
+        with path.open('rb') as source:
+            contents = source.read(SERVICE_LOG_LIMIT + 1)
+    except OSError:
+        report['service_log_status'] = 'unavailable'
+        return
+    if not contents:
+        report['service_log_status'] = 'empty'
+        return
+    ready = 0
+    while ready < EXPECTED_SERVICE_STARTS and contents.startswith(SERVICE_READY_LINE):
+        ready += 1
+        contents = contents[len(SERVICE_READY_LINE):]
+    if not contents:
+        report['service_log_status'] = 'ready' if ready == EXPECTED_SERVICE_STARTS else 'incomplete'
+        report['service_ready_count'] = ready
+        return
+    for stage, code in STARTUP_DIAGNOSTICS.items():
+        exact = f'AUTHORITY_STARTUP stage={stage} code={code}'.encode('ascii')
+        if (contents in (exact, exact + b'\n')
+                and (ready < EXPECTED_SERVICE_STARTS or stage == 'listener')):
+            report['service_log_status'] = 'startup_failure'
+            report['service_ready_count'] = ready
+            report['startup_failure'] = {'stage': stage, 'code': code}
+            return
+    # Only the expected ready lines followed by at most one exact failure are
+    # recognized. Extra lines, non-UTF8 and panic output are all untrusted.
+    report['service_log_status'] = 'unrecognized'
+
+
+def failure_category(error):
+    if isinstance(error, CheckFailed):
+        return 'AUTHORITY_SMOKE_CHECK_FAILED'
+    if isinstance(error, AssertionError):
+        return 'AUTHORITY_SMOKE_ASSERTION_FAILED'
+    if type(error).__name__ == 'TimeoutError':
+        return 'AUTHORITY_SMOKE_BROWSER_TIMEOUT'
+    if type(error).__module__.startswith('playwright.'):
+        return 'AUTHORITY_SMOKE_BROWSER_FAILED'
+    if isinstance(error, ImportError):
+        return 'AUTHORITY_SMOKE_BROWSER_TOOLS_MISSING'
+    if isinstance(error, (OSError, subprocess.SubprocessError)):
+        return 'AUTHORITY_SMOKE_PROCESS_OR_IO_FAILED'
+    return 'AUTHORITY_SMOKE_UNEXPECTED_ERROR'
+
 
 class CheckFailed(Exception):
     pass
@@ -139,7 +214,7 @@ def wait_ready(process):
             raise CheckFailed('authority service starts with private fixture')
         try:
             with urllib.request.urlopen(ORIGIN + '/', timeout=1) as response:
-                if response.status == 200:
+                if response.status == 200 and process.poll() is None:
                     return
         except (OSError, urllib.error.URLError):
             time.sleep(0.1)
@@ -151,16 +226,24 @@ def run(args, report):
     validators = contract_validators()
     with tempfile.TemporaryDirectory(prefix='fw-authority-browser-') as temporary, ExitStack() as cleanup:
         state = Path(temporary) / 'private'
+        report['stage'] = 'fixture_provision'
         provision = subprocess.run([str(args.fixture_binary), str(state), str(args.ui_directory)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         check(report, 'independent fixture provisions new private authority state', provision.returncode == 0)
         fixture = json.loads((state / 'fixture.json').read_text())
         device = json.loads((state / 'virtual_authenticator.json').read_text())
-        with (Path(temporary) / 'service.log').open('wb') as log:
+        log_path = Path(temporary) / 'service.log'
+        # ExitStack is inside TemporaryDirectory and callbacks run LIFO: stop
+        # every service child first, then retain only the closed diagnostic.
+        cleanup.callback(retain_service_diagnostic, report, log_path)
+        with log_path.open('wb') as log:
+            report['stage'] = 'service_start'
             process = subprocess.Popen([str(args.service_binary), '--config', str(state / 'config.json'),
                                         '--session-key-file', str(state / 'session.key')], stdout=log, stderr=log)
             cleanup.callback(stop, process)
+            report['stage'] = 'service_ready'
             wait_ready(process)
+            report['stage'] = 'browser_start'
             with sync_playwright() as playwright, ExitStack() as browser_cleanup:
                 launch = {'headless': True, 'args': ['--no-sandbox']}
                 executable = args.browser_executable or shutil.which('chromium')
@@ -180,6 +263,7 @@ def run(args, report):
                     'hasUserVerification': True, 'isUserVerified': True,
                     'automaticPresenceSimulation': True}})['authenticatorId']
                 cdp.send('WebAuthn.addCredential', {'authenticatorId': authenticator, 'credential': device})
+                report['stage'] = 'browser_checks'
                 response = page.goto(ORIGIN)
                 check(report, 'authority serves its own review entry and restrictive CSP',
                       response.status == 200 and "frame-ancestors 'none'" in response.headers.get('content-security-policy', ''))
@@ -339,11 +423,16 @@ def run(args, report):
                     expect(page.get_by_role('region', name='Current authority status', exact=True)).to_contain_text('Current approval set is stale')
                     expect(page.get_by_role('button', name='Approve plan', exact=True)).to_be_disabled()
                     check(report, 'mismatched current authority epoch is shown stale without a current set', True)
+                if process.poll() is not None:
+                    raise CheckFailed('authority service remains running before restart')
+                report['stage'] = 'service_restart'
                 stop(process)
                 process = subprocess.Popen([str(args.service_binary), '--config', str(state / 'config.json'),
                                             '--session-key-file', str(state / 'session.key')], stdout=log, stderr=log)
                 cleanup.callback(stop, process)
+                report['stage'] = 'service_restart_ready'
                 wait_ready(process)
+                report['stage'] = 'session_recovery'
                 before_recovery = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
                 page.get_by_role('button', name='Back to plans', exact=True).click()
                 expect(page.get_by_role('alert')).to_be_visible()
@@ -361,8 +450,12 @@ def run(args, report):
                 check(report, 'restarted authority still shows missing native evidence without inventing observations', True)
                 check(report, 'shipped review runs without browser exceptions', not errors)
                 context.close()
+        report['stage'] = 'cleanup'
+        if process.poll() is not None:
+            raise CheckFailed('authority service remains running until intentional cleanup')
         stop(process)
         check(report, 'authority service and browser cleanup complete', process.poll() is not None)
+    report['stage'] = 'complete'
 
 
 def main():
@@ -373,21 +466,42 @@ def main():
     parser.add_argument('--browser-executable')
     parser.add_argument('--report', type=Path, default=ROOT / 'reports/authority-browser.json')
     args = parser.parse_args()
-    args.service_binary = args.service_binary.resolve()
-    args.fixture_binary = args.fixture_binary.resolve()
-    args.ui_directory = args.ui_directory.resolve()
     report = {'schema_version': 'fw.authority-browser-smoke/v1', 'checks': [],
+              'stage': 'initialization', 'passed': False, 'status': 'FAIL',
               'scope': 'real authority service and Chromium virtual CTAP2 integration; no native enforcement qualification'}
     try:
+        args.service_binary = args.service_binary.resolve()
+        args.fixture_binary = args.fixture_binary.resolve()
+        args.ui_directory = args.ui_directory.resolve()
         run(args, report)
+        if (report.get('stage') != 'complete' or not report['checks']
+                or not all(item.get('passed') is True for item in report['checks'])
+                or report.get('service_log_status') != 'ready'
+                or report.get('service_ready_count') != EXPECTED_SERVICE_STARTS):
+            raise CheckFailed('authority smoke completion evidence is incomplete')
     except Exception as error:
-        report['failure'] = str(error) if isinstance(error, CheckFailed) else type(error).__name__
+        report['stage'] = report.get('stage') if report.get('stage') in STAGES else 'initialization'
+        report['failure_stage'] = report['stage']
+        report['failure'] = failure_category(error)
+        if report.get('service_log_status') == 'startup_failure':
+            report['failure'] = 'AUTHORITY_SMOKE_SERVICE_FAILED'
+        elif report.get('service_log_status') in ('empty', 'incomplete', 'unrecognized', 'unavailable'):
+            report['failure'] = 'AUTHORITY_SMOKE_SERVICE_DIAGNOSTIC_UNAVAILABLE'
         report['passed'] = False
+        report['status'] = 'FAIL'
     else:
         report['passed'] = True
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2) + '\n')
-    print(('PASS' if report['passed'] else 'FAIL') + f": {sum(item['passed'] for item in report['checks'])} authority browser checks; {args.report}")
+        report['status'] = 'PASS'
+    try:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(report, indent=2) + '\n')
+    except OSError:
+        print('FAIL: stage=report_write code=AUTHORITY_SMOKE_REPORT_WRITE_FAILED')
+        raise SystemExit(1) from None
+    diagnostic = '' if report['passed'] else f"; stage={report['failure_stage']} code={report['failure']}"
+    if report.get('startup_failure'):
+        diagnostic += f" startup_stage={report['startup_failure']['stage']} startup_code={report['startup_failure']['code']}"
+    print(('PASS' if report['passed'] else 'FAIL') + f": {sum(item['passed'] for item in report['checks'])} authority browser checks" + diagnostic)
     raise SystemExit(0 if report['passed'] else 1)
 
 

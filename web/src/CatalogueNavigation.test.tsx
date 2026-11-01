@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { isInaccessible, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import App from './App';
@@ -31,33 +31,51 @@ function controller(route: string, expired = false) {
 }
 beforeEach(() => { localStorage.clear(); localStorage.setItem('fw.locale', 'en'); setCsrfToken(undefined); history.replaceState(null, '', '/targets'); });
 
-async function next(name: string) { await userEvent.click(await screen.findByRole('button', { name: 'Next page' })); await screen.findByRole('button', { name }); }
+async function listedHost(name: string) {
+  // Page readiness needs one record, not accessible-name computation for every
+  // button in the catalogue. Keep accessibility checks on the selected record.
+  const button = await screen.findByText(name, { selector: 'button' });
+  expect(button).toHaveRole('button');
+  expect(button).toHaveAccessibleName(name);
+  expect(button).toBeVisible();
+  expect(isInaccessible(button)).toBe(false);
+  return button;
+}
+function pagination() { return within(screen.getByRole('navigation', { name: 'Page navigation' })); }
+async function next(name: string) {
+  // A request being issued does not mean its page has finished rendering.
+  await waitFor(() => expect(pagination().getByRole('button', { name: 'Next page' })).toBeEnabled());
+  await userEvent.click(pagination().getByRole('button', { name: 'Next page' }));
+  await listedHost(name);
+}
 
 test.each(['targets', 'assets'])('%s lists navigate forward and back one page and refresh starts a new snapshot', async route => {
   const calls = controller(route); history.replaceState(null, '', '/' + route); render(<App/>);
-  await screen.findByRole('button', { name: 'Host 1' }); await next('Host 26'); await next('Host 51');
-  await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
-  expect(await screen.findByRole('button', { name: 'Host 26' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Host 1' })).not.toBeInTheDocument();
+  await listedHost('Host 1'); await next('Host 26'); await next('Host 51');
+  expect(pagination().getByRole('button', { name: 'Next page' })).toBeDisabled();
+  await userEvent.click(pagination().getByRole('button', { name: 'Previous page' }));
+  await listedHost('Host 26');
+  expect(screen.queryByText('Host 1', { selector: 'button' })).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-  await screen.findByRole('button', { name: 'Host 1' });
+  await listedHost('Host 1');
+  expect(pagination().getByRole('button', { name: 'Previous page' })).toBeDisabled();
   expect(new URL(calls.at(-1)!, 'http://localhost').searchParams.has('cursor')).toBe(false);
 });
 
 test('page size changes and expired cursor retry restart at the first page', async () => {
-  const calls = controller('targets', true); render(<App/>); await screen.findByRole('button', { name: 'Host 1' });
+  const calls = controller('targets', true); render(<App/>); await listedHost('Host 1');
   await userEvent.selectOptions(screen.getByLabelText('Rows per page'), '50');
   await waitFor(() => expect(calls.at(-1)).toContain('limit=50'));
-  await next('Host 26'); await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+  await next('Host 26'); await userEvent.click(pagination().getByRole('button', { name: 'Next page' }));
   await screen.findByText('CURSOR_EXPIRED');
   await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  await screen.findByRole('button', { name: 'Host 1' });
+  await listedHost('Host 1');
   expect(new URL(calls.at(-1)!, 'http://localhost').searchParams.get('limit')).toBe('50');
   expect(new URL(calls.at(-1)!, 'http://localhost').searchParams.has('cursor')).toBe(false);
 });
 
 test('target list uses actual backend and observation fields without qualification aliases', async () => {
-  controller('targets'); render(<App/>); await screen.findByRole('button', { name: 'Host 1' });
+  controller('targets'); render(<App/>); await listedHost('Host 1');
   expect(screen.getByRole('columnheader', { name: 'Enforcement backend' })).toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: 'Last observed (UTC)' })).toBeInTheDocument();
   expect(screen.getAllByText('nftables')).toHaveLength(25);
@@ -105,7 +123,7 @@ test('sidebar navigation exits a new registry form even when navigating to the s
   await userEvent.click(await screen.findByRole('button', { name: 'Register asset' }));
   expect(screen.getByLabelText('Display name')).toBeInTheDocument();
   await userEvent.click(screen.getByRole('link', { name: 'Assets' }));
-  await screen.findByRole('button', { name: 'Host 1' });
+  await listedHost('Host 1');
   expect(screen.queryByLabelText('Display name')).not.toBeInTheDocument();
   expect(location.pathname).toBe('/assets');
 });
@@ -131,14 +149,14 @@ test('saved registry mutations discard old collection cursors before returning t
   const calls = controller('assets'); const fetch = vi.mocked(globalThis.fetch); const base = fetch.getMockImplementation()!;
   const saved = { asset_id: id(99), revision: 1, state: 'active', content_hash: 'sha256:' + 'a'.repeat(64), created_at: '2026-10-31T00:00:00Z', definition: { name: 'New host', owner_id: id(999), provenance: 'manual' } };
   fetch.mockImplementation(async (input, init) => String(input) === '/api/v1/assets' && init?.method === 'POST' ? response({ data: saved, actions }, 201) : String(input) === '/api/v1/assets/' + id(99) ? response({ data: saved, actions }) : base(input, init));
-  history.replaceState(null, '', '/assets'); render(<App/>); await screen.findByRole('button', { name: 'Host 1' }); await next('Host 26');
+  history.replaceState(null, '', '/assets'); render(<App/>); await listedHost('Host 1'); await next('Host 26');
   await userEvent.click(screen.getByRole('button', { name: 'Register asset' }));
   await userEvent.type(screen.getByLabelText('Display name'), 'New host');
   await userEvent.type(screen.getByLabelText('Canonical CIDR 1'), '192.0.2.99/32');
   await userEvent.click(screen.getByRole('button', { name: 'Save immutable revision' }));
   await screen.findByText('Registry revision saved. Existing policies have not been rewritten.');
   await userEvent.click(screen.getByRole('button', { name: 'Back to registry' }));
-  await screen.findByRole('button', { name: 'Host 1' });
+  await listedHost('Host 1');
   expect(calls.at(-1)).not.toContain('cursor=');
 });
 

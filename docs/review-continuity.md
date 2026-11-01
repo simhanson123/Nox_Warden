@@ -72,6 +72,37 @@ saying “no confirmed defect within scope” do not certify the whole product.
 Docker namespace packet tests do not qualify an installed host, Windows or macOS;
 virtual CTAP2 tests do not certify physical authenticators or human consent.
 
+## Received PR #15 independent reviews
+
+The user subsequently supplied all three requested reports for target
+`43146fd753ab288f8e1618f5fdead6b8b2093d3b`, compared with
+`f400d03f0bca873d42a1af114fb4632e2357d03a`. They do not review the subsequent
+native-evidence batch, merged as PR #16 at
+`06de39878d8fff40afec1c93f2bcbef982da149d` (reviewed head `feab5c3`).
+Their temporary probe sources and logs were not supplied; reported runs below
+remain attributed external evidence, separate from our executable regressions.
+
+| Reviewer | Reported checks and conclusion |
+| --- | --- |
+| Claude Opus 5.5 | 209 focused Rust tests, real Ed25519 noncanonical/signature/rebinding counterexamples and 41 metadata process checks passed; no confirmed defect within scope. Forward clock error can durably block a target until time catches up; recovery documentation was missing, and this scenario was not executed by the reviewer. |
+| GLM 5.3 Flash | 95 UI tests; 76 passkey, 25 enrollment-browser, 41 metadata and 31 authority-browser checks; authority first rejected inherited `0646` assets, then passed with corrected generated-file modes. Confirmed silent successful admin output loss on closed stdout; observed agent/help panic and missing startup-stage retention in the smoke report. |
+| GLM 5.3 | 603 workspace +23 reduced-feature Rust tests, 229 under shared umask, Linux suites 66/98 with 40/43 real packets, 41 metadata checks and new private probes C/D 47/8. Independently confirmed the same admin output-loss defect. UI was 94/95 with intermittent target-catalogue timeout; do not record this run as an all-green check. |
+
+Both GLMs reproduced buffered compact JSON returning exit 0 on `/dev/full` or
+a closed pipe after a real store commit. This is one shared reliability finding,
+not two independent product bugs. The correction must explicitly check final
+stdout flush, preserve post-commit state and give fixed output-failure diagnostics.
+An unchanged `web/` diff excludes an introduced UI source change in PR #15; it
+does not prove the intermittent test timeout is exclusively environmental or
+identify its cause. The follow-up independently reproduced admin exit 0 after commit and agent/help
+panic after output failure. It adds checked stdout flush, safe fixed diagnostics,
+retained private proof/DB state, and preserved closed startup stage/code before
+smoke cleanup. Reopened-store regressions cover future target and project audit
+floors without lowering them. Catalogue tests retain their original timeout and
+65-record flow while replacing expensive global accessible-name searches with
+scoped queries and equivalent selected-record accessibility assertions; the
+reported external intermittent timeout itself remains unreproduced locally.
+
 A separate verification worker freshly reran the recovered `d5cb339` baseline
 on 2026-11-01 before implementation changes. The repository check passed 542
 workspace Rust tests, 23 no-default-feature tests, 89 UI tests and its design,
@@ -106,9 +137,11 @@ The recovery follow-up was merged as [PR #14](https://github.com/simhanson123/No
 main `f400d03f0bca873d42a1af114fb4632e2357d03a`. Its full CI passed, and it
 resolved anonymous CLI storage/audit exhaustion while retaining fresh browser
 approval, then added durable independently recomposed policy review evidence.
-The next slice builds independent target pins and signed metadata on that base;
-its current commands, executed results and next dependency are maintained in the
-task ledger and verification summary rather than a continuing chat transcript.
+PR #15 added independent target pins and signed metadata; PR #16 added retained
+compilation and signed native observations. The received PR #15 findings are
+addressed together on the PR #16 source. Current commands, executed results and
+the next signer/quota dependency are maintained in the task ledger and
+verification summary rather than a continuing chat transcript.
 
 1. Record the actual checkout SHA and diff; read the task ledger and current
    implementation boundaries before selecting work along F_08 dependencies.

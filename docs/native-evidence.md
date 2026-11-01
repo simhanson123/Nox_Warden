@@ -130,6 +130,10 @@ deadlines. Retained clock observations prevent expired evidence from returning
 after clock rollback. A lost output can follow a successful commit; retry the
 exact proof or re-read state rather than assuming rollback.
 
+Native evidence shares the target time floor. Incorrect future time therefore
+has the same durable availability impact and unresolved immediate-recovery limit
+described in the [forward-clock runbook](target-metadata.md#incorrect-forward-clock-and-recovery).
+
 Challenge, payload and proof bounds are defined in
 [fw_native_evidence](../crates/fw_native_evidence/README.md). They are local
 development contracts; they are not a replacement for the original F internal
