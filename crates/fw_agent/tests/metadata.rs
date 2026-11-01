@@ -6,14 +6,17 @@ use openssl::pkey::PKey;
 use serde_json::{Value, json};
 use std::{
     ffi::OsString,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::Write,
+    os::fd::OwnedFd,
     os::unix::{
         ffi::OsStringExt,
         fs::{OpenOptionsExt, PermissionsExt, symlink},
+        net::UnixStream,
     },
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    time::{Duration, Instant},
 };
 use uuid::Uuid;
 
@@ -334,4 +337,99 @@ fn non_utf8_arguments_produce_fixed_errors_without_panics_or_input_echo() {
         serde_json::from_str::<Value>(&diagnostic).unwrap(),
         json!({"error":"COMMAND_ARGUMENT_ENCODING_INVALID"})
     );
+}
+
+#[derive(Clone, Copy)]
+enum FailedStdout {
+    Full,
+    BrokenPipe,
+    ReadOnly,
+}
+const FAILED_STDOUT_CASES: [FailedStdout; 3] = [
+    FailedStdout::Full,
+    FailedStdout::BrokenPipe,
+    FailedStdout::ReadOnly,
+];
+
+fn failed_stdout(command: &mut Command, failure: FailedStdout) -> Output {
+    let stdout = match failure {
+        FailedStdout::BrokenPipe => {
+            let (reader, writer) = UnixStream::pair().unwrap();
+            drop(reader);
+            Stdio::from(OwnedFd::from(writer))
+        }
+        FailedStdout::Full => Stdio::from(File::options().write(true).open("/dev/full").unwrap()),
+        FailedStdout::ReadOnly => Stdio::from(File::open("/dev/null").unwrap()),
+    };
+    let mut child = command
+        .stdout(stdout)
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("agent output-failure process exceeded its deadline");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn assert_output_failure(result: &Output) {
+    assert_eq!(result.status.code(), Some(1));
+    assert!(result.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&result.stderr),
+        "{\"error\":\"COMMAND_OUTPUT_FAILED\"}\n"
+    );
+}
+
+#[test]
+fn help_output_failure_has_a_fixed_diagnostic_without_panic() {
+    for failure in FAILED_STDOUT_CASES {
+        let result = failed_stdout(
+            Command::new(env!("CARGO_BIN_EXE_fw_agent")).arg("--help"),
+            failure,
+        );
+        assert_output_failure(&result);
+    }
+}
+
+#[test]
+fn failed_summary_delivery_retains_the_committed_verifiable_proof() {
+    for failure in FAILED_STDOUT_CASES {
+        let f = Fixture::new();
+        let result = failed_stdout(&mut f.command(), failure);
+        // Output failure follows durable publication. It must not erase the
+        // evidence or silently sign again to recover a lost summary.
+        let bytes = fs::read(&f.output_file).unwrap();
+        let proof = SignedMetadataReport::parse(&bytes).unwrap();
+        verify_report(
+            &f.challenge,
+            &proof,
+            &f.public,
+            "linux",
+            Utc::now().timestamp(),
+            f.certificate_expires,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::metadata(&f.output_file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_output_failure(&result);
+        let retry = f.run();
+        assert_eq!(retry.status.code(), Some(1));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&retry.stderr).unwrap(),
+            json!({"error":"METADATA_OUTPUT_EXISTS"})
+        );
+        assert_eq!(fs::read(&f.output_file).unwrap(), bytes);
+    }
 }

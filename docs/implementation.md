@@ -2,6 +2,27 @@
 
 The original specification under `docs/specs` is retained byte-for-byte. Attached prompts and installation skills were interpreted as project material; they did not authorize publication, paid resources, credential acquisition, or live firewall changes. The current user decisions extend the UI to German and French, make English the default regardless of browser language, and keep detailed development evidence outside source commits. Other F-2.0 acceptance requirements remain unchanged.
 
+## Completion assessment
+
+This is a Linux-first development implementation with verified isolated native
+execution, not an installable production release. The task ledger records one
+verified setup milestone, seven partially implemented milestones and five blocked
+milestones. These have very different costs and cannot be converted into a
+meaningful completion percentage.
+
+| Area | Implemented boundary | Remaining acceptance |
+| --- | --- | --- |
+| Local control and authentication | Real passkeys, browser-authorized CLI, catalogues, audit pagination, device registration and eight locales | Recovery/renewal, remote production identity, complete workflows and accessibility/translation review |
+| Independent approval and evidence | Current distinct-human quorum, immutable review, separately pinned signed metadata, recompilation and signed native observations | Production bootstrap, qualified evidence/build identity, atomic approval/generation/quota signing intents and authenticated dispatch |
+| Linux enforcement | Actual nftables, packet probes, signed lab execution and conservative recovery in disposable namespaces | Installed-host lifecycle, management connectivity, watchdog, reboot/physical NIC/coexistence and full common-host qualification |
+| Windows and macOS | Preserved design and explicit unsupported boundaries | WFP/callout and Network Extension implementations, supported OS runners, signing and real kernel tests |
+| Distribution and operations | Source, pinned builds and CI | Signed installers, upgrade/uninstall, restore epochs, provider/channel acceptance and production operations |
+
+The next large implementation dependency is durable signing intent and quota
+integration in the same authority transaction. Qualified production evidence and
+protected signer deployment remain mandatory separate gates; passing a lab or
+returning a current evidence summary cannot open policy dispatch.
+
 ## Trust and process boundaries
 
 ```mermaid

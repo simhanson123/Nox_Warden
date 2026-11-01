@@ -39,11 +39,11 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **650 workspace Rust tests, 23 authority
+The integrated repository check passes **658 workspace Rust tests, 23 authority
 tests without default features, and 125 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
-six catalogue-diagnostic regressions and
+six catalogue-diagnostic, thirteen authority-smoke diagnostic and
 three native-evidence diagnostic regressions, plus
 vendored-source verification. English remains the default. Eight controller
 catalogues have 229 messages each; eight authority catalogues have 96, with
@@ -70,11 +70,51 @@ current comparison base is merged PR #15, `43146fd`, whose
 This integrated batch freshly passed the repository check (650+23 Rust, 125 UI),
 authority/service tests under `umask 0002` (258), the real authority browser (36),
 native evidence processes (33 with five captures), and signed Linux execution
-(98 with 43 actual packets). Other runtime rows retain their suite expectations;
-CI reruns every listed nonbrowser enrollment and runtime suite on the reviewed PR.
+(98 with 43 actual packets). The reviewed PR #16 head `feab5c3` also passed the complete
+[remote CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41283362174),
+including every listed nonbrowser enrollment and runtime suite, before merge
+`06de398`. Its source tree equals the tested head. These results predate the
+subsequent external-review reliability follow-up.
 The [review handoff](../docs/review-continuity.md) distinguishes supplied external
 reports from fresh executions. Earlier external private probes were not recovered
-or claimed as reproduced. The current external reviews still target PR #15.
+or claimed as reproduced. All three external PR #15 reports have since been supplied; they cover that fixed earlier target and identify a shared admin stdout failure plus adjacent diagnostics follow-up.
+
+## Received-review reliability follow-up
+
+All three supplied PR #15 reviews are recorded at their exact earlier target.
+Both GLMs identified the same buffered stdout defect. Against merged PR #16,
+actual admin commands reproduced exit 0 despite `/dev/full` or a closed reader,
+while agent/help output panicked. Both commands now check writes and final flush;
+Unix output uses a checked duplicate handle to preserve `EBADF` instead of the
+standard stdout wrapper that masks it. Full destinations, read-only handles and
+broken pipes return fixed errors without losing committed DB or proof state.
+A valid writable `/dev/null` remains allowed. Rust can normalize pre-exec closed
+stdio to that valid sink; this is not an error detectable after startup.
+
+The actual-process regressions verify unchanged canonical bytes, lost challenge
+quota, immutable receipt replay, private verifiable proof survival and refusal to
+overwrite an existing proof. Future-clock regressions reopen the database,
+exercise every target operation, demonstrate the separate project audit fence,
+and recover only when trusted time reaches the existing floors. There is no
+immediate clock-reset or qualified epoch-recovery API; the runbook preserves this
+remaining availability limitation.
+
+Authority smoke reports retain only bounded closed startup diagnostics before
+temporary cleanup. Success requires the exact two normal startup messages plus
+all browser checks; unknown output, missing completion, child exit or report
+write failure cannot pass. Actual unsafe `0646` assets still fail with the saved
+`ui_assets` stage. Catalogue tests reduce measured global accessible-name query
+cost while preserving 65 records, accessibility assertions and the original
+5-second limit. The supplied intermittent timeout was not reproduced locally;
+its underlying cause remains unproven.
+
+A consolidated independent review found the remaining read-only stdout case;
+the corrected code passed that reviewer's separate 49-check process/diagnostic
+probe, two clock tests, thirteen diagnostic tests and eleven catalogue tests.
+The original external private C/D probes were not recovered or rerun. Source
+changes were followed by the full repository check (658+23 Rust, 125 UI),
+shared-umask authority/service tests (264), actual authority browser (36),
+metadata processes (41) and native processes (33 with five signed captures).
 
 ## Security and persistence coverage
 
@@ -165,9 +205,9 @@ recomposition and bounded bytes/depth; no legacy plan receives invented evidence
 These are semantic review guarantees, not compiler/native gate attestation or
 permission to sign or dispatch.
 
-[Target metadata](../docs/target-metadata.md) adds 11 shared Ed25519 protocol
-tests, five device process tests, 18 authority persistence regressions and three
-local admin process tests. They cover strict canonical bytes, signature and
+[Target metadata](../docs/target-metadata.md) has 11 shared Ed25519 protocol
+tests, seven device process tests, 20 authority persistence regressions and ten
+local admin process tests (the latter also exercise the native command workflow). They cover strict canonical bytes, signature and
 identity substitutions, protected file/certificate binding, non-UTF8 diagnostics,
 bounded stdin, explicit namespace initialization, pin CAS/tombstones, schema-4
 backup migration, challenge quota, atomic audit failure, concurrent exact retry,
@@ -212,8 +252,9 @@ its display after a different plan advanced the target head; valid zero
 epoch/generation values were refused by the admin CLI; and request latency was
 omitted from displayed freshness when the client clock moved backward. These
 reviewers ran focused independent reproductions, separately from the implementation
-tests. The user's external PR #15 reviews remain pending and cover their fixed
-earlier target, not this new batch.
+tests. The user subsequently supplied all three external PR #15 reviews. They cover
+their fixed earlier target, not this native-evidence batch; their results and
+follow-up are retained separately in review-continuity.
 
 The actual Docker/process smoke uses synthetic independent trust, five signed
 kernel captures and no host firewall changes. In this environment the older

@@ -892,3 +892,167 @@ fn v4_migration_foreign_key_failure_preserves_source_version_and_backup() {
         );
     }
 }
+
+#[test]
+fn accidental_future_read_survives_reopen_and_allows_recovery_only_at_the_clock_floor() {
+    let mut f = Fixture::new();
+    let accepted_challenge = f.challenge(NOW + 1);
+    let accepted_proof = f.proof(&accepted_challenge, NOW + 2);
+    let accepted = f
+        .store
+        .admit_target_report(&f.tenant, &accepted_proof, NOW + 2)
+        .unwrap();
+    let pending_challenge = f.challenge(NOW + 3);
+    let pending_proof = f.proof(&pending_challenge, NOW + 4);
+    let future = NOW + 1800;
+    let before = f.state_counts();
+    assert!(
+        f.store
+            .current_target_metadata(&f.tenant, TARGET, future)
+            .unwrap()
+            .is_none()
+    );
+    // The mistaken future read records only a security clock observation. It
+    // neither deletes the old proof nor rewrites its expiry or audit history.
+    assert_eq!(f.state_counts(), before);
+    drop(f.store);
+    f.store = AuthorityStore::open(&f.path).unwrap();
+    let clock_path = f.path.clone();
+    let observed = || {
+        Connection::open(&clock_path)
+            .unwrap()
+            .query_row::<i64, _, _>(
+                "SELECT observed_at FROM authority_target_clocks WHERE org_id=? AND project_id=? AND target_id=?",
+                params![ORG, PROJECT, TARGET],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(observed(), future);
+    for earlier in [NOW + 5, future - 1] {
+        assert!(matches!(
+            f.store
+                .pin_target_transport(&f.tenant, &f.pin, Some(1), earlier),
+            Err(AuthorityError::Time)
+        ));
+        assert!(matches!(
+            f.store
+                .issue_target_report_challenge(&f.tenant, TARGET, earlier),
+            Err(AuthorityError::Time)
+        ));
+        for proof in [&accepted_proof, &pending_proof] {
+            assert!(matches!(
+                f.store.admit_target_report(&f.tenant, proof, earlier),
+                Err(AuthorityError::Time)
+            ));
+        }
+        assert!(matches!(
+            f.store.current_target_metadata(&f.tenant, TARGET, earlier),
+            Err(AuthorityError::Time)
+        ));
+        assert!(matches!(
+            f.store
+                .revoke_target_transport(&f.tenant, TARGET, 1, earlier),
+            Err(AuthorityError::Time)
+        ));
+        assert_eq!(observed(), future);
+        assert_eq!(f.state_counts(), before);
+        assert_eq!(f.count("authority_target_pins"), 1);
+        assert_eq!(f.count("authority_target_key_revocations"), 0);
+    }
+
+    // Legitimate time reaching the existing floor restores operations, not old
+    // current authority. This test never changes the OS clock or lowers a row.
+    assert_eq!(
+        f.store
+            .pin_target_transport(&f.tenant, &f.pin, Some(1), future)
+            .unwrap(),
+        1
+    );
+    let replay = f
+        .store
+        .admit_target_report(&f.tenant, &accepted_proof, future)
+        .unwrap();
+    assert!(replay.replayed);
+    assert_eq!(replay.receipt, accepted.receipt);
+    assert!(
+        f.store
+            .admit_target_report(&f.tenant, &pending_proof, future)
+            .is_err()
+    );
+    assert!(
+        f.store
+            .current_target_metadata(&f.tenant, TARGET, future)
+            .unwrap()
+            .is_none()
+    );
+    let fresh_challenge = f.challenge(future);
+    let fresh_proof = f.proof(&fresh_challenge, future);
+    let fresh = f
+        .store
+        .admit_target_report(&f.tenant, &fresh_proof, future)
+        .unwrap();
+    assert!(!fresh.replayed);
+    assert_ne!(fresh.receipt.receipt_id, accepted.receipt.receipt_id);
+    drop(f.store);
+    f.store = AuthorityStore::open(&f.path).unwrap();
+    assert_eq!(
+        f.store
+            .current_target_metadata(&f.tenant, TARGET, future)
+            .unwrap()
+            .unwrap()
+            .receipt,
+        fresh.receipt
+    );
+    f.store
+        .revoke_target_transport(&f.tenant, TARGET, 1, future)
+        .unwrap();
+    assert!(
+        f.store
+            .current_target_metadata(&f.tenant, TARGET, future)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(observed(), future);
+}
+
+#[test]
+fn successful_future_challenge_also_fences_later_audited_writes_in_the_same_project() {
+    let mut f = Fixture::new();
+    let mut second = f.pin.clone();
+    second.target_id = "55555555-5555-4555-8555-555555555555".into();
+    let mut seed = [0u8; 32];
+    openssl::rand::rand_bytes(&mut seed).unwrap();
+    second.public_key = SigningKey::from_bytes(&seed).verifying_key().to_bytes();
+    second.certificate_fingerprint = hash_bytes(b"separate target certificate");
+    f.store
+        .pin_target_transport(&f.tenant, &second, None, NOW + 1)
+        .unwrap();
+    let future = NOW + 1800;
+    f.store
+        .issue_target_report_challenge(&f.tenant, TARGET, future)
+        .unwrap();
+    drop(f.store);
+    f.store = AuthorityStore::open(&f.path).unwrap();
+    let before = f.state_counts();
+    // The second target's own clock has not moved to `future`, so a read is
+    // possible. Its challenge mutation cannot append behind the project audit
+    // head written by the first target's successful future operation.
+    assert!(
+        f.store
+            .current_target_metadata(&f.tenant, &second.target_id, NOW + 2)
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        f.store
+            .issue_target_report_challenge(&f.tenant, &second.target_id, NOW + 2),
+        Err(AuthorityError::Time)
+    ));
+    assert_eq!(f.state_counts(), before);
+    assert!(
+        f.store
+            .issue_target_report_challenge(&f.tenant, &second.target_id, future)
+            .is_ok()
+    );
+}

@@ -34,7 +34,10 @@ fn command(database: &Path, operation: &str) -> Command {
     c
 }
 fn run(database: &Path, operation: &str, body: &Value) -> Output {
-    let mut child = command(database, operation).spawn().unwrap();
+    execute(command(database, operation), body)
+}
+fn execute(mut command: Command, body: &Value) -> Output {
+    let mut child = command.spawn().unwrap();
     if let Err(error) = child
         .stdin
         .take()
@@ -45,6 +48,41 @@ fn run(database: &Path, operation: &str, body: &Value) -> Output {
         assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
     }
     child.wait_with_output().unwrap()
+}
+
+#[derive(Clone, Copy)]
+enum FailedOutput {
+    FullDevice,
+    ClosedReader,
+    ReadOnly,
+}
+impl FailedOutput {
+    fn stdio(self) -> Stdio {
+        match self {
+            Self::FullDevice => fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap()
+                .into(),
+            Self::ClosedReader => {
+                let (reader, writer) = std::io::pipe().unwrap();
+                drop(reader);
+                writer.into()
+            }
+            Self::ReadOnly => fs::File::open("/dev/null").unwrap().into(),
+        }
+    }
+}
+
+fn run_with_failed_stdout(
+    database: &Path,
+    operation: &str,
+    body: &Value,
+    output: FailedOutput,
+) -> Output {
+    let mut command = command(database, operation);
+    command.stdout(output.stdio());
+    execute(command, body)
 }
 fn success(output: Output) -> Value {
     assert!(
@@ -76,6 +114,9 @@ fn fixture(lifetime: i64) -> (tempfile::TempDir, PathBuf) {
 }
 fn proof(db: &Path) -> Value {
     let c = success(run(db, "challenge-target", &json!({"target_id":TARGET})));
+    proof_for_challenge(c)
+}
+fn proof_for_challenge(c: Value) -> Value {
     let challenge: TargetMetadataChallenge = serde_json::from_value(c).unwrap();
     let now = chrono::Utc::now().timestamp();
     let features = ["timed_allow","persistent_deny","strict_current_union","atomic_apply","semantic_readback","writer_fencing","independent_watchdog","new_management_probe","interface_scope","process_binding","independent_expiry","boot_guard","crash_fail_closed","absolute_deadline_guard"].into_iter().map(|name|(name.to_owned(),json!({"state":"unverified","reason_code":"CAPABILITY_NOT_QUALIFIED","evidence_hash":null}))).collect::<serde_json::Map<_,_>>();
@@ -84,6 +125,157 @@ fn proof(db: &Path) -> Value {
         sign_report(&challenge, &canonical_bytes(&report).unwrap(), &SEED, now).unwrap(),
     )
     .unwrap()
+}
+
+#[test]
+fn stdout_failures_preserve_committed_initialization_and_exact_proof_recovery() {
+    for sink in [
+        FailedOutput::FullDevice,
+        FailedOutput::ClosedReader,
+        FailedOutput::ReadOnly,
+    ] {
+        let directory = private_directory::private_directory();
+        let db = directory.path().join("authority.sqlite3");
+        refused(
+            run_with_failed_stdout(&db, "init", &json!({}), sink),
+            "OUTPUT_FAILED",
+        );
+        assert!(db.exists());
+        refused(run(&db, "init", &json!({})), "DATABASE_REJECTED");
+        refused(
+            run_with_failed_stdout(&db, "init-project", &json!({}), sink),
+            "OUTPUT_FAILED",
+        );
+        assert_eq!(
+            success(run(&db, "init-project", &json!({})))["status"],
+            "project_initialized"
+        );
+
+        let (_directory, db) = fixture(300);
+        let signed = proof(&db);
+        refused(
+            run_with_failed_stdout(&db, "admit-target", &signed, sink),
+            "OUTPUT_FAILED",
+        );
+        let current = success(run(&db, "read-target", &json!({"target_id":TARGET})));
+        assert!(!current["receipt"].is_null());
+        assert_eq!(current["dispatch_allowed"], false);
+        let output = run(&db, "admit-target", &signed);
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        // Explicit flushing must preserve the original canonical JSON bytes,
+        // including the absence of a trailing newline.
+        assert_eq!(output.stdout, canonical_bytes(&value).unwrap());
+        let retry = success(output);
+        assert_eq!(retry["replayed"], true);
+        assert_eq!(retry["receipt"], current["receipt"]);
+    }
+}
+
+#[test]
+fn lost_challenge_output_still_occupies_its_original_quota_slot() {
+    for sink in [
+        FailedOutput::FullDevice,
+        FailedOutput::ClosedReader,
+        FailedOutput::ReadOnly,
+    ] {
+        let (_directory, db) = fixture(300);
+        let request = json!({"target_id":TARGET});
+        refused(
+            run_with_failed_stdout(&db, "challenge-target", &request, sink),
+            "OUTPUT_FAILED",
+        );
+        let mut last = Value::Null;
+        for _ in 0..3 {
+            last = success(run(&db, "challenge-target", &request));
+        }
+        refused(
+            run(&db, "challenge-target", &request),
+            "TARGET_CHALLENGE_REJECTED",
+        );
+        let count = || {
+            rusqlite::Connection::open(&db)
+                .unwrap()
+                .query_row::<i64, _, _>(
+                    "SELECT count(*) FROM authority_target_challenges",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(count(), 4);
+        // A known challenge can still be completed, releasing only its own live
+        // slot. The lost response is not deleted or silently reissued.
+        success(run(&db, "admit-target", &proof_for_challenge(last)));
+        success(run(&db, "challenge-target", &request));
+        assert_eq!(count(), 5);
+        refused(
+            run(&db, "challenge-target", &request),
+            "TARGET_CHALLENGE_REJECTED",
+        );
+    }
+}
+
+#[test]
+fn help_and_error_reporting_do_not_panic_on_failed_standard_streams() {
+    for sink in [
+        FailedOutput::FullDevice,
+        FailedOutput::ClosedReader,
+        FailedOutput::ReadOnly,
+    ] {
+        let mut help = Command::new(env!("CARGO_BIN_EXE_fw_authority_admin"));
+        help.arg("--help")
+            .stdout(sink.stdio())
+            .stderr(Stdio::piped());
+        refused(help.output().unwrap(), "OUTPUT_FAILED");
+
+        let mut both = Command::new(env!("CARGO_BIN_EXE_fw_authority_admin"));
+        both.arg("--help").stdout(sink.stdio()).stderr(sink.stdio());
+        let output = both.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+
+        let mut invalid = Command::new(env!("CARGO_BIN_EXE_fw_authority_admin"));
+        invalid
+            .arg("DO_NOT_PRINT_INVALID_COMMAND")
+            .stdout(Stdio::piped())
+            .stderr(sink.stdio());
+        let output = invalid.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[test]
+fn writable_discard_sink_is_a_successful_output_destination() {
+    let directory = private_directory::private_directory();
+    let database = directory.path().join("authority.sqlite3");
+    let mut init = command(&database, "init");
+    init.stdout(Stdio::null());
+    let output = execute(init, &json!({}));
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+    assert!(database.exists());
+    refused(run(&database, "init", &json!({})), "DATABASE_REJECTED");
+    assert_eq!(
+        success(run(&database, "init-project", &json!({})))["status"],
+        "project_initialized"
+    );
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    assert_eq!(
+        connection
+            .query_row::<String, _, _>("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap(),
+        "ok"
+    );
+    let mut help = Command::new(env!("CARGO_BIN_EXE_fw_authority_admin"));
+    help.arg("--help")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let output = help.output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
 }
 
 #[test]

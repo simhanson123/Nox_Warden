@@ -13,7 +13,7 @@ use std::{
     collections::BTreeMap,
     error::Error,
     fs::File,
-    io::Read,
+    io::{Read, Write},
     path::Path,
     process::{Command, Stdio},
     sync::Arc,
@@ -645,6 +645,33 @@ fn run(args: Vec<String>) -> Result<Value> {
         _ => Err("unknown command".into()),
     }
 }
+fn write_stdout(bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    let mut output = {
+        use std::os::fd::AsFd;
+        // Stdout suppresses EBADF, which would report an undelivered response
+        // as success. An owned duplicate preserves the real write error.
+        File::from(std::io::stdout().as_fd().try_clone_to_owned()?)
+    };
+    #[cfg(not(unix))]
+    let mut output = std::io::stdout().lock();
+    output.write_all(bytes)?;
+    output.write_all(b"\n")?;
+    output.flush()
+}
+
+fn fail(message: &str) -> ! {
+    let diagnostic = json!({"error": message}).to_string();
+    let mut output = std::io::stderr().lock();
+    // A closed diagnostic channel must not turn a handled command failure
+    // into another panic. No output error includes OS details or input paths.
+    let _ = output
+        .write_all(diagnostic.as_bytes())
+        .and_then(|()| output.write_all(b"\n"))
+        .and_then(|()| output.flush());
+    std::process::exit(1)
+}
+
 fn main() {
     let args = match std::env::args_os()
         .skip(1)
@@ -652,24 +679,27 @@ fn main() {
         .collect::<std::result::Result<Vec<_>, _>>()
     {
         Ok(args) => args,
-        Err(_) => {
-            eprintln!("{}", json!({"error":"COMMAND_ARGUMENT_ENCODING_INVALID"}));
-            std::process::exit(1);
-        }
+        Err(_) => fail("COMMAND_ARGUMENT_ENCODING_INVALID"),
     };
     if args.is_empty() || args == ["--help"] {
-        println!("{HELP}");
+        if write_stdout(HELP.as_bytes()).is_err() {
+            fail("COMMAND_OUTPUT_FAILED");
+        }
         return;
     }
     match run(args) {
-        Ok(value) => println!(
-            "{}",
-            serde_json::to_string_pretty(&value).expect("JSON value serializes")
-        ),
-        Err(error) => {
-            eprintln!("{}", json!({"error":error.to_string()}));
-            std::process::exit(1);
+        Ok(value) => {
+            let bytes = match serde_json::to_vec_pretty(&value) {
+                Ok(bytes) => bytes,
+                Err(_) => fail("COMMAND_OUTPUT_FAILED"),
+            };
+            // Command state/proof publication may already have committed. An
+            // undelivered summary never rolls it back or retries the command.
+            if write_stdout(&bytes).is_err() {
+                fail("COMMAND_OUTPUT_FAILED");
+            }
         }
+        Err(error) => fail(&error.to_string()),
     }
 }
 use chrono::TimeZone;
