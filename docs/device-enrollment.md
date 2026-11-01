@@ -6,6 +6,12 @@ client run on the same Linux host in this development profile: the device listen
 binds only to loopback. Registration does not approve access requests or change
 firewall rules.
 
+For a portable, independently verifiable metadata response, the enrolled agent
+also supports [offline challenge signing](../crates/fw_agent/README.md#export-a-challenge-bound-metadata-proof).
+This is a separate protected-file exchange with an independently provisioned
+authority. Controller enrollment never automatically pins a device in that
+authority, and accepted metadata is still unverified for firewall enforcement.
+
 ## Prepare the controller
 
 Install the [build prerequisites](../README.md#run-locally), including the OpenSSL

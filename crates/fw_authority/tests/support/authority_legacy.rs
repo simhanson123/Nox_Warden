@@ -39,6 +39,7 @@ pub fn restore_v2(path: &std::path::Path) {
 
 #[allow(dead_code)]
 pub fn restore_v3(path: &std::path::Path) {
+    restore_v4(path);
     let db = rusqlite::Connection::open(path).unwrap();
     db.execute_batch("DROP TABLE authority_plan_review_evidence;")
         .unwrap();
@@ -52,4 +53,32 @@ pub fn restore_v3(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=4;").unwrap();
     db.execute_batch(&trigger).unwrap();
     db.pragma_update(None, "user_version", 3).unwrap();
+}
+
+#[allow(dead_code)]
+pub fn restore_v4(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    for table in [
+        "authority_target_metadata_heads",
+        "authority_target_metadata",
+        "authority_target_challenges",
+        "authority_target_clocks",
+        "authority_target_pin_heads",
+        "authority_target_pins",
+        "authority_target_key_revocations",
+        "authority_target_keys",
+    ] {
+        db.execute_batch(&format!("DROP TABLE {table};")).unwrap();
+    }
+    let trigger: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=5;").unwrap();
+    db.execute_batch(&trigger).unwrap();
+    db.pragma_update(None, "user_version", 4).unwrap();
 }

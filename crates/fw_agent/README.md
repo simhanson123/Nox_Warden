@@ -58,6 +58,57 @@ feature remains `unverified`; the report claims no qualified profiles or
 supported protocols. Reporting metadata is not an independent attestation of the
 machine or an authorization to change its firewall.
 
+## Export a challenge-bound metadata proof
+
+An independently provisioned authority can issue a short-lived target metadata
+challenge. Transfer its JSON through a protected channel into a private directory
+on the enrolled device, then run:
+
+```sh
+cargo run -p fw_agent --locked -- sign-metadata \
+  --state-dir state/device \
+  --controller https://127.0.0.1:8791 \
+  --ca-file state/controller-pki/ca.pem \
+  --trust-bundle-hash sha256:REPLACE_WITH_VERIFIED_CA_BUNDLE_HASH \
+  --challenge-file state/device/metadata-challenge.json \
+  --output-file state/device/metadata-proof.json
+```
+
+This command makes no network request. The controller origin and CA pin validate
+the existing enrollment and certificate before the enrolled Ed25519 key signs a
+dedicated metadata proof. The challenge must match the certificate's organization,
+project, target, public-key fingerprint and certificate fingerprint. The command
+measures fresh kernel/backend/build metadata; it does not sign a caller-supplied
+capability report. Every enforcement feature remains unverified.
+
+The challenge file and output directory must be private. The output must not
+exist: descriptor-relative publication writes a new `0600` file, refusing
+symlinks, hard links, shared paths and overwrites of any existing state. stdout
+contains only public IDs, hashes and `signed_metadata_not_admitted`, never the
+proof, signing key or private paths. The existing protected-file limit is 64 KiB;
+an unexpectedly larger proof is refused before writing. Preserve the exact proof
+file for delivery retries; rerunning the command does not overwrite or recover
+it. A new measurement for an already consumed challenge is not an exact authority
+retry.
+
+Offline signing verifies the pinned certificate chain, key binding and current
+certificate validity. It cannot query current controller revocation. The separate
+authority must recheck its independently provisioned pin, current revocation,
+challenge and expiry before admitting the proof. Neither an accepted proof nor
+the controller's certificate grants policy authority or native qualification.
+
+The optional enrollment smoke runs this complete file exchange with real local
+processes and a disposable, explicitly provisioned authority fixture:
+
+```sh
+cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority --bins
+python scripts/smoke_enrollment.py --authority-metadata
+```
+
+It checks signed admission, exact retries, tampering, tenant isolation and
+independent pin revocation. Its report is `reports/target-metadata-smoke.json`;
+the fixture does not change the host firewall or grant policy authority.
+
 Certificates expire after at most 24 hours. Automatic renewal and certificate
 rotation are not implemented in this slice; expired credentials fail closed.
 OS-protected Windows credential storage and macOS enrollment tooling remain

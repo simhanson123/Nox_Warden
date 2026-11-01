@@ -13,6 +13,7 @@ use std::{
 const MIGRATION_2: &str = include_str!("migration_002.sql");
 const MIGRATION_3: &str = include_str!("migration_003.sql");
 const MIGRATION_4: &str = include_str!("migration_004.sql");
+const MIGRATION_5: &str = include_str!("migration_005.sql");
 
 fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
     let parent = path
@@ -170,6 +171,51 @@ fn known_v3_digest() -> Result<Vec<u8>> {
     schema_digest(&tx)
 }
 
+fn known_v4_digest() -> Result<Vec<u8>> {
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    tx.execute_batch(MIGRATION_2)?;
+    tx.execute_batch(MIGRATION_3)?;
+    tx.execute_batch(MIGRATION_4)?;
+    schema_digest(&tx)
+}
+
+pub(super) fn apply_v5(tx: &Transaction<'_>) -> Result<()> {
+    validate_v4(tx)?;
+    if schema_digest(tx)? != known_v4_digest()? {
+        return Err(invalid("unexpected authority v4 schema"));
+    }
+    tx.execute_batch(MIGRATION_5)?;
+    for table in [
+        "authority_target_keys",
+        "authority_target_key_revocations",
+        "authority_target_pins",
+        "authority_target_challenges",
+        "authority_target_metadata",
+    ] {
+        tx.execute_batch(&format!("CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'immutable target evidence'); END; CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained target evidence'); END;"))?;
+    }
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(5,?,5,5,?)",
+        params![hash(&hash_bytes(MIGRATION_5.as_bytes()))?, now()?],
+    )?;
+    let broken: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+        [],
+        |r| r.get(0),
+    )?;
+    if broken {
+        return Err(invalid("authority target migration foreign keys"));
+    }
+    tx.pragma_update(None, "user_version", 5)?;
+    Ok(())
+}
+
+pub(super) fn validate_v5(connection: &Connection) -> Result<()> {
+    validate_migrations(connection, 5)
+}
+
 pub(super) fn apply_v4(tx: &Transaction<'_>) -> Result<()> {
     validate_v3(tx)?;
     if schema_digest(tx)? != known_v3_digest()? {
@@ -239,8 +285,11 @@ fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
         (2, hash(&hash_bytes(MIGRATION_2.as_bytes()))?, 2, 2),
         (3, hash(&hash_bytes(MIGRATION_3.as_bytes()))?, 3, 3),
     ];
-    if version == 4 {
+    if version >= 4 {
         expected.push((4, hash(&hash_bytes(MIGRATION_4.as_bytes()))?, 4, 4));
+    }
+    if version >= 5 {
+        expected.push((5, hash(&hash_bytes(MIGRATION_5.as_bytes()))?, 5, 5));
     }
     if rows != expected {
         return Err(invalid("authority migration checksum or compatibility"));
@@ -492,12 +541,12 @@ impl AuthorityStore {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if application == APPLICATION_ID && version == 4 {
-            validate_v4(&tx)?;
+        if application == APPLICATION_ID && version == 5 {
+            validate_v5(&tx)?;
             tx.commit()?;
             return Ok(());
         }
-        if application != APPLICATION_ID || ![1, 2, 3].contains(&version) {
+        if application != APPLICATION_ID || ![1, 2, 3, 4].contains(&version) {
             return Err(invalid("authority migration requires known prior database"));
         }
         if version == 2 {
@@ -506,10 +555,14 @@ impl AuthorityStore {
         if version == 3 {
             validate_v3(&tx)?;
         }
+        if version == 4 {
+            validate_v4(&tx)?;
+        }
         let original_schema = match version {
             1 => known_v1_digest()?,
             2 => known_v2_digest()?,
-            _ => known_v3_digest()?,
+            3 => known_v3_digest()?,
+            _ => known_v4_digest()?,
         };
         if schema_digest(&tx)? != original_schema {
             return Err(invalid("unexpected authority v1 schema"));
@@ -523,7 +576,10 @@ impl AuthorityStore {
         if version < 3 {
             apply_v3(&tx)?;
         }
-        apply_v4(&tx)?;
+        if version < 4 {
+            apply_v4(&tx)?;
+        }
+        apply_v5(&tx)?;
         tx.commit()?;
         Ok(())
     }

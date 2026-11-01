@@ -15,9 +15,11 @@ mod review;
 mod review_evidence;
 mod sets;
 mod subject;
+mod target_metadata;
 pub use audit_log::AuthorityAuditVerification;
 pub use review::*;
 pub use sets::{AggregationOutcome, AuthorityBasis, StoredApprovalSet};
+pub use target_metadata::*;
 
 use crate::{ApprovalChallenge, ApprovalDecision, ApprovalRole, AuthorityError, Result};
 use chrono::{DateTime, Utc};
@@ -129,8 +131,9 @@ impl AuthorityStore {
                 migrations::apply_v2(&tx)?;
                 migrations::apply_v3(&tx)?;
                 migrations::apply_v4(&tx)?;
+                migrations::apply_v5(&tx)?;
             } else {
-                if application != APPLICATION_ID || ![1, 2, 3, 4].contains(&version) {
+                if application != APPLICATION_ID || ![1, 2, 3, 4, 5].contains(&version) {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -143,13 +146,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 4 {
+                if version < 5 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 4,
+                        required: 5,
                     });
                 }
-                migrations::validate_v4(&tx)?;
+                migrations::validate_v5(&tx)?;
             }
             tx.commit()?;
         }

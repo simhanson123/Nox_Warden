@@ -16,7 +16,7 @@ Run from the repository root:
 source scripts/dev-env.sh
 umask 0022
 bash scripts/check.sh
-cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority_service --bins --examples
+cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority -p fw_authority_service --bins --examples
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
 python crates/fw_cli/tests/smoke_login.py
@@ -25,6 +25,7 @@ python scripts/smoke_login_admission.py
 python scripts/smoke_audit.py
 python scripts/smoke_catalogue_navigation.py --controller-binary target/debug/fw_control
 python scripts/smoke_enrollment.py --browser
+python scripts/smoke_enrollment.py --authority-metadata --report reports/target-metadata-smoke.json
 python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
@@ -37,7 +38,7 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **566 workspace Rust tests, 23 authority
+The integrated repository check passes **603 workspace Rust tests, 23 authority
 tests without default features, and 95 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
@@ -55,15 +56,19 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | Audit HTTP/MCP/browser | 21 | Bounded denial evidence and stable snapshot pagination |
 | Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
 | TLS enrollment/browser | 25 | Ed25519 certificates, mTLS, reports, service creation and revocation; CI nonbrowser subset has 23 |
+| Independently pinned target metadata | 41 | Existing 23 enrollment checks plus 18 signed-metadata checks across real agent/admin processes, explicit fixture pin, tamper/tenant refusal, reopen, replay and revocation |
 | Independent authority browser | 31 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
 | Isolated Linux compiler/readback | 66 | Includes 40 actual IPv4/IPv6 TCP/UDP packet probes |
 | Signed Linux execution | 98 | Includes 43 actual packet probes, expiry and interrupted submission/recovery |
 
-The recovered `d5cb339` baseline was rerun before these changes, including all
-runtime suites above at their previous counts and both isolated Linux suites
-(66/98 checks, 40/43 packets). The updated source then passed the integrated
-check, passkey/real-CLI browser suite (76), authority browser suite (31), and
-authority/service tests under `umask 0002` (208). The compact
+The recovered `d5cb339` baseline was rerun during recovery, including all then
+existing runtime suites and both isolated Linux suites (66/98 checks, 40/43
+packets). PR #14 then passed its updated checks and full CI at merged baseline
+`f400d03`. The present target-metadata slice freshly passed the integrated check
+(603+23 Rust, 95 UI), actual enrollment/metadata processes (41), authority browser
+(31), and authority/service tests under `umask 0002` (229). Other runtime counts
+above remain the retained suite expectations; CI reruns them on the reviewed PR.
+The compact
 [review handoff](../docs/review-continuity.md) distinguishes the user-supplied
 external reports from these fresh executions. The earlier reviewers' private
 probe A/B programs were unavailable and were not claimed as reproduced.
@@ -131,7 +136,7 @@ Tests cover traversal beyond 100 rows, byte caps, mutation isolation, projection
 integrity, migration, clock rollback and concurrent capability renewal. Current
 certificate and report eligibility is checked by both service writes and pickers.
 
-[Authority schema 4](../docs/authority-store.md) preserves original signatures,
+[Authority schema 5](../docs/authority-store.md) preserves original signatures,
 immutable plans, credential snapshots and public-key tombstones. Explicit
 migrations validate private online backups before changing known older schemas;
 they never infer trusted epochs or human identities from plans. The tests cover
@@ -156,6 +161,27 @@ reject ambiguous tenant mappings. The shared verifier retains full state
 recomposition and bounded bytes/depth; no legacy plan receives invented evidence.
 These are semantic review guarantees, not compiler/native gate attestation or
 permission to sign or dispatch.
+
+[Target metadata](../docs/target-metadata.md) adds 11 shared Ed25519 protocol
+tests, five device process tests, 18 authority persistence regressions and three
+local admin process tests. They cover strict canonical bytes, signature and
+identity substitutions, protected file/certificate binding, non-UTF8 diagnostics,
+bounded stdin, explicit namespace initialization, pin CAS/tombstones, schema-4
+backup migration, challenge quota, atomic audit failure, concurrent exact retry,
+expiry/revocation and retained clock fences. A reproduced same-key certificate
+renewal defect is fixed: an old signature cannot be relabeled as a new pin
+revision through coherent receipt/projection corruption. Delayed-stdin admission
+samples current time after input and rejects an actually expired proof. The
+optional 41-check process smoke derives its synthetic independent public pin from
+an actually enrolled certificate; it never exports private keys or changes a
+host firewall. Separate reviewers examined protocol, store, CLI paths and smoke
+failure assertions; requested external models were not called.
+
+Metadata evidence authenticates its device key and exact bytes, without machine
+attestation, qualified enforcement or policy authority. The local operator must
+independently maintain pin/certificate trust and revocation. A signed unverified
+report cannot satisfy a native gate. Baseline observations, compiler/gate evidence,
+durable signer/quota integration and protected dispatch remain unfinished.
 
 Authority audit checks include rollback of a genuine zero-counter activation
 when audit time moves backward, plus restart, independent tenants, exact retries,
