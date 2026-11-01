@@ -1287,112 +1287,156 @@ impl AuthorityStore {
         plan_id: &str,
         now: i64,
     ) -> Result<NativeEvidenceStatus> {
-        let target = self.observe_native_plan_time(tenant, plan_id, now)?;
+        self.observe_native_plan_time(tenant, plan_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let retained = records::retained_plan(&tx, tenant, plan_id)?;
-        if now < retained.registered_at || now < retained.subject.created_at {
-            return Err(AuthorityError::Time);
-        }
-        let compilation = compilation_head(&tx, tenant, plan_id)?;
-        let current = compilation
-            .as_ref()
-            .map(|c| compilation_current(&tx, tenant, c, now))
-            .transpose()?
-            .unwrap_or(false);
-        let head = observation_head(&tx, tenant, &target)?;
-        let observation_head_hash = head.as_ref().map(|h| h.receipt_hash.clone());
-        // Present the selected plan's retained history, while keeping the
-        // target-global head as the sole current/CAS authority. Never promote
-        // an older per-plan receipt merely because a different plan took over.
-        let observation = match head {
-            Some(head) if head.receipt.plan_id == plan_id => Some(head),
-            _ => {
-                let id: Option<String> = tx.query_row(
+        let result = native_status_in_tx(&tx, tenant, plan_id, now)?;
+        tx.commit()?;
+        Ok(result)
+    }
+}
+
+// Same-snapshot reuse by signing coordination. Retained records are still fully
+// recomputed and verified; this does not upgrade lab evidence to qualification.
+pub(super) fn native_status_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan_id: &str,
+    now: i64,
+) -> Result<NativeEvidenceStatus> {
+    let retained = records::retained_plan(tx, tenant, plan_id)?;
+    let plan: Value = decode(&retained.subject.plan_bytes)?;
+    let target = plan["target_id"].as_str().ok_or(AuthorityError::Binding)?;
+    if now < retained.registered_at || now < retained.subject.created_at {
+        return Err(AuthorityError::Time);
+    }
+    let compilation = compilation_head(tx, tenant, plan_id)?;
+    let current = compilation
+        .as_ref()
+        .map(|c| compilation_current(tx, tenant, c, now))
+        .transpose()?
+        .unwrap_or(false);
+    let head = observation_head(tx, tenant, target)?;
+    let observation_head_hash = head.as_ref().map(|h| h.receipt_hash.clone());
+    // Present the selected plan's retained history, while keeping the
+    // target-global head as the sole current/CAS authority. Never promote
+    // an older per-plan receipt merely because a different plan took over.
+    let observation = match head {
+        Some(head) if head.receipt.plan_id == plan_id => Some(head),
+        _ => {
+            let id: Option<String> = tx.query_row(
                     "SELECT receipt_id FROM authority_native_observations WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY sequence DESC LIMIT 1",
                     params![tenant.org_id,tenant.project_id,plan_id],
                     |r| r.get(0),
                 ).optional()?;
-                id.map(|id| observation_at(&tx, tenant, &id)).transpose()?
-            }
-        };
-        let observation_current = if let Some(obs) = &observation {
-            if now < moment(&obs.receipt.admitted_at)? {
-                return Err(AuthorityError::Time);
-            }
-            let pin = pin_head(&tx, tenant, &target, "observer")?.ok_or(AuthorityError::Binding)?;
-            current
-                && observation_head_hash.as_ref() == Some(&obs.receipt_hash)
-                && compilation
-                    .as_ref()
-                    .is_some_and(|c| c.receipt.compilation_id == obs.receipt.compilation_id)
-                && now < moment(&obs.receipt.valid_until)?
-                && pin.version.to_string() == obs.receipt.observer_revision
-                && pin_current(&tx, tenant, &pin, now)?
-        } else {
-            false
-        };
-        let mut reasons = vec![
-            "NATIVE_QUALIFICATION_REQUIRED".into(),
-            "SIGNER_DISPATCH_UNAVAILABLE".into(),
-        ];
-        if compilation.is_none() {
-            reasons.push("COMPILATION_MISSING".into());
-        } else if !current {
-            reasons.push("COMPILATION_STALE".into());
+            id.map(|id| observation_at(tx, tenant, &id)).transpose()?
         }
-        if observation.is_none() {
-            reasons.push("OBSERVATION_MISSING".into());
-        } else if !observation_current {
-            reasons.push("OBSERVATION_STALE".into());
+    };
+    let observation_current = if let Some(obs) = &observation {
+        if now < moment(&obs.receipt.admitted_at)? {
+            return Err(AuthorityError::Time);
         }
-        if let Some(obs) = &observation {
-            match obs.receipt.comparison.as_str() {
-                "mismatch" => reasons.push("OBSERVATION_MISMATCH".into()),
-                "unknown" => reasons.push("OBSERVATION_UNKNOWN".into()),
-                "match" => {}
-                _ => return Err(AuthorityError::Binding),
-            }
-        }
-        let result = NativeEvidenceStatus {
-            schema_version: "fw.native-evidence-status/v1".into(),
-            org_id: tenant.org_id.clone(),
-            project_id: tenant.project_id.clone(),
-            target_id: target,
-            plan_id: plan_id.into(),
-            plan_hash: retained.subject.plan_hash,
-            checked_at: at(now)?,
-            production_qualified: false,
-            dispatch_allowed: false,
-            reasons,
-            compilation: compilation.map(|c| NativeCompilationStatus {
-                evidence_hash: c.receipt.evidence_hash,
-                reference_revision: c.receipt.reference_revision,
-                metadata_receipt_hash: c.receipt.metadata_receipt_hash,
-                baseline_artifact_hash: c.receipt.baseline_artifact_hash,
-                candidate_artifact_hash: c.receipt.candidate_artifact_hash,
-                admitted_at: c.receipt.admitted_at,
-                valid_until: c.receipt.valid_until,
-                current,
-            }),
-            observation: observation.map(|o| NativeObservationStatus {
-                receipt_hash: o.receipt_hash,
-                compilation_hash: o.receipt.compilation_hash,
-                observer_revision: o.receipt.observer_revision,
-                artifact_role: o.receipt.artifact_role,
-                comparison: o.receipt.comparison,
-                observed_state_hash: o.receipt.observed_state_hash,
-                signature_valid: true,
-                provenance: "signed_lab_observer_claim".into(),
-                checked_at: o.receipt.checked_at,
-                admitted_at: o.receipt.admitted_at,
-                valid_until: o.receipt.valid_until,
-                current: observation_current,
-            }),
-            observation_head_hash,
-        };
-        tx.commit()?;
-        Ok(result)
+        let pin = pin_head(tx, tenant, target, "observer")?.ok_or(AuthorityError::Binding)?;
+        current
+            && observation_head_hash.as_ref() == Some(&obs.receipt_hash)
+            && compilation
+                .as_ref()
+                .is_some_and(|c| c.receipt.compilation_id == obs.receipt.compilation_id)
+            && now < moment(&obs.receipt.valid_until)?
+            && pin.version.to_string() == obs.receipt.observer_revision
+            && pin_current(tx, tenant, &pin, now)?
+    } else {
+        false
+    };
+    let mut reasons = vec![
+        "NATIVE_QUALIFICATION_REQUIRED".into(),
+        "SIGNER_DISPATCH_UNAVAILABLE".into(),
+    ];
+    if compilation.is_none() {
+        reasons.push("COMPILATION_MISSING".into());
+    } else if !current {
+        reasons.push("COMPILATION_STALE".into());
     }
+    if observation.is_none() {
+        reasons.push("OBSERVATION_MISSING".into());
+    } else if !observation_current {
+        reasons.push("OBSERVATION_STALE".into());
+    }
+    if let Some(obs) = &observation {
+        match obs.receipt.comparison.as_str() {
+            "mismatch" => reasons.push("OBSERVATION_MISMATCH".into()),
+            "unknown" => reasons.push("OBSERVATION_UNKNOWN".into()),
+            "match" => {}
+            _ => return Err(AuthorityError::Binding),
+        }
+    }
+    let result = NativeEvidenceStatus {
+        schema_version: "fw.native-evidence-status/v1".into(),
+        org_id: tenant.org_id.clone(),
+        project_id: tenant.project_id.clone(),
+        target_id: target.into(),
+        plan_id: plan_id.into(),
+        plan_hash: retained.subject.plan_hash,
+        checked_at: at(now)?,
+        production_qualified: false,
+        dispatch_allowed: false,
+        reasons,
+        compilation: compilation.map(|c| NativeCompilationStatus {
+            evidence_hash: c.receipt.evidence_hash,
+            reference_revision: c.receipt.reference_revision,
+            metadata_receipt_hash: c.receipt.metadata_receipt_hash,
+            baseline_artifact_hash: c.receipt.baseline_artifact_hash,
+            candidate_artifact_hash: c.receipt.candidate_artifact_hash,
+            admitted_at: c.receipt.admitted_at,
+            valid_until: c.receipt.valid_until,
+            current,
+        }),
+        observation: observation.map(|o| NativeObservationStatus {
+            receipt_hash: o.receipt_hash,
+            compilation_hash: o.receipt.compilation_hash,
+            observer_revision: o.receipt.observer_revision,
+            artifact_role: o.receipt.artifact_role,
+            comparison: o.receipt.comparison,
+            observed_state_hash: o.receipt.observed_state_hash,
+            signature_valid: true,
+            provenance: "signed_lab_observer_claim".into(),
+            checked_at: o.receipt.checked_at,
+            admitted_at: o.receipt.admitted_at,
+            valid_until: o.receipt.valid_until,
+            current: observation_current,
+        }),
+        observation_head_hash,
+    };
+    Ok(result)
+}
+
+// The lab receipt's generation binds the reviewed plan proposal. It is not a
+// protected executor journal high-water. Signing checks the independent target
+// generation separately and cannot promote this claim to native qualification.
+pub(super) fn baseline_binding_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan_id: &str,
+) -> Result<Option<NativeObservationReceipt>> {
+    let retained = records::retained_plan(tx, tenant, plan_id)?;
+    let plan: Value = decode(&retained.subject.plan_bytes)?;
+    let target = plan["target_id"].as_str().ok_or(AuthorityError::Binding)?;
+    let Some(observation) = observation_head(tx, tenant, target)? else {
+        return Ok(None);
+    };
+    if observation.receipt.plan_id != plan_id
+        || observation.receipt.artifact_role != ArtifactRole::Baseline
+        || observation.receipt.comparison != "match"
+        || observation
+            .receipt
+            .observed_state_hash
+            .as_ref()
+            .is_none_or(|h| plan["baseline_hash"] != *h)
+        || observation.receipt.authority_epoch != plan["authority_epoch"]
+        || observation.receipt.generation != plan["target_generation"]
+    {
+        return Ok(None);
+    }
+    Ok(Some(observation.receipt))
 }

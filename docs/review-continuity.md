@@ -7,6 +7,19 @@ work belong in [the task ledger](../reports/task-ledger.json),
 [verification summary](../reports/README.md) and
 [implementation overview](implementation.md).
 
+## Current integrated review
+
+The subsequent durable-signing batch starts from PR #17 merge `956de27`.
+Its implementation, checked commands and remaining production gates are recorded
+in [signing coordination](signing-coordination.md) and the task ledger. A new
+three-way internal review covered transactions/signatures, quota/job lifecycle
+and CLI/API/UI. It reproduced a mutable generation-head rollback inconsistency;
+the correction checks the latest immutable intent and passed the same independent
+counterexample. The CLI example's authority origin was also corrected. These are
+new internal review results, not an extension of the supplied Claude/GLM reports.
+The preserved original package was rechecked: all 52 manifest entries match their
+byte lengths and SHA-256 digests, with 53 total files retained.
+
 ## Design source and precedence
 
 The full F-2.0 package is preserved in [docs/specs](specs/F_00_시작안내.md),

@@ -168,6 +168,28 @@ specific private cause. They do not log configuration or weaken the refusal.
 
 ## Authoritative review content
 
+Authenticated `GET /authority/v1/plans/{id}/signing-readiness` returns a bounded
+`fw.signing-readiness/v1` summary using the same live reviewer, tenant, Origin,
+session-proof and visible-plan checks. The read rechecks retained review evidence,
+current independent approval, target metadata, native baseline evidence, quota
+configuration and target generation. Closed reason codes also retain the missing
+protected bootstrap, build identity, production qualification and signer gates.
+`signing_allowed` and `dispatch_allowed` are always false in this profile. A quota
+configuration or a current approval hash does not reserve capacity or grant
+signing authority. The check expires within 60 seconds and earlier when a current
+input or the immutable plan expires.
+
+The nullable `latest_intent` is the selected plan's latest retained record, not
+the current target head. Its immutable plan hash, epoch and proposed generation
+remain distinct from the current target generation and current approval hash.
+Signer job state, delivery state and quota reservation state are separate fields.
+An UNKNOWN delivery retains quota even after its intent deadline; this read never
+releases reservations. Retained signed-grant hashes do not establish active
+firewall policy or current dispatch eligibility. Raw grants, payloads and worker
+claim tokens are not returned. Reads may advance existing security clock fences,
+but do not allocate generations, intents, jobs, reservations or dispatch work.
+There is no corresponding HTTP mutation route.
+
 Authenticated `GET /authority/v1/plans/{id}/native-evidence` presents the
 [development native evidence](native-evidence.md) retained separately for an
 existing visible plan. It repeats the live reviewer/profile and plan-access

@@ -294,9 +294,12 @@ def run(args, report):
                 login()
                 check(report, 'pinned authority credential signs in through browser WebAuthn', True)
                 evidence_url = ORIGIN + '/authority/v1/plans/' + fixture['plan_id'] + '/native-evidence'
+                signing_url = ORIGIN + '/authority/v1/plans/' + fixture['plan_id'] + '/signing-readiness'
                 with page.expect_response(lambda response: response.request.method == 'GET'
                                           and response.url == evidence_url) as evidence_response:
-                    detail = review(fixture['plan_id'])
+                    with page.expect_response(lambda response: response.request.method == 'GET'
+                                              and response.url == signing_url) as signing_response:
+                        detail = review(fixture['plan_id'])
                 evidence = evidence_response.value.json()
                 check(report, 'authenticated native evidence summary binds the plan without raw captures or dispatch authority',
                       evidence_response.value.status == 200
@@ -315,6 +318,37 @@ def run(args, report):
                 expect(native_panel.get_by_text('No retained evidence.', exact=True)).to_have_count(2)
                 expect(native_panel).to_contain_text('These lab results do not qualify host protection or permit policy signing or deployment.')
                 check(report, 'native evidence panel distinguishes missing compilation and observation from qualification', True)
+                readiness = signing_response.value.json()
+                permanent_blockers = {'PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED',
+                                      'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'}
+                check(report, 'authenticated signing readiness binds the plan and refuses unqualified issuance',
+                      signing_response.value.status == 200
+                      and set(readiness) == {'schema_version', 'org_id', 'project_id', 'target_id',
+                                             'plan_id', 'plan_hash', 'checked_at', 'valid_until',
+                                             'signing_allowed', 'dispatch_allowed', 'reasons',
+                                             'approval_set_hash', 'quota_configured', 'target_generation',
+                                             'latest_intent'}
+                      and readiness['schema_version'] == 'fw.signing-readiness/v1'
+                      and all(readiness[field] == detail['plan'][field]
+                              for field in ('org_id', 'project_id', 'target_id', 'plan_id'))
+                      and readiness['plan_hash'] == detail['plan_hash']
+                      and readiness['signing_allowed'] is False and readiness['dispatch_allowed'] is False
+                      and permanent_blockers <= set(readiness['reasons'])
+                      and 'APPROVAL_SET_MISSING' in readiness['reasons']
+                      and readiness['approval_set_hash'] is None
+                      and readiness['latest_intent'] is None
+                      and readiness['quota_configured'] is False and readiness['target_generation'] is None)
+                signing_panel = page.get_by_role('region', name='Signing readiness', exact=True)
+                expect(signing_panel).to_be_visible()
+                expect(signing_panel.get_by_role('button')).to_have_count(1)
+                before_signing_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == signing_url) as refreshed_signing:
+                    signing_panel.get_by_role('button', name='Refresh signing readiness', exact=True).click()
+                check(report, 'signing readiness refresh neither consumes a passkey assertion nor enables consent',
+                      refreshed_signing.value.status == 200
+                      and before_signing_refresh == cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                      and not page.get_by_role('checkbox').is_checked())
                 before_evidence_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
                 with page.expect_response(lambda response: response.request.method == 'GET'
                                           and response.url == evidence_url) as refreshed_evidence:
@@ -362,6 +396,20 @@ def run(args, report):
                 check(report, 'human approval does not create native observations or remove the deployment qualification boundary', True)
                 current = read_detail(fixture['plan_id'], lambda: page.get_by_role('button', name='Refresh', exact=True).click())
                 approval_set = current['current_approval_set']['content']
+                before_signing_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == signing_url) as approved_readiness:
+                    signing_panel.get_by_role('button', name='Refresh signing readiness', exact=True).click()
+                approved_signing = approved_readiness.value.json()
+                check(report, 'current human quorum remains separate from missing production signer qualification',
+                      approved_readiness.value.status == 200
+                      and isinstance(approved_signing['approval_set_hash'], str)
+                      and 'APPROVAL_SET_MISSING' not in approved_signing['reasons']
+                      and permanent_blockers <= set(approved_signing['reasons'])
+                      and approved_signing['signing_allowed'] is False
+                      and approved_signing['dispatch_allowed'] is False
+                      and approved_signing['latest_intent'] is None
+                      and before_signing_refresh == cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount'])
                 check(report, 'actual current human ApprovalSet conforms to both preserved schemas and includes the admitted approval',
                       approval_set['kind'] == 'human' and approval in approval_set['approvals']
                       and matches_contract(validators, 'ApprovalSet', approval_set))
@@ -448,6 +496,16 @@ def run(args, report):
                 check(report, 'fresh passkey sign-in after service restart restores only the retained decision', True)
                 expect(native_panel.get_by_text('No retained evidence.', exact=True)).to_have_count(2)
                 check(report, 'restarted authority still shows missing native evidence without inventing observations', True)
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == signing_url) as restarted_readiness:
+                    signing_panel.get_by_role('button', name='Refresh signing readiness', exact=True).click()
+                restarted_signing = restarted_readiness.value.json()
+                check(report, 'restart and signed dissent do not create signing jobs or dispatch authority',
+                      restarted_readiness.value.status == 200
+                      and restarted_signing['approval_set_hash'] is None
+                      and restarted_signing['latest_intent'] is None
+                      and restarted_signing['signing_allowed'] is False
+                      and restarted_signing['dispatch_allowed'] is False)
                 check(report, 'shipped review runs without browser exceptions', not errors)
                 context.close()
         report['stage'] = 'cleanup'

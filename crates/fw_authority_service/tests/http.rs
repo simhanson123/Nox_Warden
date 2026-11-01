@@ -2337,3 +2337,388 @@ async fn native_evidence_http_retains_plan_a_history_after_plan_b_takes_the_same
     }
     task.abort();
 }
+
+fn assert_no_signing_work(f: &Fixture) {
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    // Read-side security clock observations are permitted. Generation, jobs,
+    // reservations, signer results and dispatch work must stay untouched.
+    for table in [
+        "authority_signing_target_heads",
+        "authority_signing_intents",
+        "authority_signing_jobs",
+        "authority_signing_results",
+        "authority_signing_quota_reservations",
+        "authority_signing_quota_usage",
+        "authority_signing_work_heads",
+        "authority_signing_work_events",
+        "authority_signing_outbox",
+        "authority_signing_deliveries",
+    ] {
+        let count: i64 = db
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "readiness created {table}");
+    }
+}
+
+#[tokio::test]
+async fn signing_readiness_requires_live_review_proof_and_never_creates_signing_work() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let path = format!("/authority/v1/plans/{PLAN}/signing-readiness");
+    let anonymous = session(addr).await;
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            anonymous.cookie.as_deref(),
+            anonymous.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    let auth = login(&f, addr, 1).await;
+    assert_eq!(auth.status, 200);
+    for (csrf, origin) in [
+        (None, ORIGIN),
+        (auth.body["csrf_token"].as_str(), "http://localhost:8799"),
+    ] {
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &path,
+                auth.cookie.as_deref(),
+                csrf,
+                None,
+                origin
+            )
+            .await
+            .status,
+            403
+        );
+    }
+    let response = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(response.status, 200, "{}", response.raw);
+    assert!(
+        response
+            .raw
+            .to_lowercase()
+            .contains("cache-control: no-store")
+    );
+    assert!(response.raw.len() < 4096);
+    assert_eq!(response.body.as_object().unwrap().len(), 15);
+    assert_eq!(response.body["schema_version"], "fw.signing-readiness/v1");
+    assert_eq!(response.body["org_id"], ORG);
+    assert_eq!(response.body["project_id"], PROJECT);
+    assert_eq!(response.body["target_id"], OTHER);
+    assert_eq!(response.body["plan_id"], PLAN);
+    assert_eq!(response.body["checked_at"], time(NOW + 1));
+    assert_eq!(response.body["valid_until"], time(NOW + 61));
+    assert_eq!(response.body["signing_allowed"], false);
+    assert_eq!(response.body["dispatch_allowed"], false);
+    assert_eq!(response.body["quota_configured"], false);
+    for field in ["approval_set_hash", "target_generation", "latest_intent"] {
+        assert_eq!(response.body[field], Value::Null, "{field}");
+    }
+    let reasons = response.body["reasons"].as_array().unwrap();
+    for reason in [
+        "PROTECTED_BOOTSTRAP_REQUIRED",
+        "BUILD_IDENTITY_REQUIRED",
+        "NATIVE_QUALIFICATION_REQUIRED",
+        "PROTECTED_SIGNER_UNAVAILABLE",
+        "APPROVAL_SET_MISSING",
+        "TARGET_METADATA_MISSING",
+        "NATIVE_BASELINE_UNAVAILABLE",
+        "QUOTA_CONFIGURATION_MISSING",
+        "TARGET_GENERATION_UNINITIALIZED",
+    ] {
+        assert!(reasons.contains(&json!(reason)), "{reason}");
+    }
+    for forbidden in [
+        "private_key",
+        "signed_grant",
+        "assertion",
+        "claim_token",
+        "canonical_bytes",
+    ] {
+        assert!(!response.raw.contains(forbidden), "{forbidden}");
+    }
+    assert_eq!(
+        request(
+            addr,
+            "POST",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            Some(json!({})),
+            ORIGIN
+        )
+        .await
+        .status,
+        404
+    );
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &(path.clone() + "?project_id=" + OTHER),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        400
+    );
+    let again = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(again.status, 200);
+    assert_eq!(again.body, response.body);
+    assert_no_signing_work(&f);
+    assert_eq!(
+        request(
+            addr,
+            "POST",
+            "/authority/v1/logout",
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            Some(json!({})),
+            ORIGIN
+        )
+        .await
+        .status,
+        200
+    );
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn signing_readiness_cannot_read_another_tenant_or_use_a_revoked_review_key() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    let other_tenant = AuthorityTenant::new(ORG, OTHER).unwrap();
+    store
+        .provision_principal(
+            &other_tenant,
+            PRINCIPAL,
+            "https://identity.example.test",
+            "alice",
+            NOW,
+        )
+        .unwrap();
+    let (mut other_plan, requirements, _) = plans::complete_plan(NOW);
+    other_plan["plan_id"] = json!(OTHER);
+    other_plan["project_id"] = json!(OTHER);
+    store
+        .register_plan(&other_tenant, &other_plan, &requirements, NOW)
+        .unwrap();
+    let hidden = request(
+        addr,
+        "GET",
+        &format!("/authority/v1/plans/{OTHER}/signing-readiness"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(hidden.status, 409);
+    assert!(!hidden.raw.contains("plan_hash"));
+    assert!(!hidden.raw.contains("quota_configured"));
+    store
+        .revoke_credential(
+            &AuthorityTenant::new(ORG, PROJECT).unwrap(),
+            &f.credential_id,
+            NOW + 1,
+        )
+        .unwrap();
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &format!("/authority/v1/plans/{PLAN}/signing-readiness"),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    assert_no_signing_work(&f);
+    task.abort();
+}
+
+#[tokio::test]
+async fn current_human_approval_lab_baseline_and_quotas_still_cannot_authorize_signing() {
+    let f = Fixture::prepared(false, true);
+    provision_test_quorum(&f, 1, NOW + 7200, NOW);
+    let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    let pin = fw_authority::SigningRootQuotaPin {
+        root_id: IDEMPOTENCY.into(),
+        limits: fw_authority::SigningQuotaLimits {
+            active_leases: 10,
+            new_leases_per_day: 10,
+            unique_destinations_per_day: 10,
+            cumulative_seconds_per_day: 3600,
+            concurrent_deployments: 2,
+        },
+        not_before: NOW,
+        not_after: NOW + 90,
+    };
+    store
+        .pin_signing_root_quota(&tenant, &pin, None, NOW)
+        .unwrap();
+    store
+        .pin_signing_project_quota(&tenant, &pin, None, NOW)
+        .unwrap();
+    store
+        .register_native_compilation(&tenant, PLAN, 1, NOW)
+        .unwrap();
+    let (_, _, review, references) = native_fixture::native_plan(NOW);
+    let artifact = fw_backend_linux::compile_portable(&review.before, &references).unwrap();
+    let installation = native_fixture::installation(&artifact, NOW);
+    let challenge = store
+        .challenge_native_observation(
+            &tenant,
+            PLAN,
+            fw_native_evidence::ArtifactRole::Baseline,
+            &installation,
+            None,
+            1,
+            1,
+            NOW,
+        )
+        .unwrap();
+    let capture = native_fixture::snapshot(&installation.native);
+    let proof = native_fixture::proof(&challenge, installation, capture, NOW);
+    let admission = store
+        .admit_native_observation(&tenant, &proof, NOW)
+        .unwrap();
+    assert_eq!(admission.receipt.comparison, "match");
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    let detail = request(
+        addr,
+        "GET",
+        &format!("/authority/v1/plans/{PLAN}"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(detail.status, 200);
+    let (decision, _) =
+        submit_http_decision(&f, addr, &auth, &detail.body, "approve", 2, IDEMPOTENCY).await;
+    assert_eq!(decision.body["aggregation"]["state"], "approved");
+    let path = format!("/authority/v1/plans/{PLAN}/signing-readiness");
+    let status = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(status.status, 200, "{}", status.raw);
+    assert_eq!(
+        status.body["approval_set_hash"],
+        decision.body["aggregation"]["approval_set_hash"]
+    );
+    assert_eq!(status.body["quota_configured"], true);
+    assert_eq!(status.body["signing_allowed"], false);
+    assert_eq!(status.body["dispatch_allowed"], false);
+    assert_eq!(status.body["target_generation"], Value::Null);
+    assert_eq!(status.body["latest_intent"], Value::Null);
+    assert_eq!(
+        status.body["reasons"],
+        json!([
+            "PROTECTED_BOOTSTRAP_REQUIRED",
+            "BUILD_IDENTITY_REQUIRED",
+            "NATIVE_QUALIFICATION_REQUIRED",
+            "PROTECTED_SIGNER_UNAVAILABLE",
+            "TARGET_GENERATION_UNINITIALIZED"
+        ])
+    );
+    assert_no_signing_work(&f);
+    task.abort();
+    // Expiring separately pinned inputs changes readiness after restart; it
+    // neither resurrects a lab capability nor allocates a target generation.
+    let (addr, task) = f.start(NOW + 301).await;
+    let auth = login(&f, addr, 3).await;
+    assert_eq!(auth.status, 200);
+    let expired = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(expired.status, 200, "{}", expired.raw);
+    assert_eq!(
+        expired.body["approval_set_hash"],
+        status.body["approval_set_hash"]
+    );
+    assert_eq!(expired.body["quota_configured"], false);
+    assert_eq!(expired.body["signing_allowed"], false);
+    assert_eq!(expired.body["dispatch_allowed"], false);
+    let reasons = expired.body["reasons"].as_array().unwrap();
+    for reason in [
+        "QUOTA_CONFIGURATION_MISSING",
+        "TARGET_METADATA_MISSING",
+        "NATIVE_BASELINE_UNAVAILABLE",
+    ] {
+        assert!(reasons.contains(&json!(reason)), "{reason}");
+    }
+    assert_no_signing_work(&f);
+    task.abort();
+}

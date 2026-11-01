@@ -36,6 +36,14 @@ function server(authenticated = true) {
     if (path.endsWith('/plans')) return reply({ plans: [{ plan_id: 'plan-1', plan_hash: hash, change_kind: 'policy_change', valid_until: '2099-01-01T00:00:00Z' }] });
     if (path.endsWith('/plans/plan-1')) return reply(nextDetail);
     if (path.endsWith('/plans/plan-1/native-evidence')) return reply({ schema_version: 'fw.native-evidence-status/v1', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash, checked_at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z'), production_qualified: false, dispatch_allowed: false, compilation: null, observation: null, observation_head_hash: null, reasons: ['NATIVE_QUALIFICATION_REQUIRED', 'SIGNER_DISPATCH_UNAVAILABLE', 'COMPILATION_MISSING', 'OBSERVATION_MISSING'] });
+    if (path.endsWith('/plans/plan-1/signing-readiness')) {
+      const current = (nextDetail as { current_approval_set?: { hash: string; valid_until: string } }).current_approval_set;
+      const utc = (value: number) => new Date(Math.floor(value / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+      return reply({ schema_version: 'fw.signing-readiness/v1', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash,
+        checked_at: utc(Date.now()), valid_until: utc(Math.min(Date.now() + 60000, Date.parse(current?.valid_until ?? detail.plan.valid_until))),
+        signing_allowed: false, dispatch_allowed: false, approval_set_hash: current?.hash ?? null, quota_configured: false, target_generation: null, latest_intent: null,
+        reasons: ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED', ...current ? [] : ['APPROVAL_SET_MISSING']] });
+    }
     if (path.endsWith('/challenges')) {
       const body = JSON.parse(String(init?.body));
       return reply({ challenge: { challenge_id: 'bound-challenge', decision: body.decision, role: body.role, requirements_hash: requirementsHash, principal_id: session.principal_id, org_id: session.org_id, project_id: session.project_id, subject: { subject_type: 'plan', plan_ref: { plan_id: 'plan-1', plan_hash: hash, plan_kind: 'policy_change' } }, rp_id: 'localhost', origin: 'http://localhost:8790', expires_at: '2099-01-01T00:00:00Z' }, options });
@@ -53,6 +61,20 @@ beforeEach(() => { localStorage.clear(); sessionStorage.clear(); submitted = [];
 afterEach(() => { vi.unstubAllGlobals(); if (originalCredentials) Object.defineProperty(navigator, 'credentials', originalCredentials); else Reflect.deleteProperty(navigator, 'credentials'); });
 async function open() { render(<Authority/>); await userEvent.click(await screen.findByRole('button', { name: /plan-1/ })); await screen.findByRole('heading', { name: 'Review immutable plan' }); }
 async function consent() { await userEvent.selectOptions(screen.getByLabelText('Decision role'), 'owner'); await userEvent.click(screen.getByRole('checkbox')); }
+
+test('signing readiness refresh does not submit consent, request a passkey or create a signing intent', async () => {
+  const get = browser(); server(); await open();
+  const panel = screen.getByRole('region', { name: 'Signing readiness' });
+  await within(panel).findByText('No signing intent has been retained for this plan.');
+  expect(screen.getByRole('checkbox')).not.toBeChecked();
+  await userEvent.click(within(panel).getByRole('button', { name: 'Refresh signing readiness' }));
+  await within(panel).findByText('No signing intent has been retained for this plan.');
+  expect(get).not.toHaveBeenCalled(); expect(submitted).toHaveLength(0);
+  expect(screen.getByRole('checkbox')).not.toBeChecked();
+  const reads = requests.filter(r => r.path.endsWith('/signing-readiness'));
+  expect(reads).toHaveLength(2);
+  expect(reads.every(r => r.init?.method === 'GET' && r.init.body === undefined)).toBe(true);
+});
 
 test('authority sign-in requires an explicit profile and fresh passkey and keeps session proof out of browser storage', async () => {
   const get = browser(); server(false); render(<Authority/>);

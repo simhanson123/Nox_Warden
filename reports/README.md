@@ -39,14 +39,14 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **658 workspace Rust tests, 23 authority
-tests without default features, and 125 UI tests**. It also passes formatting,
+The integrated repository check passes **713 workspace Rust tests, 32 authority
+tests without default features, and 156 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
 six catalogue-diagnostic, thirteen authority-smoke diagnostic and
 three native-evidence diagnostic regressions, plus
 vendored-source verification. English remains the default. Eight controller
-catalogues have 229 messages each; eight authority catalogues have 96, with
+catalogues have 229 messages each; eight authority catalogues have 152, with
 complete key and placeholder parity. Human translation acceptance is pending.
 
 | Runtime suite | Passing checks | Exercised boundary |
@@ -59,15 +59,15 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
 | TLS enrollment/browser | 25 | Ed25519 certificates, mTLS, reports, service creation and revocation; CI nonbrowser subset has 23 |
 | Independently pinned target metadata | 41 | Existing 23 enrollment checks plus 18 signed-metadata checks across real agent/admin processes, explicit fixture pin, tamper/tenant refusal, reopen, replay and revocation |
-| Independent authority browser | 36 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
+| Independent authority browser | 40 | Actual service, virtual passkey decisions, current quorum, dissent, restart and blocked signing readiness |
 | Isolated Linux compiler/readback | 66 | Includes 40 actual IPv4/IPv6 TCP/UDP packet probes |
 | Signed Linux execution | 98 | Includes 43 actual packet probes, expiry and interrupted submission/recovery |
 | Retained native evidence | 33 | Five actual signed kernel captures across MATCH, MISMATCH, UNKNOWN and restoration; independent admission, replay, revocation, strict failure diagnostics and cleanup |
 
 The recovered baseline and prior metadata batch were verified separately. The
-current comparison base is merged PR #15, `43146fd`, whose
+native-evidence batch comparison base was merged PR #15, `43146fd`, whose
 [full main CI passed](https://github.com/simhanson123/Nox_Warden/actions/runs/41278538402).
-This integrated batch freshly passed the repository check (650+23 Rust, 125 UI),
+That native-evidence batch freshly passed the repository check (650+23 Rust, 125 UI),
 authority/service tests under `umask 0002` (258), the real authority browser (36),
 native evidence processes (33 with five captures), and signed Linux execution
 (98 with 43 actual packets). The reviewed PR #16 head `feab5c3` also passed the complete
@@ -78,6 +78,46 @@ subsequent external-review reliability follow-up.
 The [review handoff](../docs/review-continuity.md) distinguishes supplied external
 reports from fresh executions. Earlier external private probes were not recovered
 or claimed as reproduced. All three external PR #15 reports have since been supplied; they cover that fixed earlier target and identify a shared admin stdout failure plus adjacent diagnostics follow-up.
+
+## Durable signing coordination
+
+Based on PR #17 merge `956de27`, schema 7 now prepares current approval,
+retained review/metadata/baseline, independent generation, quota reservation and
+immutable signer job in one transaction. Exact signed-result verification and
+current-state rechecks precede grant/issuance/outbox/audit finalization. Work
+claims fence stale workers, retries preserve signed bytes, cancellation proves
+no issuance, and UNKNOWN keeps capacity after expiry. The trusted local CLI and
+authenticated eight-locale readiness panel expose blockers and retained history.
+
+Fresh local checks: `bash scripts/check.sh` **713+32 Rust, 156 UI**;
+`umask 0002; cargo test --locked -p fw_authority -p fw_authority_service`
+**319**; authority browser **40**; metadata processes **41**; native evidence
+**33 with five actual captures**; signed Linux lab **98 with 43 packet probes**.
+The native-only run initially lacked the pinned Rust environment and did not run;
+loading `scripts/dev-env.sh` resolved it. The signed lab's initial image build
+needed writable `BUILDX_CONFIG=/tmp/nox-linux-buildx`; its complete rerun passed.
+No test or permission check was weakened. The other runtime rows above retain
+previously executed results and are also covered by remote CI; they were not all
+repeated locally for this batch. Raw logs and reports remain outside source.
+
+Three independent internal review slices covered transaction/signature,
+quota/lifecycle and surface boundaries. They reproduced a generation-head reset
+that disagreed with retained intent history. The fix compares the latest immutable
+epoch/generation/intent and rejects reset, missing and older valid heads; the
+same independent counterexample passed afterward, as did two new real-fixture
+regressions. A CLI origin example was corrected to the authority service default.
+Independent reruns included contract 9, quota 15, job lifecycle 11, CLI process 5,
+UI 30 and HTTP 3 checks; these overlap the main suites and are not added to totals.
+No remaining blocker was identified within those review scopes.
+
+Production prepare/worker paths still refuse: protected bootstrap, trusted target
+generation initialization, build identity, native qualification and deployed
+signer/delivery verification are absent. Successful mechanics use private
+`cfg(test)` witnesses, actual P-256 approvals and Ed25519 evidence/results.
+Core access cost binding and rootless policy preparation remain unsupported.
+See [coordination boundaries](../docs/signing-coordination.md) and the
+[administration guide](../docs/signing-coordination-cli.md). The original 53 design
+files remain unchanged; all 52 manifest entries were rechecked by size and hash.
 
 ## Received-review reliability follow-up
 

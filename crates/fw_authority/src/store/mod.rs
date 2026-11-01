@@ -15,6 +15,14 @@ mod records;
 mod review;
 mod review_evidence;
 mod sets;
+mod signing_intents;
+mod signing_jobs;
+mod signing_quota;
+#[cfg(test)]
+mod signing_test_support;
+pub use signing_intents::*;
+pub use signing_jobs::*;
+pub use signing_quota::*;
 mod subject;
 mod target_metadata;
 pub use audit_log::AuthorityAuditVerification;
@@ -135,8 +143,9 @@ impl AuthorityStore {
                 migrations::apply_v4(&tx)?;
                 migrations::apply_v5(&tx)?;
                 migrations::apply_v6(&tx)?;
+                migrations::apply_v7(&tx)?;
             } else {
-                if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6].contains(&version) {
+                if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6, 7].contains(&version) {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -149,13 +158,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 6 {
+                if version < 7 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 6,
+                        required: 7,
                     });
                 }
-                migrations::validate_v6(&tx)?;
+                migrations::validate_v7(&tx)?;
             }
             tx.commit()?;
         }

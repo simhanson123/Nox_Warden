@@ -2,13 +2,15 @@
 //! Operating-system access to the protected authority database is the trust
 //! boundary. Inputs are public pins/proofs; this program accepts no private key.
 use fw_authority::{
-    AuthorityStore, AuthorityTenant, NativeObserverPin, NativeReferencePin, TargetTransportPin,
+    AuthorityStore, AuthorityTenant, NativeObserverPin, NativeReferencePin, SigningProjectQuotaPin,
+    SigningRequest, SigningRootQuotaPin, TargetTransportPin,
 };
 use fw_backend_linux::Installation;
 use fw_contracts::{canonical_bytes, parse_strict_with_limit};
 use fw_native_evidence::{ArtifactRole, SignedNativeObservation};
 use fw_planner::PolicyReviewEvidence;
 use fw_target_evidence::SignedMetadataReport;
+use fw_webauthn::WebAuthn;
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
@@ -18,7 +20,7 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\n\nTarget and native commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Challenge output is public JSON for the device. Protect redirected files with umask 077. No command signs a policy or changes a firewall.";
+const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent --database PATH --org-id UUID --project-id UUID\n\nTarget, native and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. No command accepts a private key, signs a policy or changes a firewall. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -51,7 +53,18 @@ impl Arguments {
             | "compile-native"
             | "challenge-native"
             | "admit-native"
-            | "read-native" => &["--database", "--org-id", "--project-id"],
+            | "read-native"
+            | "pin-signing-root-quota"
+            | "pin-signing-project-quota"
+            | "revoke-signing-root-quota"
+            | "revoke-signing-project-quota"
+            | "read-signing-intent" => &["--database", "--org-id", "--project-id"],
+            "read-signing-readiness" | "request-signing" => &[
+                "--database",
+                "--org-id",
+                "--project-id",
+                "--approval-origin",
+            ],
             _ => return Err("ARGUMENTS_REJECTED"),
         };
         if args.len() != 1 + options.len() * 2 {
@@ -134,6 +147,34 @@ struct NativeChallengeRequest {
 #[serde(deny_unknown_fields)]
 struct NativeReadRequest {
     plan_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningIntentReadRequest {
+    intent_id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningRootQuotaRequest {
+    pin: SigningRootQuotaPin,
+    expected_revision: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningProjectQuotaRequest {
+    pin: SigningProjectQuotaPin,
+    expected_revision: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningRootQuotaRevocation {
+    root_id: String,
+    expected_revision: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SigningProjectQuotaRevocation {
+    expected_revision: String,
 }
 
 fn revision(value: &str) -> Result<u64> {
@@ -390,6 +431,100 @@ fn run() -> Result<Value> {
                 .native_evidence_status(&tenant, &input.plan_id, chrono::Utc::now().timestamp())
                 .map_err(|_| "NATIVE_EVIDENCE_REJECTED")?;
             serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "pin-signing-root-quota" => {
+            let input: SigningRootQuotaRequest = request()?;
+            let revision = store
+                .pin_signing_root_quota(
+                    &tenant,
+                    &input.pin,
+                    input
+                        .expected_revision
+                        .as_deref()
+                        .map(revision)
+                        .transpose()?,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "SIGNING_QUOTA_REJECTED")?;
+            Ok(
+                json!({"root_id":input.pin.root_id,"revision":revision.to_string(),"signing_allowed":false,"dispatch_allowed":false}),
+            )
+        }
+        "pin-signing-project-quota" => {
+            let input: SigningProjectQuotaRequest = request()?;
+            let revision = store
+                .pin_signing_project_quota(
+                    &tenant,
+                    &input.pin,
+                    input
+                        .expected_revision
+                        .as_deref()
+                        .map(revision)
+                        .transpose()?,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "SIGNING_QUOTA_REJECTED")?;
+            Ok(
+                json!({"root_id":input.pin.root_id,"revision":revision.to_string(),"signing_allowed":false,"dispatch_allowed":false}),
+            )
+        }
+        "revoke-signing-root-quota" => {
+            let input: SigningRootQuotaRevocation = request()?;
+            store
+                .revoke_signing_root_quota(
+                    &tenant,
+                    &input.root_id,
+                    revision(&input.expected_revision)?,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "SIGNING_QUOTA_REJECTED")?;
+            Ok(json!({"status":"revoked","signing_allowed":false,"dispatch_allowed":false}))
+        }
+        "revoke-signing-project-quota" => {
+            let input: SigningProjectQuotaRevocation = request()?;
+            store
+                .revoke_signing_project_quota(
+                    &tenant,
+                    revision(&input.expected_revision)?,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "SIGNING_QUOTA_REJECTED")?;
+            Ok(json!({"status":"revoked","signing_allowed":false,"dispatch_allowed":false}))
+        }
+        "read-signing-readiness" => {
+            let input: NativeReadRequest = request()?;
+            let verifier = WebAuthn::new(args.value("--approval-origin"))
+                .map_err(|_| "APPROVAL_ORIGIN_REJECTED")?;
+            let status = store
+                .signing_readiness(
+                    &tenant,
+                    &input.plan_id,
+                    &verifier,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "SIGNING_READINESS_REJECTED")?;
+            serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "request-signing" => {
+            let input: SigningRequest = request()?;
+            let verifier = WebAuthn::new(args.value("--approval-origin"))
+                .map_err(|_| "APPROVAL_ORIGIN_REJECTED")?;
+            let result = store
+                .prepare_signing_intent(&tenant, &verifier, &input, chrono::Utc::now().timestamp())
+                .map_err(|_| "SIGNING_REQUEST_REJECTED")?;
+            serde_json::to_value(result).map_err(|_| "OUTPUT_FAILED")
+        }
+        "read-signing-intent" => {
+            let input: SigningIntentReadRequest = request()?;
+            let intent = store
+                .read_signing_intent(&tenant, &input.intent_id, chrono::Utc::now().timestamp())
+                .map_err(|_| "SIGNING_INTENT_REJECTED")?;
+            Ok(json!({
+                "schema_version":"fw.signing-intent-query/v1",
+                "intent":intent,
+                "signing_allowed":false,
+                "dispatch_allowed":false
+            }))
         }
         _ => Err("ARGUMENTS_REJECTED"),
     }
