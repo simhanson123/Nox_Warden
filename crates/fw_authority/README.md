@@ -51,6 +51,15 @@ present key identity, role and revocation. See the
 [authority store guide](../../docs/authority-store.md) for trust, transaction and
 review boundaries.
 
+`register_reviewed_plan` additionally commits independently recomposed full
+before/after state evidence with the exact plan, requirements and audit in one
+transaction. Schema 4 retains immutable canonical evidence and validates its
+bindings on read. The review service uses checked challenge/admission APIs that
+require this evidence for approval inside the corresponding transaction. Legacy
+plan registration does not create review evidence. This semantic verification
+does not certify the original target observations, compiler artifacts or native
+gate results and does not create dispatch permission.
+
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
 feature. Native executor and lab consumers disable default features, keeping
 these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
@@ -67,8 +76,9 @@ clock refuses fresh reservations. The supplied timestamp and limit values must
 come from the authority, not a client.
 
 Local-owner [WebAuthn login](../../docs/passkey-login.md) is implemented separately
-and does not authorize a plan. Remaining M03 work includes approval HTTP/UI,
-production out-of-band enrollment and authority bootstrap, trusted plan/artifact
+and does not authorize a plan. A separate approval HTTP service and UI are
+implemented. Remaining M03 work includes the complete production approval flow,
+out-of-band enrollment and authority bootstrap, trusted artifact/gate
 admission, independent signer jobs/trust
 ceremonies, signed grant/quota reconciliation, complete PostgreSQL authority
 transactions, and process/key isolation deployment. The store accepts plan

@@ -1,8 +1,10 @@
 //! Deterministic composition primitives. Full semantic-region proofs are not
 //! inferred from operation names. Unproved changes remain UNKNOWN and cannot dispatch.
+mod review;
 mod semantic;
 use fw_contracts::canonical_hash;
 use fw_domain::{Action, Policy, timestamp, validate_uuid};
+pub use review::{MAX_POLICY_REVIEW_BYTES, PolicyReviewEvidence, VerifiedPolicyReview};
 pub use semantic::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

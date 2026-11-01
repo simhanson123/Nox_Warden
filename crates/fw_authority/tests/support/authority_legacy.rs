@@ -1,6 +1,7 @@
 //! Test-only reconstruction of the previously published schema. Product APIs
 //! do not expose schema downgrade or erase authority records.
 pub fn restore_v2(path: &std::path::Path) {
+    restore_v3(path);
     let db = rusqlite::Connection::open(path).unwrap();
     db.pragma_update(None, "foreign_keys", "OFF").unwrap();
     for table in [
@@ -34,4 +35,21 @@ pub fn restore_v2(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=3;").unwrap();
     db.execute_batch(&trigger).unwrap();
     db.pragma_update(None, "user_version", 2).unwrap();
+}
+
+#[allow(dead_code)]
+pub fn restore_v3(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.execute_batch("DROP TABLE authority_plan_review_evidence;")
+        .unwrap();
+    let trigger: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=4;").unwrap();
+    db.execute_batch(&trigger).unwrap();
+    db.pragma_update(None, "user_version", 3).unwrap();
 }

@@ -79,7 +79,6 @@ struct Runtime {
     key: [u8; 32],
     sessions: BTreeMap<String, Session>,
     assets: BTreeMap<String, (String, Vec<u8>)>,
-    evidence: BTreeMap<String, ReviewEvidence>,
     envelope_key: auth::EnvelopeKeys,
     failure_samples: BTreeMap<String, i64>,
     next_session_serial: u64,
@@ -225,8 +224,7 @@ impl Service {
         let assets = at(StartupStage::UiAssets, || {
             files::load_ui(&config.ui_directory)
         })?;
-        let evidence = at(StartupStage::ReviewEvidence, || {
-            let mut evidence = BTreeMap::new();
+        at(StartupStage::ReviewEvidence, || {
             for (id, path) in &config.review_evidence {
                 if uuid::Uuid::parse_str(id).is_err() {
                     return Err(Failure::Invalid);
@@ -234,9 +232,41 @@ impl Service {
                 let bytes = files::read_private(path, 2 * 1024 * 1024)?;
                 let bundle = parse_strict_with_limit::<ReviewEvidence>(&bytes, 2 * 1024 * 1024)
                     .map_err(|_| Failure::Invalid)?;
-                evidence.insert(id.clone(), bundle);
+                // The legacy config keys only by UUID. Resolve through pinned
+                // configured principals, never through tenant claims in evidence.
+                let mut subjects = BTreeMap::new();
+                for profile in config.profiles.values() {
+                    let tenant = profile.tenant()?;
+                    match store.review_plan(&tenant, &profile.principal_id, id, now) {
+                        Ok(detail) => {
+                            subjects.insert(
+                                (profile.org_id.clone(), profile.project_id.clone()),
+                                (tenant, detail),
+                            );
+                        }
+                        Err(
+                            fw_authority::AuthorityError::Binding
+                            | fw_authority::AuthorityError::Time,
+                        ) => {}
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                if subjects.len() > 1 {
+                    return Err(Failure::Invalid);
+                }
+                // Retired, expired and unknown configured plans create no trust.
+                // Their existing immutable evidence remains retained in storage.
+                if let Some((tenant, detail)) = subjects.into_values().next() {
+                    store.register_reviewed_plan(
+                        &tenant,
+                        &detail.plan,
+                        &detail.requirements,
+                        &bundle,
+                        now,
+                    )?;
+                }
             }
-            Ok(evidence)
+            Ok(())
         })?;
         let origin = config.origin.clone();
         let envelope_key = at(StartupStage::RuntimeKey, || {
@@ -268,7 +298,6 @@ impl Service {
                 key,
                 sessions: BTreeMap::new(),
                 assets,
-                evidence,
                 envelope_key: auth::EnvelopeKeys::new(envelope_key),
                 failure_samples: BTreeMap::new(),
                 next_session_serial: 0,
@@ -528,10 +557,8 @@ impl Runtime {
             let detail = self
                 .store
                 .review_plan(&tenant, &identity.principal_id, plan_id, now)?;
-            let review = self
-                .evidence
-                .get(plan_id)
-                .and_then(|e| e.verify(&detail.plan).ok());
+            let review = self.store.policy_review_evidence(&tenant, plan_id, now)?
+                .map(|review| json!({"available":true,"before":review.evidence().before,"after":review.evidence().after}));
             let mut value = serde_json::to_value(detail).map_err(|_| Failure::Unavailable)?;
             value["current_principal_decisions"] = self.store.review_decisions(
                 &tenant,
@@ -567,12 +594,11 @@ impl Runtime {
                 return Err(Failure::Conflict);
             }
             if request.decision == ApprovalDecision::Approve {
-                self.evidence
-                    .get(&request.plan_id)
-                    .ok_or(Failure::ReviewUnavailable)?
-                    .verify(&detail.plan)?;
+                self.store
+                    .policy_review_evidence(&tenant, &request.plan_id, now)?
+                    .ok_or(Failure::ReviewUnavailable)?;
             }
-            let issued = self.store.issue_challenge(
+            let issued = self.store.issue_reviewed_challenge(
                 &tenant,
                 &identity.principal_id,
                 &identity.credential_id,
@@ -600,15 +626,11 @@ impl Runtime {
                 let plan_id = payload["subject"]["plan_ref"]["plan_id"]
                     .as_str()
                     .ok_or(Failure::Conflict)?;
-                let detail =
-                    self.store
-                        .review_plan(&tenant, &identity.principal_id, plan_id, now)?;
-                self.evidence
-                    .get(plan_id)
-                    .ok_or(Failure::ReviewUnavailable)?
-                    .verify(&detail.plan)?;
+                self.store
+                    .policy_review_evidence(&tenant, plan_id, now)?
+                    .ok_or(Failure::ReviewUnavailable)?;
             }
-            let result = self.store.admit_decision(
+            let result = self.store.admit_reviewed_decision(
                 &tenant,
                 &identity.principal_id,
                 &request.challenge_id,

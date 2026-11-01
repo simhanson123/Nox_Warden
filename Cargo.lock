@@ -572,6 +572,7 @@ dependencies = [
  "ed25519-dalek",
  "fw_contracts",
  "fw_domain",
+ "fw_planner",
  "fw_webauthn",
  "openssl",
  "rusqlite",

@@ -37,8 +37,8 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **542 workspace Rust tests, 23 authority
-tests without default features, and 89 UI tests**. It also passes formatting,
+The integrated repository check passes **566 workspace Rust tests, 23 authority
+tests without default features, and 95 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
 six catalogue-diagnostic regressions and
@@ -50,7 +50,7 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | --- | ---: | --- |
 | Controller HTTP | 24 | Actual HTTP routes and original OpenAPI contracts |
 | CLI / separate protocol fixture | 13 / 5 | Login, bounded list continuation and hostile-server refusal |
-| Passkey browser | 71 | Durable owner enrollment, key lifecycle, logout, CLI handoff and delegated-session restrictions |
+| Passkey browser | 76 | Durable owner enrollment, key lifecycle, logout, CLI handoff, anonymous ticket floods and delegated-session restrictions |
 | Login admission browser | 14 | 1,005 anonymous options requests, valid earlier proof, replay refusal and restart |
 | Audit HTTP/MCP/browser | 21 | Bounded denial evidence and stable snapshot pagination |
 | Catalogue browser | 11 | 65 assets, complete list traversal, page size, refresh and asset-picker continuation |
@@ -58,6 +58,15 @@ complete key and placeholder parity. Human translation acceptance is pending.
 | Independent authority browser | 31 | Actual service, virtual passkey decisions, current quorum, dissent and restart |
 | Isolated Linux compiler/readback | 66 | Includes 40 actual IPv4/IPv6 TCP/UDP packet probes |
 | Signed Linux execution | 98 | Includes 43 actual packet probes, expiry and interrupted submission/recovery |
+
+The recovered `d5cb339` baseline was rerun before these changes, including all
+runtime suites above at their previous counts and both isolated Linux suites
+(66/98 checks, 40/43 packets). The updated source then passed the integrated
+check, passkey/real-CLI browser suite (76), authority browser suite (31), and
+authority/service tests under `umask 0002` (208). The compact
+[review handoff](../docs/review-continuity.md) distinguishes the user-supplied
+external reports from these fresh executions. The earlier reviewers' private
+probe A/B programs were unavailable and were not claimed as reproduced.
 
 ## Security and persistence coverage
 
@@ -94,6 +103,21 @@ freshness window. Ordinary controller reads/writes remain available. Tests cover
 borrowed registration proofs, spoofed type headers, logout/expiry/revocation and
 promotion only after a new verified WebAuthn login.
 
+Anonymous CLI initiation now retains no pending request or replay-key cache and
+writes no durable success audit. The passkey smoke creates 1,005 requests, checks
+unchanged audit counts and completes a previously issued request. Bounded AEAD
+tickets conceal the short code and polling-secret hashes and bind origin,
+tenant, principal, request and time. Only fresh browser interaction allocates
+protected attempt/approval/consumption state. Regressions cover wrong-code
+limits, tampering, request substitution, expiry, restart, key epochs and nonce
+exhaustion. Wall/monotonic time floors prevent expired replay fences from
+reappearing after clock rollback. A real concurrent-logout barrier test checks
+that authorizer validation, mandatory audit and delegated-session insertion
+share the session-registry lock. Audit failure issues no session. The browser
+removes the encrypted URL fragment while preserving the memory-held ticket
+through keyboard skip navigation. Sustained CPU/HTTP/database saturation and
+exhaustion by an authenticated owner remain outside this bounded guarantee.
+
 Controller login tickets and authority envelopes use non-clonable, checked nonce
 allocators and domain-separated epoch keys, with at most 65,536 encryptions per
 derived key. Old unexpired tickets remain decryptable across issuance epochs;
@@ -107,7 +131,7 @@ Tests cover traversal beyond 100 rows, byte caps, mutation isolation, projection
 integrity, migration, clock rollback and concurrent capability renewal. Current
 certificate and report eligibility is checked by both service writes and pickers.
 
-[Authority schema 3](../docs/authority-store.md) preserves original signatures,
+[Authority schema 4](../docs/authority-store.md) preserves original signatures,
 immutable plans, credential snapshots and public-key tombstones. Explicit
 migrations validate private online backups before changing known older schemas;
 they never infer trusted epochs or human identities from plans. The tests cover
@@ -122,6 +146,16 @@ aliases, reverse/manifest collisions and the documented ASCII maintenance-name
 profile. Unicode parent directories remain usable. Expired device reservations
 retain retry/replay bindings; a reopened-store regression confirms they cannot
 issue certificates and do not block a separately authorized new invitation.
+
+Nine durable-review regressions cover atomic plan/requirements/evidence/audit
+admission, exact retry, concurrent import, reopen, corrupted bindings and times,
+missing evidence, checked approval gates and validated schema-3 backup migration
+with rollback on foreign-key failure. Three service regressions retain review
+after removing source/config, tolerate expired or retired configured plans, and
+reject ambiguous tenant mappings. The shared verifier retains full state
+recomposition and bounded bytes/depth; no legacy plan receives invented evidence.
+These are semantic review guarantees, not compiler/native gate attestation or
+permission to sign or dispatch.
 
 Authority audit checks include rollback of a genuine zero-counter activation
 when audit time moves backward, plus restart, independent tenants, exact retries,
@@ -149,7 +183,7 @@ and exact retry after query interruption. Named-set withdrawal commits a retaine
 tombstone and audit atomically; withdrawing an old set cannot invalidate a
 different current head, and an unchanged selection cannot silently be reminted.
 
-The [independent review service](../docs/authority-review-service.md) has 23
+The [independent review service](../docs/authority-review-service.md) has 26
 HTTP/P-256 regressions plus five review-adapter tests. It requires separately
 pinned private authority trust and a distinct origin. Tests cover exact
 Host/Origin, cookie plus memory proof, tenant isolation, bounded requests,
@@ -207,6 +241,7 @@ acceptance are not qualified by virtual-authenticator tests. Full Linux
 crash/reboot/coexistence and hung-owner watchdog qualification, Windows WFP/callout,
 macOS Network Extension, signed installation/update/removal, complete F_07
 acceptance receipts/aggregate gates and provider deployment remain outstanding.
-Public CLI-handoff admission bounds and local recovery after loss of all owner
-keys remain documented limitations. See the [implementation overview](../docs/implementation.md),
+Authenticated CLI-handoff budget exhaustion, sustained local resource attacks
+and local recovery after loss of all owner keys remain documented limitations.
+See the [implementation overview](../docs/implementation.md),
 [platform status](../docs/platform-support.md) and [task ledger](task-ledger.json).

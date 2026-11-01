@@ -361,75 +361,7 @@ impl AuthorityStore {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        security_revision(&tx, tenant)?;
-        let existing: Option<Vec<u8>> = tx.query_row(
-            "SELECT canonical_bytes FROM authority_plans WHERE org_id=? AND project_id=? AND plan_id=?",
-            params![tenant.org_id,tenant.project_id,validated.plan_id], |r| r.get(0)
-        ).optional()?;
-        if let Some(existing) = existing {
-            let resolved = records::plan(&tx, tenant, &validated.plan_id, now)?;
-            if existing != validated.plan_bytes
-                || resolved.requirements_bytes != validated.requirements_bytes
-            {
-                return Err(AuthorityError::Conflict);
-            }
-            tx.commit()?;
-            return Ok(());
-        }
-        let requirements_hash = hash(&validated.requirements_hash)?;
-        let existing: Option<Vec<u8>> = tx.query_row(
-            "SELECT canonical_bytes FROM authority_requirements WHERE org_id=? AND project_id=? AND requirements_hash=?",
-            params![tenant.org_id,tenant.project_id,requirements_hash], |r| r.get(0)
-        ).optional()?;
-        if let Some(existing) = existing {
-            if existing != validated.requirements_bytes {
-                return Err(AuthorityError::Conflict);
-            }
-        } else {
-            tx.execute(
-                "INSERT INTO authority_requirements VALUES(?,?,?,?,?,?,?)",
-                params![
-                    tenant.org_id,
-                    tenant.project_id,
-                    requirements_hash,
-                    validated.profile,
-                    validated.max_approval_age_seconds,
-                    validated.author_may_approve,
-                    validated.requirements_bytes
-                ],
-            )?;
-            for role in &validated.required_roles {
-                tx.execute(
-                    "INSERT INTO authority_requirement_roles VALUES(?,?,?,?)",
-                    params![
-                        tenant.org_id,
-                        tenant.project_id,
-                        requirements_hash,
-                        role_name(*role)
-                    ],
-                )?;
-            }
-        }
-        tx.execute(
-            "INSERT INTO authority_plans VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            params![
-                tenant.org_id,
-                tenant.project_id,
-                validated.plan_id,
-                plan_kind_name(validated.plan_kind),
-                hash(&validated.plan_hash)?,
-                requirements_hash,
-                validated.author_id,
-                validated.created_at,
-                validated.valid_until,
-                now,
-                validated.plan_bytes
-            ],
-        )?;
-        // Repeat normalization checks against the inserted rows before commit.
-        records::plan(&tx, tenant, &validated.plan_id, now)?;
-        bump_security(&tx, tenant)?;
-        audit(&tx, tenant, "plan_registered", &validated.plan_id, now)?;
+        register_plan_in_tx(&tx, tenant, &validated, now)?;
         tx.commit()?;
         Ok(())
     }
@@ -458,4 +390,82 @@ impl AuthorityStore {
         tx.commit()?;
         Ok(())
     }
+}
+
+/// Caller owns the encompassing write transaction and all accompanying evidence.
+pub(super) fn register_plan_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    validated: &subject::ValidatedSubject,
+    now: i64,
+) -> Result<()> {
+    security_revision(tx, tenant)?;
+    let existing: Option<Vec<u8>> = tx.query_row(
+            "SELECT canonical_bytes FROM authority_plans WHERE org_id=? AND project_id=? AND plan_id=?",
+            params![tenant.org_id,tenant.project_id,validated.plan_id], |r| r.get(0)
+        ).optional()?;
+    if let Some(existing) = existing {
+        let resolved = records::plan(tx, tenant, &validated.plan_id, now)?;
+        if existing != validated.plan_bytes
+            || resolved.requirements_bytes != validated.requirements_bytes
+        {
+            return Err(AuthorityError::Conflict);
+        }
+        return Ok(());
+    }
+    let requirements_hash = hash(&validated.requirements_hash)?;
+    let existing: Option<Vec<u8>> = tx.query_row(
+            "SELECT canonical_bytes FROM authority_requirements WHERE org_id=? AND project_id=? AND requirements_hash=?",
+            params![tenant.org_id,tenant.project_id,requirements_hash], |r| r.get(0)
+        ).optional()?;
+    if let Some(existing) = existing {
+        if existing != validated.requirements_bytes {
+            return Err(AuthorityError::Conflict);
+        }
+    } else {
+        tx.execute(
+            "INSERT INTO authority_requirements VALUES(?,?,?,?,?,?,?)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                requirements_hash,
+                validated.profile,
+                validated.max_approval_age_seconds,
+                validated.author_may_approve,
+                validated.requirements_bytes
+            ],
+        )?;
+        for role in &validated.required_roles {
+            tx.execute(
+                "INSERT INTO authority_requirement_roles VALUES(?,?,?,?)",
+                params![
+                    tenant.org_id,
+                    tenant.project_id,
+                    requirements_hash,
+                    role_name(*role)
+                ],
+            )?;
+        }
+    }
+    tx.execute(
+        "INSERT INTO authority_plans VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        params![
+            tenant.org_id,
+            tenant.project_id,
+            validated.plan_id,
+            plan_kind_name(validated.plan_kind),
+            hash(&validated.plan_hash)?,
+            requirements_hash,
+            validated.author_id,
+            validated.created_at,
+            validated.valid_until,
+            now,
+            validated.plan_bytes
+        ],
+    )?;
+    // Repeat normalization checks against the inserted rows before commit.
+    records::plan(tx, tenant, &validated.plan_id, now)?;
+    bump_security(tx, tenant)?;
+    audit(tx, tenant, "plan_registered", &validated.plan_id, now)?;
+    Ok(())
 }

@@ -796,24 +796,9 @@ async fn altered_evidence_disables_approval_and_configuration_cannot_create_trus
     bundle["after"]["management_baseline_hash"] =
         json!(fw_contracts::hash_bytes(b"forged review content"));
     std::fs::write(path, serde_json::to_vec(&bundle).unwrap()).unwrap();
-    let (addr, task) = f.start(NOW + 1).await;
-    let auth = login(&f, addr, 1).await;
-    let detail = request(
-        addr,
-        "GET",
-        &format!("/authority/v1/plans/{PLAN}"),
-        auth.cookie.as_deref(),
-        auth.body["csrf_token"].as_str(),
-        None,
-        ORIGIN,
-    )
-    .await;
-    assert_eq!(detail.body["review"]["available"], false);
-    assert_eq!(
-        challenge(addr, &auth, &detail.body, "approve").await.status,
-        409
-    );
-    task.abort();
+    // Invalid configured evidence is now refused at durable import, before
+    // the service can expose approval routes or retain misleading review bytes.
+    assert!(Service::open(f.config.clone(), [7; 32], || NOW + 1).is_err());
     f.config.database = f._directory.path().join("missing.sqlite3");
     assert!(Service::open(f.config.clone(), [7; 32], || NOW + 1).is_err());
     assert!(!f.config.database.exists());
@@ -1449,6 +1434,20 @@ async fn oversized_trusted_review_is_not_truncated_or_approved() {
             NOW,
         )
         .unwrap();
+    assert!(Service::open(f.config.clone(), [7; 32], || NOW + 1).is_err());
+    assert!(
+        store
+            .policy_review_evidence(
+                &AuthorityTenant::new(ORG, PROJECT).unwrap(),
+                new_id,
+                NOW + 1
+            )
+            .unwrap()
+            .is_none()
+    );
+    // Remove the rejected import and ensure the retained unchecked plan still
+    // cannot approve through the live service or produce a truncated review.
+    f.config.review_evidence.remove(new_id);
     let (addr, task) = f.start(NOW + 1).await;
     let auth = login(&f, addr, 1).await;
     let detail = request(
@@ -1773,4 +1772,134 @@ async fn current_set_disappears_when_independent_authority_basis_expires() {
     assert_eq!(expired.body["aggregation"], json!({"state":"stale"}));
     assert_eq!(expired.body["current_approval_set"], Value::Null);
     task.abort();
+}
+
+#[tokio::test]
+async fn durable_review_remains_available_after_source_file_and_config_are_removed() {
+    let mut f = Fixture::configured(true);
+    drop(Service::open(f.config.clone(), [7; 32], || NOW + 1).unwrap());
+    let path = f.config.review_evidence[PLAN].clone();
+    std::fs::remove_file(path).unwrap();
+    f.config.review_evidence.clear();
+    let (addr, task) = f.start(NOW + 2).await;
+    let auth = login(&f, addr, 1).await;
+    assert_eq!(auth.status, 200);
+    let detail = request(
+        addr,
+        "GET",
+        &format!("/authority/v1/plans/{PLAN}"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(detail.status, 200);
+    assert_eq!(detail.body["review"]["available"], true);
+    assert_eq!(
+        challenge(addr, &auth, &detail.body, "approve").await.status,
+        200
+    );
+    task.abort();
+}
+
+#[test]
+fn expired_or_retired_import_configuration_does_not_prevent_restart() {
+    for retired in [false, true] {
+        let f = Fixture::configured(true);
+        drop(Service::open(f.config.clone(), [7; 32], || NOW + 1).unwrap());
+        let mut store = AuthorityStore::open(&f.db).unwrap();
+        let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+        if retired {
+            store.retire_plan(&tenant, PLAN, NOW + 2).unwrap();
+        }
+        let now = if retired { NOW + 3 } else { NOW + 4000 };
+        assert!(Service::open(f.config.clone(), [7; 32], move || now).is_ok());
+        assert!(store.policy_review_evidence(&tenant, PLAN, now).is_err());
+        let db = rusqlite::Connection::open(&f.db).unwrap();
+        assert_eq!(
+            db.query_row::<i64, _, _>(
+                "SELECT count(*) FROM authority_plan_review_evidence",
+                [],
+                |r| r.get(0)
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row::<i64, _, _>(
+                "SELECT count(*) FROM authority_audit WHERE kind='plan_review_evidence_registered'",
+                [],
+                |r| r.get(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+}
+
+#[test]
+fn evidence_import_refuses_same_plan_uuid_in_multiple_configured_tenants() {
+    let mut f = Fixture::configured(true);
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    let tenant = AuthorityTenant::new(PROJECT, ORG).unwrap();
+    store
+        .provision_principal(
+            &tenant,
+            PRINCIPAL,
+            "https://identity.example.test",
+            "alice",
+            NOW,
+        )
+        .unwrap();
+    // Same software key across separate tenants does not grant cross-tenant trust.
+    let verifier = WebAuthn::new(ORIGIN).unwrap();
+    let registration = verifier
+        .begin_registration(PRINCIPAL, "alice", &[])
+        .unwrap();
+    let credential = verifier
+        .finish_registration(
+            &registration.state,
+            &f.key.registration(&registration.options),
+        )
+        .unwrap();
+    store
+        .pin_credential(&tenant, &credential, NOW, NOW + 7200, NOW)
+        .unwrap();
+    store
+        .grant_role(
+            &tenant,
+            PRINCIPAL,
+            ApprovalRole::Owner,
+            NOW,
+            NOW + 7200,
+            NOW,
+        )
+        .unwrap();
+    let (mut other, requirements, _) = plans::complete_plan(NOW);
+    other["org_id"] = json!(PROJECT);
+    other["project_id"] = json!(ORG);
+    store
+        .register_plan(&tenant, &other, &requirements, NOW)
+        .unwrap();
+    f.config.profiles.insert(
+        "other-tenant".into(),
+        LocalProfile {
+            org_id: PROJECT.into(),
+            project_id: ORG.into(),
+            principal_id: PRINCIPAL.into(),
+            credential_id: credential.id(),
+        },
+    );
+    assert!(Service::open(f.config.clone(), [7; 32], || NOW + 1).is_err());
+    let db = rusqlite::Connection::open(&f.db).unwrap();
+    assert_eq!(
+        db.query_row::<i64, _, _>(
+            "SELECT count(*) FROM authority_plan_review_evidence",
+            [],
+            |r| r.get(0)
+        )
+        .unwrap(),
+        0
+    );
 }

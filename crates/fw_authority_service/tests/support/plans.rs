@@ -78,7 +78,7 @@ fn plan(requirements: &Value, now: i64) -> Value {
     })
 }
 
-pub fn complete_plan(now: i64) -> (Value, Value, fw_authority_service::ReviewEvidence) {
+pub fn complete_plan(now: i64) -> (Value, Value, fw_planner::PolicyReviewEvidence) {
     let requirements = requirements();
     let mut plan = plan(&requirements, now);
     let original: Value = serde_json::from_str(include_str!(
@@ -130,7 +130,7 @@ pub fn complete_plan(now: i64) -> (Value, Value, fw_authority_service::ReviewEvi
     (
         plan,
         requirements,
-        fw_authority_service::ReviewEvidence {
+        fw_planner::PolicyReviewEvidence {
             before,
             after: result.state,
         },
