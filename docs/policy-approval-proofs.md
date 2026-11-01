@@ -92,14 +92,20 @@ key identity, revocation, role and plan checks.
 Credential pinning, principal provisioning, role grants and plan registration
 remain privileged inputs from a trusted embedding authority. There is no
 automatic trust transfer from the controller's login database. The following
-remain unimplemented:
+layers are now implemented above this proof primitive: the separate
+[review service](authority-review-service.md) and [review UI](authority-review-ui.md)
+expose immutable plan review and fresh decision-bound WebAuthn ceremonies;
+[AuthorityStore](authority-store.md#independent-reviewer-aggregation) atomically
+aggregates independently verified decisions and revalidates current `ApprovalSet`
+snapshots. These require separately provisioned trust and do not issue signing
+grants. The following remain unimplemented:
 
-- Approval HTTP endpoints and a human-facing immutable plan review ceremony.
 - Production out-of-band identity and credential enrollment, authenticated
   authority IPC and independent verification of referenced plan artifacts/gates.
-- Durable authority-bootstrap admission, quorum/`ApprovalSet` aggregation and
-  signing jobs linked to current authority and quota.
-- A separate authority/signer daemon, protected keys and authenticated IPC.
+- Durable authority-bootstrap admission and independent signing jobs linked to
+  current authority, approval validity and quota in the signing transaction.
+- A production signer daemon and protected OS-account/key deployment with
+  authenticated IPC; the existing review process alone does not establish these.
 - Production authority bootstrap, authenticated host dispatch and the complete
   approval → application → expiry/recovery workflow.
 

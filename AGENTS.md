@@ -14,6 +14,18 @@ This repository is the F-2.0 development specification for a native, open-source
 
 ## Work procedure
 
+For resumed work, read `docs/review-continuity.md`, `reports/task-ledger.json`,
+`reports/README.md` and `docs/implementation.md` before selecting the next task.
+The continuity document distinguishes user-supplied independent reviews from
+recovered source and newly executed checks. Do not assume a lost conversation is
+needed to reconstruct the development baseline. Use parallel agents with disjoint
+file ownership for implementation and independent review. Repeat the
+review → implementation → relevant checks → independent review cycle when new
+changes or reproducible failures justify it; preserve the next concrete task and
+unresolved blockers in the compact ledger. External-model review prompts live in
+`docs/review-prompts.md`; do not claim a named model reviewed a change unless it
+actually did.
+
 Follow task IDs and dependencies in `docs/specs/F_08_Codex_Cloud_작업계획.md`. Implement a testable slice per change. Update affected schemas, API, docs, tests, and migration together. Run the applicable checks and report exact commands/results. A skipped native OS test is not a pass. Do not call the product complete after Linux alone works.
 
 The bundled Python validator checks design artifacts only. Product commands listed in F_08 become required after their corresponding implementation task creates them. Do not invent passing output or create empty programs merely to make a command succeed.
