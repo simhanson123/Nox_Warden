@@ -5,6 +5,8 @@ Uses disposable private state and real fw_control/fw_cli/fw_agent processes.
 No enrollment token, private key, cookie, or certificate bytes enter the report.
 Optional --browser verifies that a genuinely registered device can be selected
 when creating a service; it requires local Playwright and Chromium.
+Optional --authority-metadata exercises explicit test-only independent authority
+pinning and portable device proofs, without treating enrollment as policy trust.
 """
 import argparse
 import hashlib
@@ -29,6 +31,147 @@ class BrowserUnavailable(Exception):
     """A missing test prerequisite, with no external exception text."""
 
 
+class MetadataUnavailable(Exception):
+    """Missing executable prerequisites, without private paths or child output."""
+
+
+def write_private_json(path, value):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+        json.dump(value, handle, separators=(',', ':'))
+        handle.write('\n')
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def certificate_metadata(certificate_file):
+    """Extract only public certificate material; never open a private-key file."""
+    certificate = ssl._ssl._test_decode_cert(str(certificate_file))
+    names = certificate.get('subjectAltName', ())
+    if len(names) != 1 or names[0][0] != 'URI':
+        raise AssertionError('public device certificate has an unexpected identity')
+    identity = names[0][1].split(':')
+    if len(identity) != 6 or identity[:3] != ['urn', 'nox', 'target']:
+        raise AssertionError('public device certificate has an unexpected identity')
+    for value in identity[3:]:
+        if str(uuid.UUID(value)) != value:
+            raise AssertionError('public device certificate identity is not canonical')
+    result = subprocess.run(['openssl', 'x509', '-in', str(certificate_file), '-pubkey', '-noout'],
+                            capture_output=True, timeout=5)
+    if result.returncode != 0:
+        raise AssertionError('public certificate key extraction failed')
+    result = subprocess.run(['openssl', 'pkey', '-pubin', '-outform', 'DER'], input=result.stdout,
+                            capture_output=True, timeout=5)
+    if result.returncode != 0:
+        raise AssertionError('public certificate key conversion failed')
+    spki = result.stdout
+    if len(spki) != 44 or spki[:12] != bytes.fromhex('302a300506032b6570032100'):
+        raise AssertionError('public certificate key is not canonical Ed25519')
+    public_chain = certificate_file.read_text()
+    end = public_chain.find('-----END CERTIFICATE-----')
+    if end < 0:
+        raise AssertionError('public certificate leaf is missing')
+    leaf = public_chain[:end + len('-----END CERTIFICATE-----')] + '\n'
+    return {
+        'org_id': identity[3], 'project_id': identity[4], 'target_id': identity[5],
+        'key_fingerprint': 'sha256:' + hashlib.sha256(spki).hexdigest(),
+        'pin': {
+            'target_id': identity[5], 'public_key': list(spki[12:]),
+            'certificate_fingerprint': 'sha256:' + hashlib.sha256(ssl.PEM_cert_to_DER_cert(leaf)).hexdigest(),
+            'platform': 'linux', 'not_before': int(ssl.cert_time_to_seconds(certificate['notBefore'])),
+            'not_after': int(ssl.cert_time_to_seconds(certificate['notAfter'])),
+        },
+    }
+
+
+def authority_metadata_flow(state, device_dir, device, tls_args, command, check):
+    """This fixture administrator explicitly pins public device identity for tests."""
+    authority_dir = state / 'independent-authority'
+    authority_dir.mkdir(mode=0o700)
+    database = authority_dir / 'authority.sqlite3'
+    public = certificate_metadata(device_dir / 'certificate.pem')
+    check('portable proof fixture pins the same public key as enrolled device',
+          public['key_fingerprint'] == device['key_fingerprint'])
+    common = ['--database', str(database), '--org-id', public['org_id'],
+              '--project-id', public['project_id']]
+
+    def admin(action, value, expected_error=None):
+        return command('fw_authority_admin', [action, *common], success=expected_error is None,
+                       body=value, expected_error=expected_error)
+
+    initialized = command('fw_authority_admin', ['init', '--database', str(database)])
+    check('explicit isolated authority initialization creates no dispatch authority',
+          initialized['status'] == 'initialized' and initialized['dispatch_allowed'] is False)
+    namespace = admin('init-project', {})
+    check('explicit authority project initialization grants no policy authority',
+          namespace['dispatch_allowed'] is False)
+    request = {'target_id': public['target_id']}
+    empty = admin('read-target', request)
+    check('controller enrollment never automatically registers authority target trust',
+          empty['receipt'] is None and empty['dispatch_allowed'] is False)
+    pinned = admin('pin-target', {'pin': public['pin'], 'expected_revision': None})
+    check('explicit fixture pin remains metadata-only and unverified',
+          pinned['key_revision'] == '1' and pinned['enforcement'] == 'unverified'
+          and pinned['dispatch_allowed'] is False)
+
+    def signed(name):
+        challenge = admin('challenge-target', request)
+        check(f'{name} challenge binds independently pinned tenant target and certificate',
+              challenge['org_id'] == public['org_id'] and challenge['project_id'] == public['project_id']
+              and challenge['target_id'] == public['target_id']
+              and challenge['key_fingerprint'] == public['key_fingerprint']
+              and challenge['certificate_fingerprint'] == public['pin']['certificate_fingerprint'])
+        challenge_file = authority_dir / f'{name}-challenge.json'
+        proof_file = authority_dir / f'{name}-proof.json'
+        write_private_json(challenge_file, challenge)
+        summary = command('fw_agent', ['sign-metadata', *tls_args, '--challenge-file', str(challenge_file),
+                                       '--output-file', str(proof_file)])
+        check(f'{name} actual agent exports private signed metadata without native authority',
+              summary['challenge_id'] == challenge['challenge_id']
+              and summary['state'] == 'signed_metadata_not_admitted' and summary['enforcement'] is False
+              and proof_file.stat().st_mode & 0o777 == 0o600)
+        return json.loads(proof_file.read_text()), summary
+
+    proof, summary = signed('initial')
+    tampered = dict(proof)
+    tampered['signature'] = ('A' if proof['signature'][0] != 'A' else 'B') + proof['signature'][1:]
+    admin('admit-target', tampered, expected_error='TARGET_REPORT_REJECTED')
+    check('tampered device signature leaves no current authority metadata',
+          admin('read-target', request)['receipt'] is None)
+    admission = admin('admit-target', proof)
+    check('independent authority verifies actual enrolled device signature and measured bytes',
+          admission['replayed'] is False and admission['receipt']['report_hash'] == summary['report_hash']
+          and admission['receipt']['enforcement_status'] == 'unverified'
+          and admission['dispatch_allowed'] is False)
+    replay = admin('admit-target', proof)
+    check('exact proof replay returns original receipt without renewing authority',
+          replay['replayed'] is True and replay['receipt'] == admission['receipt'])
+    current = admin('read-target', request)
+    check('new authority process reopens and revalidates retained current metadata',
+          current['receipt'] == admission['receipt'] and current['dispatch_allowed'] is False)
+    wrong_tenant = common.copy()
+    wrong_tenant[wrong_tenant.index('--org-id') + 1] = str(uuid.uuid4())
+    command('fw_authority_admin', ['admit-target', *wrong_tenant], body=proof, success=False,
+            expected_error='TARGET_REPORT_REJECTED')
+    check('portable proof cannot be imported into a different authority tenant', True)
+    pending, _ = signed('pending')
+    revoked = admin('revoke-target', {'target_id': public['target_id'], 'expected_revision': '1'})
+    check('independent pin revocation removes current metadata without claiming network revocation',
+          revoked['status'] == 'revoked' and revoked['dispatch_allowed'] is False
+          and admin('read-target', request)['receipt'] is None)
+    admin('admit-target', pending, expected_error='TARGET_REPORT_REJECTED')
+    admin('challenge-target', request, expected_error='TARGET_CHALLENGE_REJECTED')
+    admin('pin-target', {'pin': public['pin'], 'expected_revision': '1'},
+          expected_error='TARGET_PIN_REJECTED')
+    check('revocation blocks pending proof new challenge and same-key repinning', True)
+    historical = admin('admit-target', proof)
+    check('historical replay after revocation remains an acknowledgement without current authority',
+          historical['replayed'] is True and historical['receipt'] == admission['receipt']
+          and admin('read-target', request)['receipt'] is None)
+    command('fw_agent', ['report', *tls_args])
+    check('independent authority pin revocation does not rewrite controller enrollment', True)
+
+
 def browser_executable(requested):
     try:
         from playwright.sync_api import sync_playwright
@@ -49,14 +192,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--http-port', type=int, default=8792)
     parser.add_argument('--tls-port', type=int, default=8793)
-    parser.add_argument('--report', type=Path, default=ROOT / 'reports/enrollment-smoke.json')
+    parser.add_argument('--report', type=Path)
+    parser.add_argument('--authority-metadata', action='store_true')
     parser.add_argument('--browser', action='store_true')
     parser.add_argument('--browser-executable', help='Chromium executable; defaults to PATH or Playwright Chromium')
     args = parser.parse_args()
+    if args.report is None:
+        args.report = ROOT / ('reports/target-metadata-smoke.json' if args.authority_metadata
+                              else 'reports/enrollment-smoke.json')
     checks = []
     report = {'status': 'FAIL', 'checks': checks, 'native_firewall_changed': False,
               'credential_values_recorded': False, 'browser_executed': False,
               'scope': 'loopback TLS device registration; no policy authorization or native dispatch'}
+    if args.authority_metadata:
+        report.update(authority_metadata_executed=False, authority_metadata_checks=0,
+                      synthetic_fixture_authority=True,
+                      scope='loopback enrollment and explicit independent metadata pin/proof; no policy authorization or native dispatch')
     schema = json.loads((ROOT / 'docs/specs/F_OpenAPI.json').read_text())
     internal_schema = json.loads((ROOT / 'docs/specs/F_내부통신_스키마.json').read_text())
 
@@ -71,6 +222,9 @@ def main():
 
     process = None
     try:
+        if args.authority_metadata and (not (ROOT / 'target/debug/fw_authority_admin').is_file()
+                                        or not shutil.which('openssl')):
+            raise MetadataUnavailable('Build fw_authority_admin and install OpenSSL before metadata smoke.')
         executable = browser_executable(args.browser_executable) if args.browser else None
         with tempfile.TemporaryDirectory(prefix='nox-enrollment-') as temporary:
             state = Path(temporary)
@@ -88,13 +242,17 @@ def main():
                                FW_SESSION_FILE=str(session_file), FW_WEB_DIR=str(ROOT / 'web/dist'))
             protected_values = []
 
-            def command(binary, arguments, success=True):
+            def command(binary, arguments, success=True, body=None, expected_error=None):
                 result = subprocess.run([str(ROOT / 'target/debug' / binary), *arguments],
-                                        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=20)
+                                        cwd=ROOT, env=environment, capture_output=True, text=True, timeout=20,
+                                        input=json.dumps(body) if body is not None else None)
                 if (result.returncode == 0) != success:
                     # Commands have file-path arguments only. Suppress arbitrary
                     # child output rather than accidentally printing credentials.
                     raise AssertionError(f'unexpected exit status: {binary} {arguments[0]}')
+                if expected_error is not None and (result.returncode != 1 or result.stdout
+                                                   or result.stderr != f'AUTHORITY_ADMIN code={expected_error}\n'):
+                    raise AssertionError(f'unexpected rejection: {binary} {arguments[0]}')
                 for secret in protected_values:
                     if secret in result.stdout or secret in result.stderr:
                         raise AssertionError('credential appeared in command output')
@@ -203,6 +361,12 @@ def main():
             check('registration never enables native dispatch', status == 200 and current['data']['enforcement'] is False
                   and current['data']['native_dispatch_enabled'] is False)
 
+            if args.authority_metadata:
+                before_metadata = len(checks)
+                authority_metadata_flow(state, device_dir, device, tls_args, command, check)
+                report['authority_metadata_checks'] = len(checks) - before_metadata
+                report['authority_metadata_executed'] = True
+
             status, current_session = public('/session')
             check('operator session remains valid', status == 200)
             owner = current_session['data']['principal_id']
@@ -287,6 +451,9 @@ def main():
     except BrowserUnavailable as error:
         report['status'] = 'NOT_RUN'
         report['error'] = {'type': 'BrowserUnavailable', 'prerequisite': str(error)}
+    except MetadataUnavailable as error:
+        report['status'] = 'NOT_RUN'
+        report['error'] = {'type': 'MetadataUnavailable', 'prerequisite': str(error)}
     except Exception as error:
         report['error'] = {'type': type(error).__name__}
         if isinstance(error, AssertionError):

@@ -16,6 +16,9 @@ flowchart LR
   D[fw_domain + fw_contracts] --> P[fw_planner: immutable candidate / bounded exact diff]
   P --> A[fw_authority: plan proofs / DSSE / quota]
   A --> AS[AuthorityStore: separate SQLite plan decisions / proof retention]
+  AG --> ME[fw_target_evidence: offline signed metadata]
+  MP[Explicit independent target pins] --> AS
+  ME --> AS
   A --> E[fw_executor: verified-grant journal]
   E --> L[fw_linux_executor: isolated lab driver]
   L --> N[fw_backend_linux: portable compiler / semantic readback]
@@ -71,6 +74,18 @@ The Linux agent measures its kernel version, executable hash and available nftab
 
 ## Pure policy and authority semantics
 
+The separate [target metadata flow](target-metadata.md) lets a trusted local
+operator pin a device key, certificate binding and validity independently of
+controller enrollment. A fresh authority nonce binds a real Ed25519 signature
+over exact conservative capability bytes. Authority schema 5 atomically retains
+challenge consumption, proof, receipt, current head and audit; current reads
+revalidate bindings, revocation and effective expiry. Durable clock observations
+prevent expired evidence from reviving after rollback. Exact retries acknowledge
+historical admission without renewing current authority. The offline agent checks
+its enrolled identity before signing; the local administration tool creates no
+human, role, policy signature or dispatch permission. Native observations,
+baseline/artifact trust and compiler/gate qualification remain separate work.
+
 Domain evaluation uses explicit time, tenant, target and original business-flow tuple. Deny persists past its review date; allow expires at the exclusive bound. Canonical CIDRs, family/protocol, interface aliases and port ranges are validated. Scope subset evaluation handles adjacent covering CIDRs/ranges. Protected management baseline and actual native reply/conntrack association are separate gates.
 
 Planner preserves the complete baseline, revision/hash preconditions and tombstones, forbids general-route allow expansion, and computes a bounded exact partition over IPv4/IPv6 TCP/UDP CIDR/port/interface/time boundaries. Unsupported ICMP, changed management context or resource exhaustion produces UNKNOWN. A sound business-domain diff does not certify OS enforcement.
@@ -79,7 +94,7 @@ Authority validates Ed25519 DSSE domain separation, tenant/target/epoch/generati
 
 The separate `AuthorityStore` adds SQLite plan-decision admission using its own explicitly provisioned principal, pinned credential and scoped-role records. Credentials require a persisted signed activation before use. Full immutable plan and requirements bytes are admitted with closed contract validation and locally computed canonical hashes. This validates their form and binding, not the truth of referenced compiler artifacts, gate evidence or authorship; a trusted importer and future signer must establish those independently. Challenge state is persisted before browser options are returned. `BEGIN IMMEDIATE` admission rechecks current authority records and atomically verifies the assertion, consumes the challenge, updates the credential and stores original proof, immutable decision and audit. Exact retries return the same result without new authority or renewed expiry. Retained proofs use saved pre-authentication state and admission time for cryptography, plus present stable key identity, revocation, role and plan validity checks.
 
-The [independent review service](authority-review-service.md) adds a separately configured loopback origin with pinned-key authentication, immutable plan review and fresh decision-bound WebAuthn assertions. Authority schema 4 retains full before/after StateIr evidence after an independently recomposed policy change matches the plan. Plan, requirements, review bytes and audit commit atomically. The service reads retained evidence after restart, and its checked approval challenge/admission APIs revalidate evidence inside the same transactions as their writes. Missing evidence blocks approve; legacy plans gain no evidence automatically. These checks do not certify the original target observations, compiler artifacts or referenced gates. The controller still refuses approval routes and never imports its login credentials into authority trust. The authority atomically aggregates independently verified decisions when explicit authority basis and human mappings are configured. The review API exposes immutable admission outcomes separately from revalidated current ApprovalSet snapshots; stale, missing-trust and dissent-blocked authority never becomes a current set. Production identity provisioning and authority bootstrap, signer jobs, authenticated IPC and OS-account isolation remain separate work. A second process/database under the same writable account is not a protected security boundary. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
+The [independent review service](authority-review-service.md) adds a separately configured loopback origin with pinned-key authentication, immutable plan review and fresh decision-bound WebAuthn assertions. Since authority schema 4, the store retains full before/after StateIr evidence after an independently recomposed policy change matches the plan. Plan, requirements, review bytes and audit commit atomically. The service reads retained evidence after restart, and its checked approval challenge/admission APIs revalidate evidence inside the same transactions as their writes. Missing evidence blocks approve; legacy plans gain no evidence automatically. These checks do not certify the original target observations, compiler artifacts or referenced gates. The controller still refuses approval routes and never imports its login credentials into authority trust. The authority atomically aggregates independently verified decisions when explicit authority basis and human mappings are configured. The review API exposes immutable admission outcomes separately from revalidated current ApprovalSet snapshots; stale, missing-trust and dissent-blocked authority never becomes a current set. Production identity provisioning and authority bootstrap, signer jobs, authenticated IPC and OS-account isolation remain separate work. A second process/database under the same writable account is not a protected security boundary. SQLite root/project quotas are atomic, rolling-window historical costs are not refunded, and non-reserved replay cannot be reused for signing.
 
 Executor journals own a writer lock and durable SQLite generation/time bounds. Journal schema 3 retains immutable recovery attempts and distinct submission evidence. Validated unsubmitted operations close without releasing their generation fence; fresh baseline reconciliation refuses to erase prior candidate, probe or recovery history. Native material acceptance atomically persists the signed grant, full baseline/candidate/recovery states and artifacts, installation binding and recovery scope before submission. Submission rechecks signed validity and confirmation ends at the earlier of submission+60 seconds or the signed absolute deadline. Recovery completion uses the same generation fence and retains the high-water mark. Restart and uncertain observations never create active-state evidence. The experimental confirmation domain is explicitly not the original F production protocol.
 

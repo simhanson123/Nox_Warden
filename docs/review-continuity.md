@@ -102,6 +102,14 @@ allows a separately authorized invitation; it does not implement retention clean
 
 ## Resume and review loop
 
+The recovery follow-up was merged as [PR #14](https://github.com/simhanson123/Nox_Warden/pull/14),
+main `f400d03f0bca873d42a1af114fb4632e2357d03a`. Its full CI passed, and it
+resolved anonymous CLI storage/audit exhaustion while retaining fresh browser
+approval, then added durable independently recomposed policy review evidence.
+The next slice builds independent target pins and signed metadata on that base;
+its current commands, executed results and next dependency are maintained in the
+task ledger and verification summary rather than a continuing chat transcript.
+
 1. Record the actual checkout SHA and diff; read the task ledger and current
    implementation boundaries before selecting work along F_08 dependencies.
 2. Give parallel agents disjoint file ownership and explicit review scopes.

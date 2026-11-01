@@ -18,6 +18,10 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
 - Linux device registration with a fingerprint-bound invitation, pinned TLS trust,
   Ed25519 client certificates and authenticated capability reports. A real target
   appears after its first report; every enforcement capability remains unverified.
+- [Independent target metadata](docs/target-metadata.md): explicitly pinned device
+  keys, fresh signed reports, durable exact retries and revocation in the separate
+  authority store. Device signatures authenticate metadata without qualifying
+  enforcement or permitting policy dispatch.
 - Authenticated local asset and service catalogues with immutable revisions,
   ETags, tenant isolation and transactional audit records. Services can reference
   registered targets with current credentials and reports. Authenticated audit

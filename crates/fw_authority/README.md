@@ -53,12 +53,22 @@ review boundaries.
 
 `register_reviewed_plan` additionally commits independently recomposed full
 before/after state evidence with the exact plan, requirements and audit in one
-transaction. Schema 4 retains immutable canonical evidence and validates its
+transaction. Since schema 4 it retains immutable canonical evidence and validates its
 bindings on read. The review service uses checked challenge/admission APIs that
 require this evidence for approval inside the corresponding transaction. Legacy
 plan registration does not create review evidence. This semantic verification
 does not certify the original target observations, compiler artifacts or native
 gate results and does not create dispatch permission.
+
+Schema 5 adds independently pinned target transport keys and nonce-bound signed
+metadata. Admission atomically consumes the challenge and retains exact proof,
+receipt, current head and audit. Current reads recheck original signatures,
+current pin/revocation and effective expiry; exact retries acknowledge history.
+Durable per-target time fences also survive refused or expired reads. The local
+`fw_authority_admin` executable explicitly initializes project namespaces, pins,
+challenges, admits, reads and revokes targets without creating human approval or
+signing authority. See the [target metadata guide](../../docs/target-metadata.md).
+Existing databases require an explicit validated private-backup migration.
 
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
 feature. Native executor and lab consumers disable default features, keeping
@@ -82,7 +92,7 @@ out-of-band enrollment and authority bootstrap, trusted artifact/gate
 admission, independent signer jobs/trust
 ceremonies, signed grant/quota reconciliation, complete PostgreSQL authority
 transactions, and process/key isolation deployment. The store accepts plan
-decisions only; it does not issue grants or turn its provisioning API into an
+decisions and metadata only; it does not issue grants or turn its provisioning API into an
 authenticated production service. SQLite unit/race/reopen tests do not certify
 production crash recovery or privileged OS enforcement. The separate
 [signed Linux lab](../../docs/signed-linux-execution.md)

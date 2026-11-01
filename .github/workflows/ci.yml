@@ -35,6 +35,10 @@ jobs:
           python scripts/smoke_cli.py
       - name: Device enrollment and certificate revocation
         run: python scripts/smoke_enrollment.py
+      - name: Independently pinned device metadata
+        run: |
+          cargo build --locked -p fw_authority --bin fw_authority_admin
+          python scripts/smoke_enrollment.py --authority-metadata --report reports/target-metadata-smoke.json
       - name: Install pinned browser test tools
         run: |
           python -m pip install -r scripts/requirements-browser.txt
@@ -67,6 +71,7 @@ jobs:
             reports/catalogue-browser.json
             reports/linux-lab.json
             reports/enrollment-smoke.json
+            reports/target-metadata-smoke.json
             reports/signed-linux-lab.json
             reports/passkey-smoke.json
             reports/login-admission-smoke.json

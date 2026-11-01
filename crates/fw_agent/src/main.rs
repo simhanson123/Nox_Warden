@@ -1,6 +1,7 @@
 //! A Linux device identity and certificate enrollment client. No command changes
 //! firewall rules or promotes an enrolled target into an authorized executor.
 mod files;
+mod metadata;
 
 use chrono::{DateTime, Utc};
 use files::Directory;
@@ -23,7 +24,7 @@ use uuid::Uuid;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const HELP: &str = "fw_agent init --state-dir PATH\nfw_agent enroll --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256 --invitation-file FILE\nfw_agent report --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256\nfw_agent status --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256\n\nEnrollment requires a separately verified controller CA hash and a private invitation file. Tokens and private keys are never command-line arguments or output. This Linux client registers transport identity and reports unverified capabilities; it never applies firewall rules. Certificate renewal is not implemented.";
+const HELP: &str = "fw_agent init --state-dir PATH\nfw_agent enroll --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256 --invitation-file FILE\nfw_agent report --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256\nfw_agent status --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256\nfw_agent sign-metadata --state-dir PATH --controller HTTPS_ORIGIN --ca-file FILE --trust-bundle-hash SHA256 --challenge-file FILE --output-file FILE\n\nEnrollment requires a separately verified controller CA hash and a private invitation file. Tokens and private keys are never command-line arguments or output. This Linux client registers transport identity and reports unverified capabilities; it never applies firewall rules. sign-metadata is an offline file exchange using an existing enrolled key; it neither contacts the controller nor grants policy authority. Certificate renewal is not implemented.";
 
 struct Arguments {
     command: String,
@@ -46,6 +47,14 @@ impl Arguments {
                 "--controller",
                 "--ca-file",
                 "--trust-bundle-hash",
+            ],
+            "sign-metadata" => &[
+                "--state-dir",
+                "--controller",
+                "--ca-file",
+                "--trust-bundle-hash",
+                "--challenge-file",
+                "--output-file",
             ],
             _ => return Err("unknown command; see --help".into()),
         };
@@ -625,11 +634,29 @@ fn run(args: Vec<String>) -> Result<Value> {
         ),
         "report" => authenticated(&state, &controller, &ca, pin, true),
         "status" => authenticated(&state, &controller, &ca, pin, false),
+        "sign-metadata" => metadata::sign(
+            &state,
+            &controller,
+            &ca,
+            pin,
+            Path::new(args.value("--challenge-file")?),
+            Path::new(args.value("--output-file")?),
+        ),
         _ => Err("unknown command".into()),
     }
 }
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args = match std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.into_string())
+        .collect::<std::result::Result<Vec<_>, _>>()
+    {
+        Ok(args) => args,
+        Err(_) => {
+            eprintln!("{}", json!({"error":"COMMAND_ARGUMENT_ENCODING_INVALID"}));
+            std::process::exit(1);
+        }
+    };
     if args.is_empty() || args == ["--help"] {
         println!("{HELP}");
         return;

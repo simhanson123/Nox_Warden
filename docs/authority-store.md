@@ -127,15 +127,79 @@ artifact, repeats every gate, validates current target observations, reserves
 quota, signs grants or dispatches firewall changes. Those checks remain required
 at the future signer boundary; semantic review is a separate prerequisite.
 
+## Device-authenticated target metadata
+
+Target metadata uses an independent trusted-local provisioning boundary. The
+`provision_target_metadata_project` method creates only a tenant namespace and
+its audit genesis; it creates no human, role, authority basis, approval or signing
+key. Repeating that initialization does not append another event. It permits
+metadata maintenance without inventing a reviewer identity.
+
+`pin_target_transport` accepts an independently established Ed25519 public key,
+certificate fingerprint, target, platform and validity interval. These are trust
+pins supplied by the privileged administrator, not the outcome of an authority
+X.509 chain or revocation-registry check. They must not be copied automatically
+from a controller response or a submitted report. The reporting agent separately
+checks its actual enrolled certificate identity, key, fingerprint and validity
+before signing. Deployment must establish how administrators independently
+verify these values and protect authority administration.
+
+An immutable organization-wide key registry prevents moving a key to another
+target or project. Pin changes use an explicit expected-revision comparison;
+renewing the same active key requires a new certificate fingerprint. Rotation
+and revocation leave permanent key tombstones, including across restarts and
+later attempts to pin the key for another target. Exact pin retries return the
+original revision without extending its lifetime. Pin revisions invalidate old
+challenges and current metadata.
+
+`issue_target_report_challenge` persists a fresh 32-byte nonce and the exact
+tenant, target, pin revision and key/certificate fingerprints. At most four
+unconsumed, unexpired challenges for the current target pin may be outstanding.
+Challenge deadlines are exclusive and clipped to the pin's validity and five
+minutes. `admit_target_report` verifies the exact canonical portable capability
+report under the pinned key and platform. Its measurement must be at least as
+recent as challenge issuance; a newly admitted report cannot replace a newer
+measurement. One IMMEDIATE transaction commits the one-use consumption,
+immutable proof and receipt, current head and required audit event.
+
+An exact successful retry returns the original historical receipt, including
+after expiry or revocation. It never advances the head or renews validity.
+`current_target_metadata` revalidates the full signed proof and stored column
+projections at the original admission time, then checks the current pin,
+revocation and exclusive effective deadline. The current head must match the
+latest immutable report sequence, and the pin head must match the latest pin
+revision; partial pointer rollback or cross-target transplantation is rejected.
+The effective deadline is the earliest of report expiry, challenge expiry and
+pin expiry. Both receipts and snapshots explicitly retain
+`authenticated_metadata_only` / `unverified`: a device signature authenticates
+the source of a claim, not its accuracy, native protection, installed policy,
+gate success, approval or permission to dispatch.
+
+For a known target, every metadata operation first persists a nondecreasing
+observation time in a separate short transaction. Even an expired read or later
+failed admission retains this clock floor, so clock rollback cannot revive old
+metadata or challenges after restart. The mutation transaction rechecks that
+floor to cover concurrent operations. This deliberate security-state write is
+the exception to otherwise atomic admission rollback: failed proof/audit work
+does not consume a challenge or insert a receipt, head or success audit event.
+The embedding administrator must supply trustworthy times.
+
+Individual challenge, pin, proof and receipt rows are bounded; target/revision,
+expiry and sequence indexes keep current reads and admission bounded. Immutable
+successful evidence and trusted-local issuance history are retained rather than
+silently deleted or capped by a lifetime issuance quota. Long-running deployments
+still need an authorized retention/archival maintenance procedure; no public
+issuance endpoint or maintenance deletion operation is supplied by this slice.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 4. The stable family identity
+Fresh authority databases use schema version 5. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2 or 3 database returns `MigrationRequired` without adding tables
+populated version 1, 2, 3 or 4 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v4.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v5.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -166,12 +230,16 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 4 database makes no new backup or state change. Foreign and
+on a valid version 5 database makes no new backup or state change. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
 are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
 retries return `NotEvaluated`. `migrate_v1` remains a compatibility alias for the
-explicit maintenance operation. The version 4 step adds an empty immutable review-evidence table; it never synthesizes semantic proof from historical plans or approvals.
+explicit maintenance operation. The version 4 step adds an empty immutable
+review-evidence table; it never synthesizes semantic proof from historical plans
+or approvals. Version 5 adds empty target key, pin, revocation, challenge,
+observation-clock and metadata evidence tables. It never imports controller
+trust, invents target reports or grants existing approvals dispatch authority.
 
 ## Issuance and atomic decision admission
 

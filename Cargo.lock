@@ -538,7 +538,9 @@ dependencies = [
  "chrono",
  "fw_contracts",
  "fw_enrollment",
+ "fw_target_evidence",
  "libc",
+ "openssl",
  "rustls",
  "serde",
  "serde_json",
@@ -573,6 +575,7 @@ dependencies = [
  "fw_contracts",
  "fw_domain",
  "fw_planner",
+ "fw_target_evidence",
  "fw_webauthn",
  "openssl",
  "rusqlite",
@@ -776,6 +779,21 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "unicode-normalization",
+ "uuid",
+]
+
+[[package]]
+name = "fw_target_evidence"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "ed25519-dalek",
+ "fw_contracts",
+ "openssl",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
  "uuid",
 ]
 
