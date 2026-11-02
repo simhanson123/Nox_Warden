@@ -139,4 +139,3 @@ Source gives another concrete timing hypothesis besides the report's 300-second 
 ## Integration order and qualification
 
 Reproduce N1/N7 fully and preserve N2's public-API test first; implement the new guarded schema plus current/legacy integrity checks with the other PR20 findings. Keep old migration hashes unchanged. Then rebase the prepared rootless project-quota design onto the resulting schema: the next version may be security schema11 with rootless schema12, so no new session should assume rootless must use11. All existing issued/UNKNOWN/unqualified-delivery effective capacity remains held. Public signing/dispatch remain closed; this is local persistence hardening, not protection from a hostile OS administrator or full-file replacement.
-
