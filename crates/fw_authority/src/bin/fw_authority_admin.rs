@@ -2,8 +2,8 @@
 //! Operating-system access to the protected authority database is the trust
 //! boundary. Inputs are public pins/proofs; this program accepts no private key.
 use fw_authority::{
-    AuthorityStore, AuthorityTenant, NativeObserverPin, NativeReferencePin, SigningProjectQuotaPin,
-    SigningRequest, SigningRootQuotaPin, TargetTransportPin,
+    AuthorityStore, AuthorityTenant, CoreAccessProvenance, NativeObserverPin, NativeReferencePin,
+    SigningProjectQuotaPin, SigningRequest, SigningRootQuotaPin, TargetTransportPin,
 };
 use fw_backend_linux::Installation;
 use fw_contracts::{canonical_bytes, parse_strict_with_limit};
@@ -20,7 +20,7 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. No command accepts a private key, signs a policy or changes a firewall. Signing requests remain blocked until independent production qualification is implemented.";
+const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -59,7 +59,9 @@ impl Arguments {
             | "revoke-signing-root-quota"
             | "revoke-signing-project-quota"
             | "read-signing-intent"
-            | "cancel-signing-job" => &["--database", "--org-id", "--project-id"],
+            | "cancel-signing-job"
+            | "register-core-access-provenance"
+            | "read-core-access-provenance" => &["--database", "--org-id", "--project-id"],
             "read-signing-readiness" | "request-signing" => &[
                 "--database",
                 "--org-id",
@@ -115,6 +117,17 @@ struct ReviewedPlanRequest {
     plan: Value,
     requirements: Value,
     evidence: PolicyReviewEvidence,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoreAccessProvenanceRequest {
+    plan_id: String,
+    provenance: CoreAccessProvenance,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoreAccessProvenanceReadRequest {
+    plan_id: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -340,6 +353,36 @@ fn run() -> Result<Value> {
                 )
                 .map_err(|_| "PLAN_REVIEW_REJECTED")?;
             Ok(json!({"status":"registered","production_qualified":false,"dispatch_allowed":false}))
+        }
+        "register-core-access-provenance" => {
+            let input: CoreAccessProvenanceRequest =
+                request().map_err(|_| "CORE_ACCESS_PROVENANCE_REJECTED")?;
+            let status = store
+                .register_core_access_provenance(
+                    &tenant,
+                    &input.plan_id,
+                    &input.provenance,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "CORE_ACCESS_PROVENANCE_REJECTED")?;
+            serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "read-core-access-provenance" => {
+            let input: CoreAccessProvenanceReadRequest =
+                request().map_err(|_| "CORE_ACCESS_PROVENANCE_REJECTED")?;
+            let provenance = store
+                .read_core_access_provenance(
+                    &tenant,
+                    &input.plan_id,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "CORE_ACCESS_PROVENANCE_REJECTED")?;
+            Ok(json!({
+                "schema_version":"fw.core-access-provenance-query/v1",
+                "provenance":provenance,
+                "signing_allowed":false,
+                "dispatch_allowed":false
+            }))
         }
         "pin-native-references" => {
             let input: NativeReferenceRequest = request_with_limit(NATIVE_INPUT_LIMIT)?;

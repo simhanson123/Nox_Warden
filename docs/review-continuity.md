@@ -34,10 +34,20 @@ summary, separate from these three historical reports.
 
 ## Reservation-integrity follow-up review
 
-The current follow-up is [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).
-Its body retains the complete three-model review prompts and exact current base
-and target. The older local `docs/review-prompts.md` is historical PR #16 material;
-do not reuse its target for this follow-up.
+The reservation-integrity follow-up merged as
+[PR #19](https://github.com/simhanson123/Nox_Warden/pull/19). Its fixed review
+target is `2ef3aecec27fee6a5c89a63c3b975057bef2e598`, compared with
+`5a7551d1d7a59a8f92f74dc972953e5162fd5a90`; the merge is
+`09ef6a866632a9a6e12e2af799cb18b8b55daca9`, with the same file tree as the head.
+The user selected **Claude Opus 5.5 only** for the consolidated external review
+and supplied its [complete report](reviews/pr19-claude-review.md). The upload is
+preserved byte-for-byte, including its opening progress notes and original CRLF
+line endings: 19,378 bytes, SHA-256
+`255d2afcd641b5b86d5c0d54be300326bd7d0b614b961a0e6ebae9e3ef433e9f`.
+The PR body retains the earlier three-model prompt history, which does not imply
+those models reviewed PR #19.
+The older local `docs/review-prompts.md` is historical PR #16 material; do not
+reuse its target for this follow-up.
 
 The follow-up independently reproduced L1 against the unchanged PR #18 tree,
 then retained the opposite regression using a real signing fixture and intact
@@ -56,13 +66,81 @@ The corrections respectively require complete head/event agreement, validate
 the full lifecycle before committing migration imports, and check the exact
 bounded set of live accounting guards. These are newly executed internal reviews,
 not fresh executions by the named external models. No further confirmed blocker
-remained within those reviewed scopes.
+remained within those reviewed scopes at that time; the subsequent external
+report below identifies additional gaps.
 
-Full schema validation occurs at open and migration. The live accounting check
-covers its specified membership guards; it does not authenticate every byte
-against an attacker able to replace the whole database and retained trust keys.
+PR #19 checked schema definitions at open and migration and checked its specified
+live accounting membership guards. F2 and F3 below identify gaps in that guard
+set and schema-name filter. Neither those checks nor their follow-up authenticate
+every byte against an attacker able to replace the whole database and trust keys.
 The [verification summary](../reports/README.md) records the completed integrated
 checks without adding overlapping focused test counts.
+
+## Received PR #19 findings and independent follow-up
+
+The supplied report marks the original L1 and internal counterexamples A/B
+resolved, and counterexample C resolved within the documented ten-guard scope.
+It reports three Low findings directly reproduced by Claude and a fourth Low
+finding reproduced only by Claude's migration subagent. It reports no Critical,
+High or Medium findings. These severity and execution statements are attributed
+external evidence, not a new local verification result.
+
+| Finding | Supplied reproduction | Local follow-up status |
+| --- | --- | --- |
+| F1: forged delivery evidence releases an issued dispatch slot with ordinary SQL and all guards present | Claude directly reproduced accepted forged work event/head/delivery/active transition, a new reservation after reopening, and consistent lifecycle output | Independently reproduced; issued capacity remains held after unsigned delivery, including expiry/reopen; new work guards and accounting-head identity protections rechecked |
+| F2: live accounting guard list omits the transition-evidence trigger | Claude directly reproduced an unsupported active transition and new admission after removing that trigger, including after restoring it and reopening | Independently reproduced; all 45 signing guards checked against canonical definitions, and restored-guard false active records cannot return capacity |
+| F3: `NOT LIKE 'sqlite_%'` excludes user-created schema objects such as `sqliteX_hidden` | Claude directly reproduced same-version migration accepting a hidden trigger with the standard binary; the migration subagent additionally reported v7-to-v8 acceptance | Independently reproduced with the real CLI; exact reserved-prefix filtering rejects lookalike triggers, tables, views and indexes while preserving source/backup behavior |
+| F4: legacy UNKNOWN reservation can be relabeled issued before migration | Reproduced only by Claude's migration subagent; Claude explicitly did not rerun it. Slots and costs were retained | Independently reproduced; any prior UNKNOWN rejects an issued relabel in live reads and backed-up migration, including reclaimed dispatch heads |
+
+The report's workspace, reduced-feature, CLI process, UI, shared-umask and
+HTTP/browser results remain external executions. It records corrected probe and
+environment failures before its final passes; overlapping focused counts must
+not be added to the full totals. Docker-dependent Linux, signed Linux and native
+evidence suites were not run by that reviewer. The external probe source, logs,
+tool installations and temporary worktrees were not supplied. This session has
+not rerun those private probes, and the report's cleanup commands are preserved
+as source text rather than instructions to execute. Independent local probes and
+their outcomes must be recorded separately when completed.
+
+## Development continuing alongside the fixed PR #19 review
+
+The core-access provenance batch starts from PR #19 merge
+`09ef6a866632a9a6e12e2af799cb18b8b55daca9` on
+`feat/core-access-provenance`, now
+[PR #20](https://github.com/simhanson123/Nox_Warden/pull/20). At receipt of the
+external report its head was `df957cd9d91717c9db0b2f65759b299fc484ceb3`, CI was
+still in progress, and the PR had not merged. That schema 9 checkpoint's
+[CI run](https://github.com/simhanson123/Nox_Warden/actions/runs/41415827668)
+subsequently passed. PR #20 was held as a draft during the security follow-up; that
+earlier run does not verify the new changes. Claude's report reviews the fixed
+PR #19 head above; it does not review this schema 9 or schema 10 work. Separate local probes reproduced F1–F4 and the corrections passed focused and
+independent rechecks. These executions are separate from the external report.
+
+Schema 9 adds immutable original request/envelope/delegation retention and
+per-plan bindings, full original duration cost, delegated-root/quota-root matching,
+trusted local registration/lookup and separate readiness blockers. It preserves
+all deployed migrations 001–008 and the original specification package. The
+complete core semantic-review/native/signing profile and rootless policy quota
+profile remain follow-up work. Production preparation, signing and dispatch
+remain closed. Newly executed checks and independent internal review outcomes
+belong in the task ledger and verification summary, separate from the supplied
+external report and its reported test executions.
+
+The schema 10 follow-up preserves published migrations 001–009 and physical
+legacy slot/evidence bytes while retaining one effective dispatch slot for all
+issued reservations, including historical unsigned `active`/`delivered` rows.
+New work-state and head guards, claimed-head delivery admission, complete live
+guard checks, the literal SQLite reserved-prefix filter and legacy UNKNOWN
+history checks address the reported boundaries. A recorded delivery cannot
+authenticate native activation, resolve uncertainty or return issued capacity.
+An authenticated receipt protocol remains unavailable. Fresh follow-up integration passed 800 workspace Rust tests, 32 reduced-feature
+tests, one explicit cancellation CLI process test and 180 UI tests. Independent
+review additionally corrected accounting-head replacement, nullable historical
+metadata projection, contradictory UI states and missing complete lifecycle
+validation on v8/v9 upgrade. Each confirmed case was rechecked after correction.
+Shared-umask and runtime checks are recorded in the verification summary; no pass
+from the schema 9 checkpoint or external PR #19 report is substituted for them. Rootless quota work remains the next
+separate batch; its read-only foreign-key design review has not implemented it.
 
 ## PR #18 integrated implementation review
 

@@ -261,15 +261,58 @@ challenges to 4 KiB, and signed proof envelopes to 3 MiB. Trusted-local history
 retention has no silent truncation or permanent lifetime issuance cap. Authorized
 archival maintenance and protected collector/IPC deployment remain future work.
 
+## Original core-access cost provenance
+
+Schema 9 retains the original `f.access-request/v1`, `f.access-envelope/v1` and
+`f.delegation/v1` objects in a bounded `fw.core-access-provenance/v1` record.
+`register_core_access_provenance` is a trusted local operation against a previously
+registered immutable core plan. Its verifier checks exact canonical hashes and
+request, tenant, target, principal, workload, membership, scope and time bindings.
+The explicit original request/revision and lease identity remain separate from
+the signing coordinator's retry ID. The core profile requires request revision 1.
+
+`authority_core_access_requests` holds immutable original bytes and projections;
+`authority_core_access_plan_bindings` attaches those same bytes to compatible
+plans. The original request cannot change its root, lease or content. Lease IDs
+are unique within an organization and request idempotency keys within a tenant,
+preventing a new request ID from aliasing an already retained request. A new plan
+attachment, security revision and audit entry commit atomically. Exact retries
+return retained status, including after expiry or retirement, without appending
+audit or renewing validity. New attachments require a current plan and inputs.
+Update/delete guards preserve both tables. Separate `BEFORE INSERT` guards
+reject collisions on every original request identity and on an existing plan
+binding before SQLite applies `INSERT OR REPLACE`; replacement cannot silently
+delete retained evidence when recursive delete triggers are disabled. Exact
+application retries read the existing record instead of inserting a replacement.
+
+`read_core_access_provenance` rechecks canonical bytes, hashes and every stored
+projection; malformed evidence returns an error. Its bounded status omits the
+original purpose, workflow and scope. Historical evidence remains readable with
+`current:false` when the plan or inputs are no longer current. `current` is a
+binding-lifetime observation, never approval or permission to sign or dispatch.
+Both permission fields remain false. See the [local CLI guide](core-access-provenance-cli.md).
+
+Cost derivation uses the full original requested duration, retained lease ID and
+sorted destination set, and independently checks that the configured quota root
+matches the delegation root. A shorter remaining plan window cannot lower that
+cost. Import does not authenticate envelope/delegation approval hashes or the
+referenced workload, and does not create quota pins, native qualification,
+approval sets or grants. Complete core signing and protected production authority
+remain separate requirements.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 8. The stable family identity
+Fresh authority databases use schema version 10. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2, 3, 4, 5, 6 or 7 database returns `MigrationRequired` without adding tables
+populated version 1–9 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
+Stop the authority service and its workers before migration, then restart them
+with the new binary. Do not mix older running binaries with a migrated database;
+schema 10 strengthens both work admission and the meaning of retained capacity.
+
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v8.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v10.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -300,11 +343,13 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 8 database makes no new backup or state change. Opening a
-version 8 database and the already-current migration path both check migration
+on a valid version 10 database makes no new backup or state change. Opening a
+version 10 database and the already-current migration path both check migration
 checksums and the actual schema against the known table, index and trigger
-definitions. Removing or replacing a guard causes rejection even if the stored
-version and checksum rows remain unchanged. Foreign and
+definitions. The digest excludes only the literal reserved `sqlite_` prefix,
+case-insensitively; a user-created name such as `sqliteX_hidden` is included.
+Removing or replacing a guard, or adding an unexpected object, causes rejection
+even if the stored version and checksum rows remain unchanged. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
 are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
@@ -331,6 +376,39 @@ inconsistent retained state is backed up first, then the migration fails and rol
 back, leaving the original source state and the validated private backup available
 for investigation. An unrecognized schema is refused before creating a backup.
 Migration does not rewrite original proofs, receipts, audit bytes or signer trust.
+Version 9 preserves migrations 001–008 and adds empty immutable core-access
+request and plan-binding tables. Existing version 8 evidence and signing history
+remain unchanged. Migration cannot invent the original request, root, lease or
+full duration from old plan windows or approvals. Registration must subsequently
+supply the original objects through the separate trusted local boundary.
+The new tables reject updates, deletes and insertion conflicts on every retained
+identity, including SQLite row IDs. These insertion guards also block `REPLACE`
+when recursive triggers are disabled; replacement cannot silently remove an
+original request or plan binding. Exact library retries compare retained bytes
+before insertion and do not append another audit event.
+
+Version 10 preserves migrations 001–009 and validates bounded legacy work
+histories before installing work-event/head/delivery guards and accounting
+indexes that include every `active` reservation. Revisions, allowed transitions,
+claim identity and latest-head agreement must be consistent. Delivery insertion
+requires a claimed dispatch head. Any prior UNKNOWN dispatch event prevents
+accepting a reservation relabeled `issued`, including when the latest dispatch
+head has been re-claimed. Invalid known-schema history aborts the upgrade and
+leaves the source and validated private backup intact.
+Validation permits at most 192 work events per job phase. Older histories from
+before the heartbeat cap may exceed this bound and cannot automatically upgrade;
+the same source/backup preservation applies. Migration never trims historical
+events, rewrites their state or invents claims to fit the current state machine.
+
+The upgrade preserves original proofs, receipts, canonical BLOBs and physical
+`dispatch_slots` projections, including legacy zero values on `active` rows.
+Effective accounting and held-status reads retain one dispatch slot for every
+issued reservation. An unsigned `delivered` record cannot return capacity or
+resolve execution uncertainty. Migration invents no authenticated delivery
+receipt; such verification and release remain future work. The live accounting
+path also checks the full defined quota/work guard set against cached canonical
+SQL. These integrity checks do not protect against coherent replacement of the
+entire authority database and its trust records.
 See [durable signing coordination](signing-coordination.md).
 
 ## Issuance and atomic decision admission

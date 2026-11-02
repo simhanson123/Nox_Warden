@@ -57,6 +57,22 @@ test('current prerequisites and retained intents are separate read-only evidence
   expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0);
 });
 
+test.each([false, true])('core signing remains blocked when original request binding is unavailable: %s', async (bindingUnavailable) => {
+  const plan = detail(); plan.plan.change_kind = 'add_access_lease';
+  const value = { ...readiness(plan), latest_intent: null };
+  value.reasons.push('CORE_SIGNING_PROFILE_UNAVAILABLE');
+  if (bindingUnavailable) value.reasons.push('CORE_REQUEST_BINDING_UNAVAILABLE');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  const panel = screen.getByRole('region', { name: 'Signing readiness' });
+  expect(await within(panel).findByText('Access lease signing is unavailable in this build.')).toBeInTheDocument();
+  expect(panel).toHaveTextContent('Production signing and deployment remain blocked.');
+  expect(!!within(panel).queryByText('The required core request binding is unavailable.')).toBe(bindingUnavailable);
+  expect(within(panel).getAllByRole('button')).toHaveLength(1);
+  expect(parseSigningReadiness(value, plan)).toMatchObject({ signing_allowed: false, dispatch_allowed: false });
+  expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET' && init.body === undefined)).toBe(true);
+});
+
 test.each([
   ['another plan', (v: ReturnType<typeof readiness>) => { v.plan_id = id('1'); }],
   ['another tenant', (v: ReturnType<typeof readiness>) => { v.org_id = id('1'); }],
@@ -75,6 +91,9 @@ test.each([
   ['invented delivery', (v: ReturnType<typeof readiness>) => { v.latest_intent.dispatch_state = 'success'; }],
   ['released UNKNOWN slots', (v: ReturnType<typeof readiness>) => { v.latest_intent.reservation_held = false; }],
   ['UNKNOWN with released reservation', (v: ReturnType<typeof readiness>) => { v.latest_intent.reservation_state = 'released'; }],
+  ['delivery recorded with released quota', (v: ReturnType<typeof readiness>) => {
+    v.latest_intent.dispatch_state = 'delivered'; v.latest_intent.reservation_state = 'active'; v.latest_intent.reservation_held = false;
+  }],
   ['deadline beyond the plan', (v: ReturnType<typeof readiness>) => { v.valid_until = time(now() + 7200000); }],
   ['unbounded readiness window', (v: ReturnType<typeof readiness>) => { v.valid_until = time(now() + 120000); }],
   ['intent lifetime beyond five minutes', (v: ReturnType<typeof readiness>) => { v.latest_intent.created_at = time(now() - 600000); }],
@@ -82,6 +101,44 @@ test.each([
   ['raw signer content', (v: ReturnType<typeof readiness>) => { Object.assign(v.latest_intent, { signed_grant: 'private-marker' }); }],
 ])('malformed readiness cannot display authority: %s', (_name, mutate) => {
   const plan = detail(); const value = readiness(plan); mutate(value);
+  expect(() => parseSigningReadiness(value, plan)).toThrow();
+});
+
+test.each([
+  { name: 'prepared', state: 'prepared', dispatch: null, reservation: 'reserved', held: true, grant: false },
+  { name: 'claimed signer', state: 'claimed', dispatch: null, reservation: 'reserved', held: true, grant: false },
+  { name: 'cancelled before issuance', state: 'cancelled', dispatch: null, reservation: 'released', held: false, grant: false },
+  { name: 'queued grant', state: 'ready', dispatch: 'queued', reservation: 'issued', held: true, grant: true },
+  { name: 'claimed delivery', state: 'ready', dispatch: 'claimed', reservation: 'issued', held: true, grant: true },
+  { name: 'reclaimed UNKNOWN delivery', state: 'ready', dispatch: 'claimed', reservation: 'unknown', held: true, grant: true },
+  { name: 'UNKNOWN delivery', state: 'ready', dispatch: 'unknown', reservation: 'unknown', held: true, grant: true },
+  { name: 'recorded delivery', state: 'ready', dispatch: 'delivered', reservation: 'active', held: true, grant: true },
+])('coherent expired history remains readable without authority: $name', ({ state, dispatch, reservation, held, grant }) => {
+  const plan = detail(); const base = readiness(plan);
+  const value = { ...base, latest_intent: { ...base.latest_intent, state, dispatch_state: dispatch,
+    reservation_state: reservation, reservation_held: held, grant_hash: grant ? hash('f') : null, valid_until: time(now() - 1000) } };
+  expect(parseSigningReadiness(value, plan).latest_intent).toMatchObject({
+    state, dispatch_state: dispatch, reservation_state: reservation, reservation_held: held,
+    current_eligible: false, dispatch_allowed: false,
+  });
+});
+
+test.each([
+  { name: 'delivered grant with released quota', state: 'ready', dispatch: 'delivered', reservation: 'released', held: false, grant: true },
+  { name: 'delivered grant with unacknowledged issuance', state: 'ready', dispatch: 'delivered', reservation: 'issued', held: true, grant: true },
+  { name: 'ready signer without delivery', state: 'ready', dispatch: null, reservation: 'issued', held: true, grant: true },
+  { name: 'ready signer without grant', state: 'ready', dispatch: 'queued', reservation: 'issued', held: true, grant: false },
+  { name: 'prepared signer with a grant', state: 'prepared', dispatch: null, reservation: 'reserved', held: true, grant: true },
+  { name: 'prepared signer with issued quota', state: 'prepared', dispatch: null, reservation: 'issued', held: true, grant: false },
+  { name: 'claimed signer with queued delivery', state: 'claimed', dispatch: 'queued', reservation: 'issued', held: true, grant: true },
+  { name: 'cancelled signer retaining reserved quota', state: 'cancelled', dispatch: null, reservation: 'reserved', held: true, grant: false },
+  { name: 'cancelled signer with delivered grant', state: 'cancelled', dispatch: 'delivered', reservation: 'active', held: true, grant: true },
+  { name: 'new queued delivery with UNKNOWN quota', state: 'ready', dispatch: 'queued', reservation: 'unknown', held: true, grant: true },
+  { name: 'claimed delivery with completed quota', state: 'ready', dispatch: 'claimed', reservation: 'active', held: true, grant: true },
+])('contradictory workflow history is rejected: $name', ({ state, dispatch, reservation, held, grant }) => {
+  const plan = detail(); const base = readiness(plan);
+  const value = { ...base, latest_intent: { ...base.latest_intent, state, dispatch_state: dispatch,
+    reservation_state: reservation, reservation_held: held, grant_hash: grant ? hash('f') : null } };
   expect(() => parseSigningReadiness(value, plan)).toThrow();
 });
 
@@ -94,6 +151,43 @@ test('an expired UNKNOWN intent keeps its held reservation and historical result
   expect(screen.getByText('Quota slots remain held by this reservation.')).toBeInTheDocument();
   expect(screen.getByText('The delivery outcome is unknown. Quota remains held until verified reconciliation; expiry does not release it.')).toBeInTheDocument();
   expect(screen.queryByText('No quota slots are held by this reservation.')).not.toBeInTheDocument();
+});
+
+test('recorded delivery retains quota for a non-lease plan after intent expiry', async () => {
+  const plan = detail(); plan.plan.change_kind = 'policy_change';
+  const value = readiness(plan);
+  value.latest_intent.dispatch_state = 'delivered';
+  value.latest_intent.reservation_state = 'active';
+  value.latest_intent.valid_until = time(now() - 1000);
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  const panel = screen.getByRole('region', { name: 'Signing readiness' });
+  expect(await within(panel).findByText('Delivery recorded; quota retained')).toBeInTheDocument();
+  expect(panel).toHaveTextContent('Quota retained after delivery');
+  expect(panel).toHaveTextContent('Quota slots remain held by this reservation.');
+  expect(panel).toHaveTextContent('The intent deadline has passed. Expiry alone does not release held quota.');
+  expect(panel).toHaveTextContent('A retained intent records workflow progress. It does not establish an active firewall policy.');
+  expect(panel).toHaveTextContent('Retained history; not currently eligible for signing or dispatch');
+  expect(within(panel).queryByText('No quota slots are held by this reservation.')).not.toBeInTheDocument();
+  expect(parseSigningReadiness(value, plan).latest_intent).toMatchObject({
+    reservation_held: true, current_eligible: false, dispatch_allowed: false,
+  });
+  expect(within(panel).getAllByRole('button')).toHaveLength(1);
+  expect(within(panel).getByRole('button', { name: 'Refresh signing readiness' })).toBeInTheDocument();
+  expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET' && init.body === undefined)).toBe(true);
+});
+
+test('a delivery response claiming released quota cannot display contradictory retained history', async () => {
+  const plan = detail(); const value = readiness(plan);
+  value.latest_intent.dispatch_state = 'delivered';
+  value.latest_intent.reservation_state = 'released';
+  value.latest_intent.reservation_held = false;
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  expect(await screen.findByText('Signing readiness is unavailable. Refresh to recheck.')).toBeInTheDocument();
+  expect(screen.queryByText('Delivery recorded; quota retained')).not.toBeInTheDocument();
+  expect(screen.queryByText('No quota slots are held by this reservation.')).not.toBeInTheDocument();
+  expect(screen.getByText('Production signing and deployment remain blocked.')).toBeInTheDocument();
 });
 
 test('refresh rechecks missing prerequisites without creating an intent or carrying forward a failed response', async () => {

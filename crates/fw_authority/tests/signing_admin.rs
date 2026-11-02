@@ -673,7 +673,7 @@ fn actual_migration_requires_backup_and_preserves_native_receipts_without_author
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    assert_eq!(database_version(), 8);
+    assert_eq!(database_version(), 10);
     assert_eq!(
         fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
         0o600

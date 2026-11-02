@@ -13,7 +13,7 @@ meaningful completion percentage.
 | Area | Implemented boundary | Remaining acceptance |
 | --- | --- | --- |
 | Local control and authentication | Real passkeys, browser-authorized CLI, catalogues, audit pagination, device registration and eight locales | Recovery/renewal, remote production identity, complete workflows and accessibility/translation review |
-| Independent approval and evidence | Current distinct-human quorum, immutable review, separately pinned signed metadata, recompilation, signed native observations and durable signing/quota mechanics | Production bootstrap, qualified evidence/build identity, core request cost binding, protected signer and authenticated dispatch |
+| Independent approval and evidence | Current distinct-human quorum, immutable review, signed metadata/native observations, durable signing/quota mechanics and retained original core-access cost binding | Production bootstrap, qualified evidence/build identity, complete core signing and rootless policy profiles, protected signer and authenticated dispatch |
 | Linux enforcement | Actual nftables, packet probes, signed lab execution and conservative recovery in disposable namespaces | Installed-host lifecycle, management connectivity, watchdog, reboot/physical NIC/coexistence and full common-host qualification |
 | Windows and macOS | Preserved design and explicit unsupported boundaries | WFP/callout and Network Extension implementations, supported OS runners, signing and real kernel tests |
 | Distribution and operations | Source, pinned builds and CI | Signed installers, upgrade/uninstall, restore epochs, provider/channel acceptance and production operations |
@@ -25,11 +25,25 @@ Schema 8 adds evidence-bound reservation transitions, actual-schema checks and
 private-backup validation of existing reservation history. Trusted local
 cancellation handles expired unissued jobs without refunding issued or UNKNOWN
 work. Dispatch reads revalidate the exact signed payload, and heartbeat history
-is bounded per claim generation. These are storage and verification mechanics;
-the public production resolver remains closed. The next dependencies are protected authority
-bootstrap and generation initialization, qualified production evidence, original
-core request cost binding and protected signer/dispatch deployment. Passing a lab
-or returning a current evidence summary cannot open policy dispatch.
+is bounded per claim generation. Schema 9 retains the original core access request,
+envelope and delegation with an immutable request/root/lease binding. Derived
+cost uses the full original requested duration and destination set even when a
+plan's policy window is shorter, and requires the delegated root to match the
+independently configured quota root. Trusted local import and lookup return
+bounded evidence summaries; they do not establish approval or signing authority.
+The [received Claude PR #19 report](reviews/pr19-claude-review.md) prompted a
+schema 10 follow-up: every issued reservation retains effective dispatch capacity
+despite unsigned historical delivery records, and work-history/state-machine
+guards, live guard validation and exact schema filtering are strengthened.
+Legacy slot columns and evidence bytes are preserved. `active`/`delivered` labels
+remain historical diagnostics and do not prove native activation or resolve
+UNKNOWN. The follow-up's verification is tracked separately from the earlier
+schema 9 checkpoint.
+The public production resolver remains closed. The next dependencies are the
+complete core semantic-review/native/signing profile, rootless general-policy
+quotas, protected authority bootstrap and generation initialization, qualified
+production evidence and protected signer/dispatch deployment. Passing a lab or
+returning a current evidence summary cannot open policy dispatch.
 
 ## Trust and process boundaries
 
@@ -126,8 +140,23 @@ bytes do not prove an approved journal operation. All results remain unqualified
 and unable to dispatch; production observer isolation, management baseline
 qualification and authenticated host dispatch remain open requirements. The
 two-phase signing/quota transaction mechanics introduced in schema 7 and hardened
-in schema 8 retain a protected production resolver that refuses all preparation
-and worker operations.
+in schemas 8 and 10 retain a protected production resolver that refuses all
+preparation and worker operations. Unsigned retained delivery records never
+return issued dispatch capacity; an authenticated receipt protocol is still
+required before release can be supported. Migration preserves those records
+without promoting them into production evidence.
+
+Schema 9 adds [original core-access cost provenance](core-access-provenance-cli.md).
+The bounded verifier checks exact request, envelope and delegation hashes against
+the immutable plan, tenant/target/principal/workload and asset/service membership,
+scope exclusions and validity/duration constraints. Immutable request and plan
+binding records prevent changed evidence, lease reuse or aliasing the original
+request idempotency key. Reads revalidate the retained bytes and distinguish
+historical evidence from a current binding. Registration, security revision and
+audit commit together; exact retries add no audit event. A successful binding
+does not verify approval signatures or the referenced workload identity. Core
+semantic review, native evidence and grant preparation still need their complete
+profile, shown separately as `CORE_SIGNING_PROFILE_UNAVAILABLE` in readiness.
 
 The separate [target metadata flow](target-metadata.md) lets a trusted local
 operator pin a device key, certificate binding and validity independently of

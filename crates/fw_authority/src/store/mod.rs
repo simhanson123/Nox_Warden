@@ -6,6 +6,7 @@
 //! A different SQLite filename, on its own, does not establish that boundary.
 //! Decisions can atomically complete a human approval set; they do not create
 //! grants or signing jobs.
+mod access_provenance;
 mod admission;
 mod audit_log;
 mod migrations;
@@ -25,6 +26,7 @@ pub use signing_jobs::*;
 pub use signing_quota::*;
 mod subject;
 mod target_metadata;
+pub use access_provenance::*;
 pub use audit_log::AuthorityAuditVerification;
 pub use native_evidence::*;
 pub use review::*;
@@ -132,7 +134,7 @@ impl AuthorityStore {
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
             let tables: i64 = tx.query_row(
-                "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                "SELECT count(*) FROM sqlite_schema WHERE lower(substr(name,1,7)) <> 'sqlite_'",
                 [],
                 |r| r.get(0),
             )?;
@@ -145,8 +147,12 @@ impl AuthorityStore {
                 migrations::apply_v6(&tx)?;
                 migrations::apply_v7(&tx)?;
                 migrations::apply_v8(&tx)?;
+                migrations::apply_v9(&tx)?;
+                migrations::apply_v10(&tx)?;
             } else {
-                if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6, 7, 8].contains(&version) {
+                if application != APPLICATION_ID
+                    || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&version)
+                {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -159,13 +165,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 8 {
+                if version < 10 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 8,
+                        required: 10,
                     });
                 }
-                migrations::validate_v8(&tx)?;
+                migrations::validate_v10(&tx)?;
             }
             tx.commit()?;
         }
