@@ -134,6 +134,9 @@ case. Fresh actual runtime checks passed **40 authority browser checks, 41
 metadata checks and 33 native-evidence checks with five kernel captures**. The
 disposable native container was removed. Broader Linux packet and unrelated
 controller runtime checks remain part of the required remote PR workflow.
+That job now permits 30 minutes: the preceding PR's complete run took 19 minutes
+17 seconds against a 20-minute limit before this batch added 49 Rust regressions.
+No suite or assertion was removed to meet the deadline.
 
 Provenance is not verified delegation/envelope approval, workload authentication
 or human approval. Core semantic review, native binding, a single retained
