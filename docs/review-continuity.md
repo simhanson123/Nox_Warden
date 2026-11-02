@@ -34,10 +34,17 @@ summary, separate from these three historical reports.
 
 ## Reservation-integrity follow-up review
 
-The current follow-up is [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).
-Its body retains the complete three-model review prompts and exact current base
-and target. The older local `docs/review-prompts.md` is historical PR #16 material;
-do not reuse its target for this follow-up.
+The reservation-integrity follow-up merged as
+[PR #19](https://github.com/simhanson123/Nox_Warden/pull/19). Its fixed review
+target is `2ef3aecec27fee6a5c89a63c3b975057bef2e598`, compared with
+`5a7551d1d7a59a8f92f74dc972953e5162fd5a90`; the merge is
+`09ef6a866632a9a6e12e2af799cb18b8b55daca9`, with the same file tree as the head.
+The user subsequently selected **Claude Opus 5.5 only** for the consolidated
+external review. A complete combined prompt was supplied in the conversation;
+no report from that review has been received. The PR body retains the earlier
+three-model prompt history, which does not imply those models reviewed PR #19.
+The older local `docs/review-prompts.md` is historical PR #16 material; do not
+reuse its target for this follow-up.
 
 The follow-up independently reproduced L1 against the unchanged PR #18 tree,
 then retained the opposite regression using a real signing fixture and intact
@@ -63,6 +70,24 @@ covers its specified membership guards; it does not authenticate every byte
 against an attacker able to replace the whole database and retained trust keys.
 The [verification summary](../reports/README.md) records the completed integrated
 checks without adding overlapping focused test counts.
+
+## Work continuing during the PR #19 review
+
+The core-access provenance batch starts from PR #19 merge
+`09ef6a866632a9a6e12e2af799cb18b8b55daca9` on
+`feat/core-access-provenance`. Claude's review target remains the fixed PR #19
+head above; new development must not silently change that scope or be described
+as externally reviewed.
+
+Schema 9 adds immutable original request/envelope/delegation retention and
+per-plan bindings, full original duration cost, delegated-root/quota-root matching,
+trusted local registration/lookup and separate readiness blockers. It preserves
+all deployed migrations 001–008 and the original specification package. The
+complete core semantic-review/native/signing profile and rootless policy quota
+profile remain follow-up work. Production preparation, signing and dispatch
+remain closed. Newly executed checks and independent internal review outcomes
+belong in the task ledger and verification summary, separate from the pending
+external report.
 
 ## PR #18 integrated implementation review
 

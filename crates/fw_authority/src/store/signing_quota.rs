@@ -8,6 +8,10 @@ const WINDOW: i64 = 86_400;
 const MAX_ACCOUNTED_ROWS: usize = 10_000;
 const MAX_ACCOUNTED_DESTINATIONS: usize = 200_000;
 
+#[cfg(test)]
+#[path = "core_access_cost_tests.rs"]
+mod core_access_cost_tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SigningQuotaLimits {
@@ -275,6 +279,29 @@ pub(super) fn configuration_available(
     Ok(configuration(tx, tenant, now)?.is_some())
 }
 
+/// Independent pins may tighten the retained delegation, but cannot attach its
+/// cost to another root or silently enlarge its original budget ceilings.
+pub(super) fn core_configuration_available(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    provenance: &crate::VerifiedCoreAccessProvenance,
+    now: i64,
+) -> Result<bool> {
+    let Some((root, project)) = configuration(tx, tenant, now)? else {
+        return Ok(false);
+    };
+    let original = provenance.delegation();
+    let limits = &root.record.pin.limits;
+    Ok(root.record.pin.root_id == provenance.root_id()
+        && project.record.pin.root_id == provenance.root_id()
+        && limits.active_leases as u64 <= original.max_active_leases
+        && limits.new_leases_per_day as u64 <= original.max_new_leases_per_day
+        && limits.unique_destinations_per_day as u64 <= original.max_unique_destinations_per_day
+        && limits.cumulative_seconds_per_day as u64
+            <= original.max_cumulative_lease_seconds_per_day
+        && limits.concurrent_deployments as u64 <= original.max_concurrent_deployments)
+}
+
 pub(super) fn configuration_valid_until(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -484,12 +511,26 @@ pub(super) fn cost_for_plan(
 ) -> Result<SigningQuotaCost> {
     let subject = records::plan(tx, tenant, plan_id, now)?;
     let plan: Value = decode(&subject.plan_bytes)?;
-    // Core plans do not retain the original request duration/root/lease binding.
-    // Charging shorter policy windows would violate F03 and permit splitting.
+    if plan["change_kind"] == "add_access_lease" {
+        let provenance = access_provenance::provenance_in_tx(tx, tenant, &subject, now)?
+            .ok_or(AuthorityError::Binding)?;
+        if !core_configuration_available(tx, tenant, &provenance, now)? {
+            return Err(AuthorityError::Binding);
+        }
+        // The remaining plan/policy window never discounts the original lease.
+        // This derives a cost only: approval and protected signing are separate.
+        let cost = SigningQuotaCost {
+            plan_id: subject.plan_id,
+            plan_hash: subject.plan_hash,
+            lease_id: Some(provenance.lease_id().into()),
+            lease_seconds: provenance.lease_seconds(),
+            destination_asset_ids: provenance.destination_asset_ids().to_vec(),
+        };
+        cost.validate()?;
+        return Ok(cost);
+    }
     if plan["change_kind"] != "policy_change" {
-        return Err(invalid(
-            "original access request quota evidence unavailable",
-        ));
+        return Err(invalid("signing plan kind"));
     }
     let verified =
         review_evidence::review_in_tx(tx, tenant, &subject, now)?.ok_or(AuthorityError::Binding)?;

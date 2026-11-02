@@ -7,6 +7,10 @@ extern crate self as fw_authority;
 mod approval;
 pub use approval::*;
 #[cfg(feature = "approval-proofs")]
+mod access_provenance;
+#[cfg(feature = "approval-proofs")]
+pub use access_provenance::*;
+#[cfg(feature = "approval-proofs")]
 mod challenge;
 #[cfg(feature = "approval-proofs")]
 pub use challenge::*;

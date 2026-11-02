@@ -261,15 +261,54 @@ challenges to 4 KiB, and signed proof envelopes to 3 MiB. Trusted-local history
 retention has no silent truncation or permanent lifetime issuance cap. Authorized
 archival maintenance and protected collector/IPC deployment remain future work.
 
+## Original core-access cost provenance
+
+Schema 9 retains the original `f.access-request/v1`, `f.access-envelope/v1` and
+`f.delegation/v1` objects in a bounded `fw.core-access-provenance/v1` record.
+`register_core_access_provenance` is a trusted local operation against a previously
+registered immutable core plan. Its verifier checks exact canonical hashes and
+request, tenant, target, principal, workload, membership, scope and time bindings.
+The explicit original request/revision and lease identity remain separate from
+the signing coordinator's retry ID. The core profile requires request revision 1.
+
+`authority_core_access_requests` holds immutable original bytes and projections;
+`authority_core_access_plan_bindings` attaches those same bytes to compatible
+plans. The original request cannot change its root, lease or content. Lease IDs
+are unique within an organization and request idempotency keys within a tenant,
+preventing a new request ID from aliasing an already retained request. A new plan
+attachment, security revision and audit entry commit atomically. Exact retries
+return retained status, including after expiry or retirement, without appending
+audit or renewing validity. New attachments require a current plan and inputs.
+Update/delete guards preserve both tables. Separate `BEFORE INSERT` guards
+reject collisions on every original request identity and on an existing plan
+binding before SQLite applies `INSERT OR REPLACE`; replacement cannot silently
+delete retained evidence when recursive delete triggers are disabled. Exact
+application retries read the existing record instead of inserting a replacement.
+
+`read_core_access_provenance` rechecks canonical bytes, hashes and every stored
+projection; malformed evidence returns an error. Its bounded status omits the
+original purpose, workflow and scope. Historical evidence remains readable with
+`current:false` when the plan or inputs are no longer current. `current` is a
+binding-lifetime observation, never approval or permission to sign or dispatch.
+Both permission fields remain false. See the [local CLI guide](core-access-provenance-cli.md).
+
+Cost derivation uses the full original requested duration, retained lease ID and
+sorted destination set, and independently checks that the configured quota root
+matches the delegation root. A shorter remaining plan window cannot lower that
+cost. Import does not authenticate envelope/delegation approval hashes or the
+referenced workload, and does not create quota pins, native qualification,
+approval sets or grants. Complete core signing and protected production authority
+remain separate requirements.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 8. The stable family identity
+Fresh authority databases use schema version 9. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2, 3, 4, 5, 6 or 7 database returns `MigrationRequired` without adding tables
+populated version 1, 2, 3, 4, 5, 6, 7 or 8 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v8.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v9.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -300,8 +339,8 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 8 database makes no new backup or state change. Opening a
-version 8 database and the already-current migration path both check migration
+on a valid version 9 database makes no new backup or state change. Opening a
+version 9 database and the already-current migration path both check migration
 checksums and the actual schema against the known table, index and trigger
 definitions. Removing or replacing a guard causes rejection even if the stored
 version and checksum rows remain unchanged. Foreign and
@@ -331,6 +370,16 @@ inconsistent retained state is backed up first, then the migration fails and rol
 back, leaving the original source state and the validated private backup available
 for investigation. An unrecognized schema is refused before creating a backup.
 Migration does not rewrite original proofs, receipts, audit bytes or signer trust.
+Version 9 preserves migrations 001–008 and adds empty immutable core-access
+request and plan-binding tables. Existing version 8 evidence and signing history
+remain unchanged. Migration cannot invent the original request, root, lease or
+full duration from old plan windows or approvals. Registration must subsequently
+supply the original objects through the separate trusted local boundary.
+The new tables reject updates, deletes and insertion conflicts on every retained
+identity, including SQLite row IDs. These insertion guards also block `REPLACE`
+when recursive triggers are disabled; replacement cannot silently remove an
+original request or plan binding. Exact library retries compare retained bytes
+before insertion and do not append another audit event.
 See [durable signing coordination](signing-coordination.md).
 
 ## Issuance and atomic decision admission

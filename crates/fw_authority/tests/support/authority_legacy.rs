@@ -141,6 +141,7 @@ pub fn restore_v6(path: &std::path::Path) {
 
 #[allow(dead_code)]
 pub fn restore_v7(path: &std::path::Path) {
+    restore_v8(path);
     let db = rusqlite::Connection::open(path).unwrap();
     db.pragma_update(None, "foreign_keys", "OFF").unwrap();
     // Version 8 only adds schema objects. Reconstruct the published v7 schema
@@ -164,4 +165,31 @@ pub fn restore_v7(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=8;").unwrap();
     db.execute_batch(&trigger).unwrap();
     db.pragma_update(None, "user_version", 7).unwrap();
+}
+
+#[allow(dead_code)]
+pub fn restore_v8(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    // Schema 9 adds empty provenance storage; test-only reconstruction removes
+    // its objects while preserving every previously published schema object.
+    for line in include_str!("../../src/store/migration_009.sql").lines() {
+        for kind in ["TABLE", "INDEX", "TRIGGER"] {
+            if let Some(definition) = line.strip_prefix(&format!("CREATE {kind} ")) {
+                let name = definition.split_whitespace().next().unwrap();
+                db.execute_batch(&format!("DROP {kind} IF EXISTS {name};"))
+                    .unwrap();
+            }
+        }
+    }
+    let trigger: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=9;").unwrap();
+    db.execute_batch(&trigger).unwrap();
+    db.pragma_update(None, "user_version", 8).unwrap();
 }

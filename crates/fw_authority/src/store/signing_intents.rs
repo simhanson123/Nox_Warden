@@ -485,8 +485,17 @@ impl AuthorityStore {
         if review_evidence::review_in_tx(&tx, tenant, &retained.subject, now)?.is_none() {
             reasons.push("REVIEW_EVIDENCE_MISSING".into());
         }
-        if plan["change_kind"] != "policy_change" {
-            reasons.push("CORE_REQUEST_BINDING_UNAVAILABLE".into());
+        let core = plan["change_kind"] == "add_access_lease";
+        let core_provenance = if core && active {
+            access_provenance::provenance_in_tx(&tx, tenant, &retained.subject, now)?
+        } else {
+            None
+        };
+        if core {
+            reasons.push("CORE_SIGNING_PROFILE_UNAVAILABLE".into());
+            if core_provenance.is_none() {
+                reasons.push("CORE_REQUEST_BINDING_UNAVAILABLE".into());
+            }
         }
         let approval = sets::current_set(&tx, tenant, plan_id, verifier, now)?;
         if approval.is_none() {
@@ -511,7 +520,12 @@ impl AuthorityStore {
         if !native_good {
             reasons.push("NATIVE_BASELINE_UNAVAILABLE".into());
         }
-        let quota_configured = signing_quota::configuration_available(&tx, tenant, now)?;
+        let quota_configured = match &core_provenance {
+            Some(provenance) => {
+                signing_quota::core_configuration_available(&tx, tenant, provenance, now)?
+            }
+            None => signing_quota::configuration_available(&tx, tenant, now)?,
+        };
         if !quota_configured {
             reasons.push("QUOTA_CONFIGURATION_MISSING".into());
         }

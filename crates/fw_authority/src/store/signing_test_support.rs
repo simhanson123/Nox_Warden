@@ -6,7 +6,7 @@ pub(super) use super::sets::budget_authenticator as authenticator;
 #[path = "../../tests/support/native_fixture.rs"]
 pub(super) mod native;
 #[path = "../../tests/support/private_directory.rs"]
-mod private_directory;
+pub(super) mod private_directory;
 
 use super::*;
 use crate::{ApprovalDecision, ApprovalRole, AuthorityBasis};

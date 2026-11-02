@@ -57,6 +57,22 @@ test('current prerequisites and retained intents are separate read-only evidence
   expect(localStorage.length).toBe(0); expect(sessionStorage.length).toBe(0);
 });
 
+test.each([false, true])('core signing remains blocked when original request binding is unavailable: %s', async (bindingUnavailable) => {
+  const plan = detail(); plan.plan.change_kind = 'add_access_lease';
+  const value = { ...readiness(plan), latest_intent: null };
+  value.reasons.push('CORE_SIGNING_PROFILE_UNAVAILABLE');
+  if (bindingUnavailable) value.reasons.push('CORE_REQUEST_BINDING_UNAVAILABLE');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  const panel = screen.getByRole('region', { name: 'Signing readiness' });
+  expect(await within(panel).findByText('Access lease signing is unavailable in this build.')).toBeInTheDocument();
+  expect(panel).toHaveTextContent('Production signing and deployment remain blocked.');
+  expect(!!within(panel).queryByText('The required core request binding is unavailable.')).toBe(bindingUnavailable);
+  expect(within(panel).getAllByRole('button')).toHaveLength(1);
+  expect(parseSigningReadiness(value, plan)).toMatchObject({ signing_allowed: false, dispatch_allowed: false });
+  expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET' && init.body === undefined)).toBe(true);
+});
+
 test.each([
   ['another plan', (v: ReturnType<typeof readiness>) => { v.plan_id = id('1'); }],
   ['another tenant', (v: ReturnType<typeof readiness>) => { v.org_id = id('1'); }],

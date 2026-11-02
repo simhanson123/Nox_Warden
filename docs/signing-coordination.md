@@ -1,9 +1,9 @@
 # Durable signing coordination
 
-Authority schema 8 retains the two-phase signing mechanics introduced in schema
-7 and guards reservation state against unsupported slot refunds. It also exposes
-a read-only readiness summary and trusted local quota administration. The public
-preparation and worker paths remain
+Authority schema 9 retains the two-phase signing mechanics introduced in schema
+7, the reservation guards added in schema 8, and original core-access cost
+provenance. It also exposes a read-only readiness summary and trusted local quota
+and provenance administration. The public preparation and worker paths remain
 closed: protected bootstrap, independently verified build identity, qualified
 native evidence and a protected signer are not implemented. No configuration
 flag, browser approval, lab receipt or CLI option bypasses those requirements.
@@ -67,10 +67,50 @@ The implemented preparation profile is a reviewed, non-expanding
 `policy_change`: zero new leases, destinations and lease seconds, and one
 concurrent deployment. It currently requires both quota pins even for the
 general-policy case in which F_03 permits a null root. Rootless preparation is
-not implemented. Core access grants remain blocked with
-`CORE_REQUEST_BINDING_UNAVAILABLE` until original request, root, lease identity
-and full approved duration can be independently resolved. A policy's shorter
-remaining lifetime is never substituted for those missing inputs.
+not implemented and requires a separate quota profile and storage upgrade.
+
+Core access cost can now be derived from retained original provenance. The
+trusted local importer binds a registered `add_access_lease` plan to the complete
+original request, access envelope and delegation, plus an explicit lease ID.
+The verifier checks their exact canonical hashes against the plan, request
+identity/revision, tenant/target/principal/workload and asset/service membership,
+scope exclusions, lifetimes and duration limits. Request revision is fixed at 1
+for this core profile. The original request ID is distinct from the signing
+coordinator's `SigningRequest.request_id`, which identifies a preparation retry.
+
+The authority retains one immutable original record and an immutable binding for
+each compatible plan. A request cannot change its bytes, root or lease; an
+organization cannot reuse its lease identity, and a tenant cannot alias the
+request's idempotency key under a new request ID. Exact retries add no audit
+record. A later compatible plan may bind the same original record without
+creating a second lease identity. Reads revalidate the canonical bytes, hashes
+and stored projections rather than trusting a supplied cost summary.
+
+Derived core cost uses the original request's full `lease_seconds`, its sorted
+destination set and the retained lease ID. For example, an original 3,600-second
+request still costs 3,600 seconds when the retained plan allows only a remaining
+1,800-second window. The current independently pinned root and project quota
+configuration must refer to the same root as the retained delegation. Each of
+the five independently pinned root limits must also be no greater than its
+original delegation ceiling: active leases, daily new leases, daily unique
+destinations, daily cumulative seconds and concurrent deployments. Project
+limits may be higher because every reservation must pass both buckets; the root
+still enforces the delegation ceiling. Provenance does not create pins or permit
+the caller to select another bucket.
+
+Each plan's requested policy window must fit the original duration, but this
+provenance record does not retain one absolute lease start/end across compatible
+later plans. A later plan can propose a shifted window. The future core signing
+profile must retain and enforce a single lease window before those plans can
+authorize access; original cost retention alone does not supply that constraint.
+
+This binding establishes cost inputs, not approval. Envelope/delegation approval
+hashes and the workload reference do not prove signatures, authenticated identity
+or current authority. A complete core semantic-review/native/signing profile is
+still unavailable, so every core plan retains
+`CORE_SIGNING_PROFILE_UNAVAILABLE`. Missing or no longer current provenance also
+produces `CORE_REQUEST_BINDING_UNAVAILABLE`. No core grant can be prepared through
+the public resolver.
 
 The accounting engine also checks lease costs in private tests. It preserves
 active and deployment slots, the rolling `(now - 86400, now]` issuance window,
@@ -138,6 +178,9 @@ reports current blockers, approval hash, quota configuration, target generation
 and an optional retained intent status. It does not reserve quota or start work.
 `quota_configured` means current pins exist, not that capacity was reserved.
 `signing_allowed` and `dispatch_allowed` remain false.
+For core plans, request-binding availability is reported separately from the
+unfinished core signing profile; importing original objects removes no production
+bootstrap, build, native-qualification or signer requirement.
 
 The eight-locale **Signing readiness** panel separates these blockers from
 historical work and reservation state. It accounts for request latency and clock
@@ -151,8 +194,12 @@ unissued-job cancellation. Preparation requests currently return a fixed rejecti
 and allocate no signing resources. An expired unissued job can be explicitly
 cancelled once the transaction proves it has no result, outbox or issuance usage;
 expiry alone releases nothing. Issued and UNKNOWN reservations remain held.
+The [core provenance CLI guide](core-access-provenance-cli.md) covers bounded
+original-object registration and historical lookup. Its summaries include hashes,
+IDs and full cost inputs, without exposing request purpose, workflow or scope.
+`current` describes the binding lifetime only; both permission fields stay false.
 
-Existing schema 1–7 databases require the validated private-backup migration
+Existing schema 1–8 databases require the validated private-backup migration
 described in [authority storage](authority-store.md). The schema 7 step creates
 empty signing tables. The schema 8 step checks existing reservations against
 retained immutable evidence before recording their proven transitions; it rejects
@@ -164,8 +211,14 @@ key, generation, quota configuration or permission from earlier approvals,
 controller registration or lab evidence. Earlier native proofs, receipts and
 audit entries retain their original bytes. Current-version opens and repeated
 migration calls check actual schema definitions as well as migration checksums.
+The schema 9 step adds empty immutable original-request and plan-binding tables.
+It preserves existing signing/evidence history and all deployed migrations
+001–008; it never reconstructs a request, root or lease from a shorter policy
+window, approval hash or old reservation.
 
 Remaining dependencies are protected authority bootstrap and OS identities,
 trusted target generation initialization, qualified compiler/baseline/observer
-evidence, the core request resolver, a separately deployed signer, authenticated
-dispatch and delivery evidence, backup/restore epochs and PostgreSQL transactions.
+evidence, the complete core signing and rootless policy profiles, independently
+authenticated workload/delegation authority, a separately deployed signer,
+authenticated dispatch and delivery evidence, backup/restore epochs and
+PostgreSQL transactions.

@@ -529,7 +529,7 @@ fn v5_backup_migration_preserves_metadata_and_invents_no_native_trust() {
         AuthorityStore::open(&f.path),
         Err(AuthorityError::MigrationRequired {
             found: 5,
-            required: 8
+            required: 9
         })
     ));
     let backup = f.path.with_file_name("before-v6.sqlite3");

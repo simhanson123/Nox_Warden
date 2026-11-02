@@ -39,15 +39,18 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **728 workspace Rust tests, 32 authority
-tests without default features, and 156 UI tests**. It also passes formatting,
+The integrated repository check passes **777 workspace Rust tests, 32 authority
+tests without default features, and 158 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
 six catalogue-diagnostic, thirteen authority-smoke diagnostic and
 three native-evidence diagnostic regressions, plus
 vendored-source verification. English remains the default. Eight controller
-catalogues have 229 messages each; eight authority catalogues have 152, with
+catalogues have 229 messages each; eight authority catalogues have 153, with
 complete key and placeholder parity. Human translation acceptance is pending.
+
+The following full runtime matrix was completed for PR #19. Fresh checks for
+the current provenance batch are recorded in its section below.
 
 | Runtime suite | Passing checks | Exercised boundary |
 | --- | ---: | --- |
@@ -78,6 +81,66 @@ subsequent external-review reliability follow-up.
 The [review handoff](../docs/review-continuity.md) distinguishes supplied external
 reports from fresh executions. Earlier external private probes were not recovered
 or claimed as reproduced. All three external PR #15 reports have since been supplied; they cover that fixed earlier target and identify a shared admin stdout failure plus adjacent diagnostics follow-up.
+
+## Original core-access cost provenance
+
+The next M02/M03/M05 batch starts at PR #19 merge `09ef6a8`, on a separate
+branch while the user requests Claude Opus 5.5 review of fixed PR #19 head
+`2ef3aec` against `5a7551d`. No new external review result has been received.
+PR #19's [complete CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41397285225)
+passed and its final target is unchanged by this work.
+
+Authority schema 9 retains the complete original access request, envelope and
+delegation, an immutable lease identity and per-plan hash bindings. Closed,
+bounded contracts verify tenant/principal/workload references, original asset
+membership, scope exclusions and lifetimes. Original request identity,
+organization lease identity and tenant idempotency cannot be rebound. Exact
+registration retries add no audit; compatible later plans reuse the original
+evidence. Historical reads revalidate stored bytes and projections after expiry.
+
+Core costs use the full original request duration and destination set even if
+the plan has only seconds left. Independently configured root identity must
+match, and all five current root ceilings must be no larger than the original
+delegation's limits. The trusted-local CLI imports and reads bounded summaries,
+checks stdout delivery, and preserves a committed import after output failure.
+Eight-locale readiness separates missing provenance from the still unavailable
+core signing profile; signing and dispatch remain false.
+
+Explicit private-backup migration preserves existing schema 8 evidence and all
+five quota states, with no invented provenance. Known-schema validation covers
+the new tables and guards; migration failure retains the original and backup.
+Original migrations 001–008 and the specification package remain unchanged.
+
+Independent internal review reproduced SQLite `INSERT OR REPLACE` bypassing
+update/delete immutability guards with recursive triggers disabled. The fix
+blocks every identity collision before replacement, including explicit hidden
+rowid conflicts. Permanent regressions cover primary and alternate
+unique identities. The reviewer reran the same original counterexample and
+explicit rowid variants: all were refused, with original status, reopen and
+audit preserved.
+Separate independent probes passed concurrent schema 8 migration, expiry while
+waiting for stdin, and hostile JSON/UTF-8 input. These are internal executions,
+not Claude's pending external review.
+
+`bash scripts/check.sh` passed **777 workspace Rust tests, 32 reduced-feature
+Rust tests, 158 UI tests and one separately executed cancellation CLI process
+test**. The ordinary workspace run intentionally ignores that one process test;
+it is not counted as passed until the separate invocation. Formatting, Clippy,
+TypeScript, both production UI builds, original contracts/specifications, locale
+parity, diagnostic regressions and vendored-source checks passed. Focused tests
+are overlapping subsets, not extra totals. The shared-umask authority/service
+run passed **383** tests, with the same one separately covered ignored process
+case. Fresh actual runtime checks passed **40 authority browser checks, 41
+metadata checks and 33 native-evidence checks with five kernel captures**. The
+disposable native container was removed. Broader Linux packet and unrelated
+controller runtime checks remain part of the required remote PR workflow.
+
+Provenance is not verified delegation/envelope approval, workload authentication
+or human approval. Core semantic review, native binding, a single retained
+absolute lease window across later plans and the core signing profile remain
+incomplete. Rootless general-policy quota is the next separate batch; protected
+authority bootstrap, OS/IPC isolation, signer/delivery deployment and native
+platform qualification remain required.
 
 ## Reservation integrity and explicit cancellation
 
