@@ -39,7 +39,7 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **713 workspace Rust tests, 32 authority
+The integrated repository check passes **728 workspace Rust tests, 32 authority
 tests without default features, and 156 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
@@ -78,6 +78,61 @@ subsequent external-review reliability follow-up.
 The [review handoff](../docs/review-continuity.md) distinguishes supplied external
 reports from fresh executions. Earlier external private probes were not recovered
 or claimed as reproduced. All three external PR #15 reports have since been supplied; they cover that fixed earlier target and identify a shared admin stdout failure plus adjacent diagnostics follow-up.
+
+## Reservation integrity and explicit cancellation
+
+The PR #18 follow-up starts at `5a7551d`. Authority schema 8 adds immutable
+quota transitions tied to work, issuance and delivery evidence, plus guarded
+indexed accounting membership. Ordinary state/slot UPDATE cannot refund an
+issued or UNKNOWN reservation; a damaged reservation projection cannot hide
+from accounting. Ten live accounting guards are checked without replacing the
+bounded indexes with a history scan. Opening and migration also validate the
+complete actual schema. Migration 007 and all 53 original specification files
+remain byte-for-byte unchanged (52 manifest entries verified).
+
+Explicit migration with a validated private backup preserves legacy proof,
+receipt and audit bytes. Unproven releases, corrupted delivery receipts and
+mismatched outbox timestamps roll back with the original and backup preserved.
+The trusted-local `cancel-signing-job` command handles expired unissued work,
+fences claimed workers and retains committed cancellation after stdout failure.
+Issued and UNKNOWN work remains nonrefundable. Dispatch dequeue verifies real
+Ed25519 and the exact prepared payload. Heartbeat repeats at the same deadline
+write no event; each claim generation permits at most 32 strict extensions.
+
+Fresh validation: `bash scripts/check.sh` **728 workspace Rust + 32 reduced-feature
+Rust, 156 UI**, plus **one separately executed successful-cancellation CLI process
+test** that is intentionally ignored by the ordinary workspace invocation.
+Formatting, Clippy, TypeScript, both UI builds, design/contracts/locales/vendor
+checks and the existing diagnostic suites pass. The shared-umask authority/service
+command passes **334**; its one ignored process case is covered separately by
+`check.sh`, not counted as passed there. Focused suites are overlapping subsets,
+not additional totals.
+
+All runtime suites in the table above were freshly executed: HTTP 24, CLI 13
+and protocol fixture 5, passkey 76, login admission 14, audit 21, catalogue 11,
+enrollment browser 25, authority browser 40, metadata 41, Linux 66/40 actual
+packets, signed Linux 98/43 actual packets and native evidence 33/5 actual
+captures. Authority, metadata, signed Linux and native evidence were repeated
+after schema stabilization and a fresh binary build. Disposable containers were
+removed; the host firewall was unchanged. A first Docker build could not write
+the default Buildx activity directory; a writable task-specific `BUILDX_CONFIG`
+resolved setup with the required CA mount and verification intact.
+
+The original L1 SQL exploit was reproduced against archived PR #18 source before
+correcting it. Independent internal review then reproduced and closed orphan
+cancellation evidence, corrupted legacy delivery migration, and missing live
+accounting-head guard cases; each reviewer reran the same failing counterexample
+after correction. The supplied external reports remain preserved separately in
+[their original text](../docs/reviews/pr18-external-reviews.md). Those named models
+have not yet reviewed this follow-up. Early implementation checks caught a
+private fixture calling a deliberately closed public worker, a future-dated CLI
+fixture and stale schema-version binaries; corrected fixtures and fresh builds
+passed without changing production gates. Raw logs stay outside source.
+
+This is M02/M03/M05 hardening, not protected signer/dispatch deployment, original
+core-request/rootless cost binding, PostgreSQL, or native host/Windows/macOS
+qualification. Trust-key replacement together with the whole database remains
+outside the retained-signature guarantee.
 
 ## Durable signing coordination
 

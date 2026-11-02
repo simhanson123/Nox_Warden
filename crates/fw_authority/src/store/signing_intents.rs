@@ -710,9 +710,41 @@ fn status_in_tx(
         return Err(AuthorityError::Binding);
     }
     let lifecycle = signing_jobs::lifecycle_status(tx, tenant, &intent.job_id, now)?;
+    let grant_hash =
+        retained_result(tx, tenant, &intent)?.map(|result| result.grant_hash().to_owned());
+    Ok(SigningIntentStatus {
+        intent_id: intent.intent_id,
+        request_id: intent.request_id,
+        plan_id: intent.plan_id,
+        plan_hash: intent.plan_hash,
+        approval_set_hash: intent.approval_set_hash,
+        authority_epoch: intent.authority_epoch,
+        target_generation: intent.target_generation,
+        payload_hash: intent.payload_hash,
+        job_id: intent.job_id,
+        reservation_id: intent.reservation_id,
+        created_at: intent.created_at,
+        valid_until: intent.valid_until,
+        state: lifecycle.state,
+        dispatch_state: lifecycle.dispatch_state,
+        reservation_state: reservation.state.clone(),
+        reservation_held: reservation.held(),
+        current_eligible: false,
+        grant_hash,
+        dispatch_allowed: false,
+    })
+}
+// Verification is against the retained trust key. It detects damaged signature
+// or payload projections while that key remains authentic; it is not an external
+// trust root against an attacker replacing the entire database and retained key.
+pub(super) fn retained_result(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    intent: &SigningIntentRecord,
+) -> Result<Option<crate::VerifiedSigningResult>> {
     type ResultRow = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
-    let result:Option<ResultRow>=tx.query_row("SELECT grant_hash,result_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?",params![tenant.org_id,tenant.project_id,id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
-    let grant_hash = if let Some((gh, rh, grant, result)) = result {
+    let result:Option<ResultRow>=tx.query_row("SELECT grant_hash,result_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?",params![tenant.org_id,tenant.project_id,intent.intent_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
+    if let Some((gh, rh, grant, result)) = result {
         let parsed = crate::parse_signer_result(&result)?;
         if hash(&hash_bytes(&grant))? != gh
             || hash(&hash_bytes(&result))? != rh
@@ -741,31 +773,10 @@ fn status_in_tx(
         {
             return Err(invalid("retained signature bytes"));
         }
-        Some(hash_string(&gh)?)
+        Ok(Some(verified))
     } else {
-        None
-    };
-    Ok(SigningIntentStatus {
-        intent_id: intent.intent_id,
-        request_id: intent.request_id,
-        plan_id: intent.plan_id,
-        plan_hash: intent.plan_hash,
-        approval_set_hash: intent.approval_set_hash,
-        authority_epoch: intent.authority_epoch,
-        target_generation: intent.target_generation,
-        payload_hash: intent.payload_hash,
-        job_id: intent.job_id,
-        reservation_id: intent.reservation_id,
-        created_at: intent.created_at,
-        valid_until: intent.valid_until,
-        state: lifecycle.state,
-        dispatch_state: lifecycle.dispatch_state,
-        reservation_state: reservation.state.clone(),
-        reservation_held: reservation.held(),
-        current_eligible: false,
-        grant_hash,
-        dispatch_allowed: false,
-    })
+        Ok(None)
+    }
 }
 fn grant_context(
     tenant: &AuthorityTenant,
@@ -877,7 +888,6 @@ fn finalize_in_tx(
         &authority.trust,
         &grant_context(tenant, &snapshot, now)?,
     )?;
-    signing_quota::finalize(tx, tenant, &intent.reservation_id, now)?;
     tx.execute(
         "INSERT INTO authority_signing_results VALUES(?,?,?,?,?,?,?,?)",
         params![
@@ -892,6 +902,7 @@ fn finalize_in_tx(
         ],
     )?;
     signing_jobs::record_ready(tx, tenant, &intent.job_id, claim, &verified, now)?;
+    signing_quota::finalize(tx, tenant, &intent.reservation_id, now)?;
     audit(
         tx,
         tenant,
@@ -907,6 +918,10 @@ fn finalize_in_tx(
 
 #[cfg(test)]
 fn test_authority() -> ProtectedSigningAuthority {
+    test_authority_at(signing_test_support::NOW)
+}
+#[cfg(test)]
+fn test_authority_at(now: i64) -> ProtectedSigningAuthority {
     ProtectedSigningAuthority {
         trust: TrustKey {
             key_id: "fixture-signing-key".into(),
@@ -915,8 +930,8 @@ fn test_authority() -> ProtectedSigningAuthority {
             public_key: ed25519_dalek::SigningKey::from_bytes(&[81; 32])
                 .verifying_key()
                 .to_bytes(),
-            not_before: signing_test_support::NOW,
-            not_after: signing_test_support::NOW + 7200,
+            not_before: now,
+            not_after: now + 7200,
             revoked: false,
         },
     }
@@ -948,8 +963,8 @@ pub(super) fn test_initialize(f: &mut signing_test_support::Fixture, now: i64) {
                 &SigningRootQuotaPin {
                     root_id: root.clone(),
                     limits: limits.clone(),
-                    not_before: signing_test_support::NOW,
-                    not_after: signing_test_support::NOW + 7200,
+                    not_before: f.now,
+                    not_after: f.now + 7200,
                 },
                 None,
                 now,
@@ -961,8 +976,8 @@ pub(super) fn test_initialize(f: &mut signing_test_support::Fixture, now: i64) {
                 &SigningProjectQuotaPin {
                     root_id: root,
                     limits,
-                    not_before: signing_test_support::NOW,
-                    not_after: signing_test_support::NOW + 7200,
+                    not_before: f.now,
+                    not_after: f.now + 7200,
                 },
                 None,
                 now,
@@ -1003,7 +1018,7 @@ pub(super) fn test_prepare(
         &f.tenant,
         &f.verifier,
         &request,
-        &test_authority(),
+        &test_authority_at(f.now),
         now,
     )
     .unwrap();
@@ -1067,7 +1082,7 @@ pub(super) fn test_finalize_result(
         &f.verifier,
         claim,
         result,
-        &test_authority(),
+        &test_authority_at(f.now),
         now,
     )?;
     tx.commit()?;

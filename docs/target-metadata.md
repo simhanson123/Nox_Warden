@@ -178,13 +178,13 @@ An existing output path is refused, so a retry cannot silently replace the proof
 
 ### Schema migration
 
-Target metadata was introduced in schema 5. The current authority schema **7**
-requires an explicit validated private backup to migrate known schemas 1–6.
+Target metadata was introduced in schema 5. The current authority schema **8**
+requires an explicit validated private backup to migrate known schemas 1–7.
 It imports no target trust from legacy controller records:
 
 ```sh
 target/debug/fw_authority_admin migrate \
-  --database authority/authority.sqlite3 --backup authority/authority-before-v7.sqlite3
+  --database authority/authority.sqlite3 --backup authority/authority-before-v8.sqlite3
 ```
 
 See [authority storage](authority-store.md) for backup/path/collision rules.

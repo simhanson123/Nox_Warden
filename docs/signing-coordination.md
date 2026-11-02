@@ -1,8 +1,9 @@
 # Durable signing coordination
 
-Authority schema 7 adds the storage and verification mechanics for a two-phase
-signing transaction. It also exposes a read-only readiness summary and trusted
-local quota administration. The public preparation and worker paths remain
+Authority schema 8 retains the two-phase signing mechanics introduced in schema
+7 and guards reservation state against unsupported slot refunds. It also exposes
+a read-only readiness summary and trusted local quota administration. The public
+preparation and worker paths remain
 closed: protected bootstrap, independently verified build identity, qualified
 native evidence and a protected signer are not implemented. No configuration
 flag, browser approval, lab receipt or CLI option bypasses those requirements.
@@ -34,10 +35,14 @@ below share the independent authority SQLite database; the older standalone
    prevents completion; an audit failure rolls the transaction back.
 
 An exact request retry resolves its original intent instead of allocating a new
-generation. Stored signatures are verified when historical results are read;
-rewriting a projection and its hash cannot create a valid signature. Retried
-dispatch uses the same signed grant bytes. Historical results remain separate
-from permission to perform a new operation.
+generation. Stored signatures are verified when historical results are read.
+With the retained trusted signer key unchanged, rewriting a projection and its
+hash cannot create a valid signature. The historical key copy lives in the same
+authority database: an attacker who can replace both that trust record and the
+signed evidence is outside this check's guarantee. Protected storage and an
+independent trust anchor remain deployment requirements. Retried dispatch uses
+the same signed grant bytes. Historical results remain separate from permission
+to perform a new operation.
 
 The native observation must be a current **baseline** match for the exact
 retained plan. A candidate match cannot substitute. The observation's generation
@@ -49,8 +54,12 @@ normal builds currently have no trusted bootstrap path to initialize.
 
 Root and project limits are independently pinned with revision checks, validity
 and revocation. A project's root binding cannot be switched to reset history.
-Both buckets must admit a reservation within the same transaction. Costs and
-totals are derived internally; requests cannot supply a cheaper cost or a larger
+The root belongs to its organization and may be administered from another project
+in that same organization at the trusted local administrator boundary; it is not
+owned exclusively by the project that first pinned it. Organization identity
+still scopes every root lookup and revision change. Both buckets must admit a
+reservation within the same transaction. Costs and totals are derived internally;
+requests cannot supply a cheaper cost or a larger
 limit. Administrative pinning is a trusted local operation, not an approval from
 a controller session.
 
@@ -71,8 +80,22 @@ UNKNOWN retains occupied slots even after intent or reservation expiry. Explicit
 pre-issuance cancellation requires the absence of a signed result and outbox.
 There is no timer that treats an unanswered dispatch as safely cancelled.
 
-Accounting queries use separate indexes for held reservations and released
-issuance history. Exceeding 10,000 relevant rows or 200,000 destination visits
+Schema 8 records ordered immutable quota transitions tied to retained work
+events and, when applicable, issuance usage, the signed result, outbox and delivery
+record. Reservation state and slot columns must match their latest transition.
+SQL guards reject an unsupported ordinary UPDATE before its new state could
+remove the row from an accounting index. A transition also requires its work head
+to match the latest immutable work event, so an orphan cancellation event cannot
+release slots. Read paths also compare the reservation with its evidence.
+Creating the work evidence, quota transition, changed slots
+and required audit occurs in the same transaction, so a failure rolls them back
+together. A confirmed delivery returns the dispatch slot; it retains any active
+lease slot and the original issuance charge.
+
+Accounting queries use separate indexes for held obligations and released
+issuance history on guarded heads derived from immutable quota transitions.
+Changing only a reservation projection therefore cannot hide the obligation from
+the accounting query. Exceeding 10,000 relevant rows or 200,000 destination visits
 fails the transaction with a quota error; the implementation does not truncate
 the history and undercount it. Retention and archival maintenance remain future
 work.
@@ -82,16 +105,25 @@ work.
 Signer and dispatch claims have distinct phases, opaque tokens, worker identity,
 generation fences and bounded deadlines. Mutable work heads are checked against
 retained immutable transition records. A stale worker cannot finish a newer
-claim. Heartbeats cannot extend the original intent deadline. Signer attempts
-are limited to three and dispatch attempts to five, with bounded backoff.
+claim. Heartbeats cannot shorten the claim or extend the original intent deadline.
+Repeating the same computed deadline adds no event or audit entry. A claim
+generation permits at most 32 strict extensions, counted from retained immutable
+events so reopening the store cannot reset the limit. Signer attempts are limited
+to three and dispatch attempts to five, with bounded backoff.
 
 Cancellation races finalization under the same database writer transaction:
 either cancellation proves no issuance and releases the reservation, or a signed
-result/outbox exists and cancellation is refused. A lost delivery response leaves
-UNKNOWN and retained quota. A successful acknowledgement needs independently
+result/outbox exists and cancellation is refused. Cancelling a claimed but
+unissued job invalidates that worker claim and preserves the target generation
+fence; a late completion cannot finalize the cancelled job. A lost delivery
+response leaves UNKNOWN and retained quota. A successful acknowledgement needs independently
 verified delivery evidence; there is no public constructor that turns a caller's
 boolean into that evidence. Production dispatch and delivery verification are
-still unimplemented.
+still unimplemented. When retrieving an outbox grant, the store verifies its
+actual Ed25519 signature and exact prepared job/payload binding under the retained
+signer key, and checks issuance and outbox timestamps. This check does not supply
+production delivery evidence. Retrieving historical signed bytes after expiry
+does not renew their validity or authorize a new dispatch.
 
 The authority's durable time fences continue to apply. A failed operation may
 record a later observed time without committing an intent, reservation or job.
@@ -114,14 +146,24 @@ does not approve, sign or dispatch. UNKNOWN continues to show held quota after a
 view expires.
 
 The [local CLI guide](signing-coordination-cli.md) covers quota pinning,
-revocation, readiness, preparation requests and intent inspection. Preparation
-requests currently return a fixed rejection and allocate no signing resources.
+revocation, readiness, preparation requests, intent inspection and explicit
+unissued-job cancellation. Preparation requests currently return a fixed rejection
+and allocate no signing resources. An expired unissued job can be explicitly
+cancelled once the transaction proves it has no result, outbox or issuance usage;
+expiry alone releases nothing. Issued and UNKNOWN reservations remain held.
 
-Existing schema 1–6 databases require the validated private-backup migration
-described in [authority storage](authority-store.md). Schema 7 starts its tables
-empty. It imports no signer key, generation, quota configuration or permission
-from earlier approvals, controller registration or lab evidence. Earlier native
-proofs and receipts retain their original bytes.
+Existing schema 1–7 databases require the validated private-backup migration
+described in [authority storage](authority-store.md). The schema 7 step creates
+empty signing tables. The schema 8 step checks existing reservations against
+retained immutable evidence before recording their proven transitions; it rejects
+unsupported refunds and orphan reservations rather than legitimizing them. An
+issued, UNKNOWN or active reservation requires matching usage, signed result and
+outbox; active also requires retained delivery, and work heads must match their
+latest immutable events. Migration imports no signer
+key, generation, quota configuration or permission from earlier approvals,
+controller registration or lab evidence. Earlier native proofs, receipts and
+audit entries retain their original bytes. Current-version opens and repeated
+migration calls check actual schema definitions as well as migration checksums.
 
 Remaining dependencies are protected authority bootstrap and OS identities,
 trusted target generation initialization, qualified compiler/baseline/observer

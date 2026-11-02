@@ -16,6 +16,7 @@ const MIGRATION_4: &str = include_str!("migration_004.sql");
 const MIGRATION_5: &str = include_str!("migration_005.sql");
 const MIGRATION_6: &str = include_str!("migration_006.sql");
 const MIGRATION_7: &str = include_str!("migration_007.sql");
+const MIGRATION_8: &str = include_str!("migration_008.sql");
 
 fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
     let parent = path
@@ -205,6 +206,80 @@ fn known_v6_digest() -> Result<Vec<u8>> {
     apply_v6(&tx)?;
     schema_digest(&tx)
 }
+fn known_v7_digest() -> Result<Vec<u8>> {
+    static DIGEST: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    if let Some(digest) = DIGEST.get() {
+        return Ok(digest.clone());
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    apply_v2(&tx)?;
+    apply_v3(&tx)?;
+    apply_v4(&tx)?;
+    apply_v5(&tx)?;
+    apply_v6(&tx)?;
+    apply_v7(&tx)?;
+    let digest = schema_digest(&tx)?;
+    let _ = DIGEST.set(digest.clone());
+    Ok(digest)
+}
+
+fn known_v8_digest() -> Result<Vec<u8>> {
+    static DIGEST: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    if let Some(digest) = DIGEST.get() {
+        return Ok(digest.clone());
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    apply_v2(&tx)?;
+    apply_v3(&tx)?;
+    apply_v4(&tx)?;
+    apply_v5(&tx)?;
+    apply_v6(&tx)?;
+    apply_v7(&tx)?;
+    tx.execute_batch(MIGRATION_8)?;
+    let digest = schema_digest(&tx)?;
+    let _ = DIGEST.set(digest.clone());
+    Ok(digest)
+}
+
+pub(super) fn apply_v8(tx: &Transaction<'_>) -> Result<()> {
+    validate_v7(tx)?;
+    if schema_digest(tx)? != known_v7_digest()? {
+        return Err(invalid("unexpected authority v7 schema"));
+    }
+    // The quota migration verifies every retained reservation against immutable
+    // lifecycle evidence. Expiry alone is never evidence of a safe refund.
+    signing_quota::validate_legacy_reservations(tx)?;
+    tx.execute_batch(MIGRATION_8)?;
+    signing_quota::backfill_legacy_transitions(tx)?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(8,?,8,8,?)",
+        params![hash(&hash_bytes(MIGRATION_8.as_bytes()))?, now()?],
+    )?;
+    let broken: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+        [],
+        |r| r.get(0),
+    )?;
+    if broken {
+        return Err(invalid("authority quota migration foreign keys"));
+    }
+    tx.pragma_update(None, "user_version", 8)?;
+    validate_v8(tx)
+}
+
+pub(super) fn validate_v8(connection: &Connection) -> Result<()> {
+    validate_migrations(connection, 8)?;
+    // A checksum row is not evidence that the actual guards still exist.
+    if schema_digest(connection)? != known_v8_digest()? {
+        return Err(invalid("unexpected authority v8 schema"));
+    }
+    Ok(())
+}
+
 pub(super) fn apply_v7(tx: &Transaction<'_>) -> Result<()> {
     validate_v6(tx)?;
     if schema_digest(tx)? != known_v6_digest()? {
@@ -382,6 +457,9 @@ fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
     }
     if version >= 7 {
         expected.push((7, hash(&hash_bytes(MIGRATION_7.as_bytes()))?, 7, 7));
+    }
+    if version >= 8 {
+        expected.push((8, hash(&hash_bytes(MIGRATION_8.as_bytes()))?, 8, 8));
     }
     if rows != expected {
         return Err(invalid("authority migration checksum or compatibility"));
@@ -633,12 +711,12 @@ impl AuthorityStore {
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
         let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if application == APPLICATION_ID && version == 7 {
-            validate_v7(&tx)?;
+        if application == APPLICATION_ID && version == 8 {
+            validate_v8(&tx)?;
             tx.commit()?;
             return Ok(());
         }
-        if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6].contains(&version) {
+        if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6, 7].contains(&version) {
             return Err(invalid("authority migration requires known prior database"));
         }
         if version == 2 {
@@ -656,16 +734,20 @@ impl AuthorityStore {
         if version == 6 {
             validate_v6(&tx)?;
         }
+        if version == 7 {
+            validate_v7(&tx)?;
+        }
         let original_schema = match version {
             1 => known_v1_digest()?,
             2 => known_v2_digest()?,
             3 => known_v3_digest()?,
             4 => known_v4_digest()?,
             5 => known_v5_digest()?,
-            _ => known_v6_digest()?,
+            6 => known_v6_digest()?,
+            _ => known_v7_digest()?,
         };
         if schema_digest(&tx)? != original_schema {
-            return Err(invalid("unexpected authority v1 schema"));
+            return Err(invalid("unexpected authority source schema"));
         }
         // A second read-only connection sees a consistent pre-migration DB;
         // this IMMEDIATE transaction prevents other writers while it is copied.
@@ -685,8 +767,275 @@ impl AuthorityStore {
         if version < 6 {
             apply_v6(&tx)?;
         }
-        apply_v7(&tx)?;
+        if version < 7 {
+            apply_v7(&tx)?;
+        }
+        apply_v8(&tx)?;
         tx.commit()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/support/authority_legacy.rs"]
+#[allow(dead_code)]
+mod legacy;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::signing_test_support::{Fixture, NOW};
+
+    fn version(path: &Path) -> i64 {
+        Connection::open(path)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn snapshot(path: &Path) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
+        let db = Connection::open(path).unwrap();
+        let mut statement = db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").unwrap();
+        let names = statement
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        names
+            .into_iter()
+            .map(|name| {
+                let mut query = db
+                    .prepare(&format!("SELECT * FROM {name} ORDER BY rowid"))
+                    .unwrap();
+                let columns = query.column_count();
+                let rows = query
+                    .query_map([], |r| (0..columns).map(|i| r.get(i)).collect())
+                    .unwrap()
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .unwrap();
+                (name, rows)
+            })
+            .collect()
+    }
+
+    fn prepared() -> (Fixture, String, String) {
+        let mut f = Fixture::new();
+        let result = signing_intents::test_prepare(&mut f, NOW);
+        (f, result.intent.job_id, result.intent.reservation_id)
+    }
+
+    fn claim(
+        f: &mut Fixture,
+        job: &str,
+        phase: &'static str,
+        generation: u64,
+        now: i64,
+    ) -> signing_jobs::SigningClaim {
+        let tx = f.store.connection.transaction().unwrap();
+        let claim = signing_jobs::fixture_claim(
+            &tx,
+            &f.tenant,
+            job,
+            phase,
+            "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            generation,
+            2,
+            now,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        claim
+    }
+
+    #[test]
+    fn v7_populated_upgrade_preserves_every_evidence_byte_and_proven_quota_state() {
+        for expected in ["reserved", "released", "issued", "unknown", "active"] {
+            let (mut f, job, reservation) = prepared();
+            match expected {
+                "released" => f
+                    .store
+                    .cancel_signing_job(&f.tenant, &job, NOW + 400)
+                    .unwrap(),
+                "issued" | "unknown" | "active" => {
+                    let signer = claim(&mut f, &job, "signer", 0, NOW);
+                    signing_intents::test_finalize(&mut f, &signer, NOW).unwrap();
+                    if expected == "unknown" {
+                        claim(&mut f, &job, "dispatch", 0, NOW);
+                        claim(&mut f, &job, "dispatch", 1, NOW + 6);
+                    } else if expected == "active" {
+                        let dispatch = claim(&mut f, &job, "dispatch", 0, NOW);
+                        let tx = f.store.connection.transaction().unwrap();
+                        signing_jobs::fixture_deliver(&tx, &f.tenant, &dispatch, NOW).unwrap();
+                        tx.commit().unwrap();
+                    }
+                }
+                _ => {}
+            }
+            drop(f.store);
+            legacy::restore_v7(&f.path);
+            assert!(matches!(
+                AuthorityStore::open(&f.path),
+                Err(AuthorityError::MigrationRequired {
+                    found: 7,
+                    required: 8
+                })
+            ));
+            let before = snapshot(&f.path);
+            let backup = f.directory.path().join("before-v8.sqlite3");
+            AuthorityStore::migrate(&f.path, &backup).unwrap();
+            assert_eq!(version(&f.path), 8);
+            assert_eq!(version(&backup), 7);
+            assert_eq!(snapshot(&backup), before);
+            let after = snapshot(&f.path);
+            for (table, rows) in &before {
+                let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
+                if table == "authority_schema_migrations" {
+                    assert!(upgraded.starts_with(rows));
+                    assert_eq!(upgraded.len(), rows.len() + 1);
+                } else {
+                    assert_eq!(upgraded, rows, "{table}: {expected}");
+                }
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                for path in [&backup, &backup.with_extension("manifest.json")] {
+                    assert_eq!(
+                        fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                        0o600
+                    );
+                }
+            }
+            let manifest: Value =
+                serde_json::from_slice(&fs::read(backup.with_extension("manifest.json")).unwrap())
+                    .unwrap();
+            assert_eq!(manifest["database_schema"], 7);
+            assert_eq!(
+                manifest["database_hash"],
+                hash_bytes(&fs::read(&backup).unwrap())
+            );
+            let unnecessary = f.directory.path().join("unnecessary.sqlite3");
+            AuthorityStore::migrate(&f.path, &unnecessary).unwrap();
+            assert!(!unnecessary.exists());
+            f.store = AuthorityStore::open(&f.path).unwrap();
+            let tx = f.store.connection.transaction().unwrap();
+            let saved = signing_quota::read(&tx, &f.tenant, &reservation).unwrap();
+            assert_eq!(saved.state, expected);
+            assert_eq!(
+                saved.held(),
+                matches!(expected, "reserved" | "issued" | "unknown")
+            );
+        }
+    }
+
+    #[test]
+    fn v7_unproven_refund_rolls_back_upgrade_and_keeps_original_and_private_backup() {
+        for issued in [false, true] {
+            let (mut f, job, _) = prepared();
+            if issued {
+                let signer = claim(&mut f, &job, "signer", 0, NOW);
+                signing_intents::test_finalize(&mut f, &signer, NOW).unwrap();
+            }
+            drop(f.store);
+            legacy::restore_v7(&f.path);
+            let db = Connection::open(&f.path).unwrap();
+            db.execute("UPDATE authority_signing_quota_reservations SET state='released',active_slots=0,dispatch_slots=0", []).unwrap();
+            drop(db);
+            let before = snapshot(&f.path);
+            let backup = f.directory.path().join("invalid-v7.sqlite3");
+            assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+            assert_eq!(version(&f.path), 7);
+            assert_eq!(version(&backup), 7);
+            assert_eq!(snapshot(&f.path), before);
+            assert_eq!(snapshot(&backup), before);
+            assert!(!Connection::open(&f.path).unwrap().query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='authority_signing_quota_transitions')", [], |r| r.get::<_,bool>(0)).unwrap());
+        }
+    }
+
+    #[test]
+    fn v8_open_and_migration_fast_path_reject_missing_or_replaced_guards() {
+        for replace in [false, true] {
+            let f = Fixture::new();
+            drop(f.store);
+            let db = Connection::open(&f.path).unwrap();
+            db.execute_batch("DROP TRIGGER authority_signing_quota_reservations_no_delete;")
+                .unwrap();
+            if replace {
+                db.execute_batch("CREATE TRIGGER authority_signing_quota_reservations_no_delete BEFORE DELETE ON authority_signing_quota_reservations BEGIN SELECT 1; END;").unwrap();
+            }
+            drop(db);
+            assert!(AuthorityStore::open(&f.path).is_err());
+            let backup = f.directory.path().join("should-not-exist.sqlite3");
+            assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+            assert!(!backup.exists());
+            assert_eq!(version(&f.path), 8);
+        }
+    }
+
+    #[test]
+    fn v7_migration_rejects_unknown_actual_schema_before_creating_backup() {
+        let f = Fixture::new();
+        drop(f.store);
+        legacy::restore_v7(&f.path);
+        Connection::open(&f.path)
+            .unwrap()
+            .execute_batch("DROP TRIGGER authority_signing_quota_usage_no_delete;")
+            .unwrap();
+        let backup = f.directory.path().join("should-not-exist.sqlite3");
+        assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+        assert!(!backup.exists());
+        assert_eq!(version(&f.path), 7);
+    }
+
+    #[test]
+    fn v7_inconsistent_delivery_or_outbox_rolls_back_and_preserves_backup() {
+        for corrupt_delivery in [true, false] {
+            let (mut f, job, _) = prepared();
+            let signer = claim(&mut f, &job, "signer", 0, NOW);
+            signing_intents::test_finalize(&mut f, &signer, NOW).unwrap();
+            let dispatch = claim(&mut f, &job, "dispatch", 0, NOW);
+            let tx = f.store.connection.transaction().unwrap();
+            signing_jobs::fixture_deliver(&tx, &f.tenant, &dispatch, NOW).unwrap();
+            tx.commit().unwrap();
+            drop(f.store);
+            legacy::restore_v7(&f.path);
+            let db = Connection::open(&f.path).unwrap();
+            let guard = if corrupt_delivery {
+                "authority_signing_deliveries_immutable_update"
+            } else {
+                "authority_signing_outbox_immutable_update"
+            };
+            let trigger: String = db
+                .query_row("SELECT sql FROM sqlite_schema WHERE name=?", [guard], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            db.execute_batch(&format!("DROP TRIGGER {guard}")).unwrap();
+            if corrupt_delivery {
+                db.execute(
+                    "UPDATE authority_signing_deliveries SET result_bytes=?",
+                    [b"corrupted receipt".as_slice()],
+                )
+                .unwrap();
+            } else {
+                db.execute(
+                    "UPDATE authority_signing_outbox SET created_at=?",
+                    [NOW + 1],
+                )
+                .unwrap();
+            }
+            // Restore the exact known schema: rejection must come from data
+            // consistency, rather than detecting a deliberately missing guard.
+            db.execute_batch(&trigger).unwrap();
+            drop(db);
+            let original = snapshot(&f.path);
+            let backup = f.directory.path().join("inconsistent-delivery-v7.sqlite3");
+            assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+            assert_eq!(version(&f.path), 7);
+            assert_eq!(version(&backup), 7);
+            assert_eq!(snapshot(&f.path), original);
+            assert_eq!(snapshot(&backup), original);
+            assert!(!Connection::open(&f.path).unwrap().query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='authority_signing_quota_transitions')", [], |r| r.get::<_,bool>(0)).unwrap());
+        }
     }
 }

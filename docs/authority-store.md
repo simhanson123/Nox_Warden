@@ -263,13 +263,13 @@ archival maintenance and protected collector/IPC deployment remain future work.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 7. The stable family identity
+Fresh authority databases use schema version 8. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2, 3, 4, 5 or 6 database returns `MigrationRequired` without adding tables
+populated version 1, 2, 3, 4, 5, 6 or 7 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v7.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v8.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -300,7 +300,11 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 7 database makes no new backup or state change. Foreign and
+on a valid version 8 database makes no new backup or state change. Opening a
+version 8 database and the already-current migration path both check migration
+checksums and the actual schema against the known table, index and trigger
+definitions. Removing or replacing a guard causes rejection even if the stored
+version and checksum rows remain unchanged. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
 are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
@@ -316,7 +320,18 @@ inferring observer trust or qualified baseline evidence. Version 7 adds empty
 signing intents, jobs, results, target generation heads, independent quota
 registries, reservations, work transitions and dispatch outbox records. It
 preserves prior evidence without inferring signer authority, a generation, quota
-configuration or dispatch permission. See [durable signing coordination](signing-coordination.md).
+configuration or dispatch permission.
+
+Version 8 preserves the deployed version 7 migration and checksum. It validates
+existing quota reservations against retained immutable work, issuance and delivery
+evidence before seeding the new transition history and installing projection
+guards. A released reservation without matching cancellation evidence is rejected;
+elapsed time never supplies that evidence. A known-schema database with
+inconsistent retained state is backed up first, then the migration fails and rolls
+back, leaving the original source state and the validated private backup available
+for investigation. An unrecognized schema is refused before creating a backup.
+Migration does not rewrite original proofs, receipts, audit bytes or signer trust.
+See [durable signing coordination](signing-coordination.md).
 
 ## Issuance and atomic decision admission
 

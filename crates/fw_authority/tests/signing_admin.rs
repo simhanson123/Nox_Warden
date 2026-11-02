@@ -12,7 +12,9 @@ mod native_fixture;
 mod private_directory;
 
 use approval_authenticator::{Authenticator, ORIGIN, PRINCIPAL};
-use fw_authority::{ApprovalDecision, ApprovalRole, AuthorityBasis, AuthorityStore};
+use fw_authority::{
+    ApprovalDecision, ApprovalRole, AuthorityBasis, AuthorityStore, AuthorityTenant,
+};
 use fw_contracts::{canonical_bytes, canonical_hash};
 use fw_native_evidence::ArtifactRole;
 use fw_webauthn::WebAuthn;
@@ -30,10 +32,14 @@ const REQUEST: &str = "66666666-6666-4666-8666-666666666666";
 const OTHER: &str = "55555555-5555-4555-8555-555555555555";
 
 fn command(db: &Path, operation: &str) -> Command {
+    tenant_command(db, operation, ORG, PROJECT)
+}
+
+fn tenant_command(db: &Path, operation: &str, org: &str, project: &str) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_fw_authority_admin"));
     command.args([operation, "--database"]).arg(db);
     if operation != "init" {
-        command.args(["--org-id", ORG, "--project-id", PROJECT]);
+        command.args(["--org-id", org, "--project-id", project]);
     }
     if matches!(operation, "read-signing-readiness" | "request-signing") {
         command.args(["--approval-origin", ORIGIN]);
@@ -357,6 +363,93 @@ fn public_signing_request_cannot_promote_matching_lab_evidence_or_human_approval
 }
 
 #[test]
+fn cancellation_rejects_missing_jobs_and_untrusted_input_without_creating_work() {
+    let fixture = Fixture::new();
+    fixture.pin_quotas();
+    let before = signing_resources(&fixture.db);
+    for job in [OTHER, "DO_NOT_PRINT_JOB"] {
+        refused(
+            run(&fixture.db, "cancel-signing-job", &json!({"job_id":job})),
+            "SIGNING_CANCELLATION_REJECTED",
+        );
+    }
+    for bytes in [
+        b"{}".to_vec(),
+        serde_json::to_vec(&json!({"job_id":OTHER,"force":true})).unwrap(),
+        format!("{{\"job_id\":\"{OTHER}\",\"job_id\":\"{REQUEST}\"}}").into_bytes(),
+        vec![b' '; 128 * 1024 + 1],
+    ] {
+        refused(
+            execute(command(&fixture.db, "cancel-signing-job"), &bytes),
+            "INPUT_REJECTED",
+        );
+    }
+    let mut unexpected_option = command(&fixture.db, "cancel-signing-job");
+    unexpected_option.args(["--approval-origin", "DO_NOT_PRINT_ORIGIN"]);
+    refused(execute(unexpected_option, b"{}"), "ARGUMENTS_REJECTED");
+    refused(
+        execute(
+            tenant_command(
+                &fixture.db,
+                "cancel-signing-job",
+                "DO_NOT_PRINT_ORG",
+                PROJECT,
+            ),
+            &serde_json::to_vec(&json!({"job_id":OTHER})).unwrap(),
+        ),
+        "TENANT_REJECTED",
+    );
+    assert_eq!(signing_resources(&fixture.db), before);
+}
+
+#[test]
+fn trusted_root_quota_management_is_organization_scoped() {
+    let fixture = Fixture::new();
+    fixture.pin_quotas();
+    let other_project = AuthorityTenant::new(ORG, OTHER).unwrap();
+    let other_org = AuthorityTenant::new(OTHER, OTHER).unwrap();
+    let mut store = AuthorityStore::open(&fixture.db).unwrap();
+    let now = chrono::Utc::now().timestamp();
+    for tenant in [&other_project, &other_org] {
+        store
+            .provision_target_metadata_project(tenant, now)
+            .unwrap();
+    }
+    drop(store);
+    let mut update = fixture.quota.clone();
+    update["expected_revision"] = json!("1");
+    update["pin"]["limits"]["concurrent_deployments"] = json!(2);
+    let revised = success(execute(
+        tenant_command(&fixture.db, "pin-signing-root-quota", ORG, OTHER),
+        &serde_json::to_vec(&update).unwrap(),
+    ));
+    assert_eq!(revised["revision"], "2");
+    update["expected_revision"] = json!("2");
+    assert_eq!(
+        success(run(&fixture.db, "pin-signing-root-quota", &update))["revision"],
+        "2"
+    );
+    let before = signing_resources(&fixture.db);
+    for (operation, body) in [
+        ("pin-signing-root-quota", update),
+        ("pin-signing-project-quota", fixture.quota.clone()),
+        (
+            "revoke-signing-root-quota",
+            json!({"root_id":ROOT,"expected_revision":"2"}),
+        ),
+    ] {
+        refused(
+            execute(
+                tenant_command(&fixture.db, operation, OTHER, OTHER),
+                &serde_json::to_vec(&body).unwrap(),
+            ),
+            "SIGNING_QUOTA_REJECTED",
+        );
+    }
+    assert_eq!(signing_resources(&fixture.db), before);
+}
+
+#[test]
 fn quota_configuration_has_independent_cas_and_does_not_allow_root_rebinding() {
     let fixture = Fixture::new();
     fixture.pin_quotas();
@@ -431,6 +524,7 @@ fn signing_commands_reject_untrusted_authority_fields_and_bounded_input_aliases(
         "read-signing-readiness",
         "request-signing",
         "read-signing-intent",
+        "cancel-signing-job",
     ] {
         refused(
             run(
@@ -579,7 +673,7 @@ fn actual_migration_requires_backup_and_preserves_native_receipts_without_author
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    assert_eq!(database_version(), 7);
+    assert_eq!(database_version(), 8);
     assert_eq!(
         fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
         0o600

@@ -7,6 +7,8 @@ use crate::{PreparedSigningJob, VerifiedSigningResult};
 const MAX_SIGNER_ATTEMPTS: i64 = 3;
 const MAX_DISPATCH_ATTEMPTS: i64 = 5;
 const MAX_CLAIM_SECONDS: i64 = 900;
+// A renewal must strictly extend a claim, and each generation has a durable cap.
+const MAX_CLAIM_RENEWALS: i64 = 32;
 
 /// Opaque worker capability. Debug/serialization deliberately omit the token.
 #[derive(Clone)]
@@ -322,6 +324,7 @@ fn claim_in_tx(
     if !(1..=MAX_CLAIM_SECONDS).contains(&lease) {
         return Err(invalid("signing claim duration"));
     }
+    lifecycle_status(tx, tenant, job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, job_id, now)?;
     let reservation = signing_quota::read(tx, tenant, &intent.reservation_id)?;
     if (phase == "signer" && (reservation.state != "reserved" || reservation.issued_at.is_some()))
@@ -333,7 +336,7 @@ fn claim_in_tx(
         return Err(AuthorityError::Binding);
     }
     let deadline = crate::timestamp(&intent.valid_until)?;
-    let old = head(tx, tenant, job_id, phase)?.ok_or(AuthorityError::Binding)?;
+    let mut old = head(tx, tenant, job_id, phase)?.ok_or(AuthorityError::Binding)?;
     let eligible = if phase == "signer" {
         old.state == "prepared"
     } else {
@@ -367,7 +370,20 @@ fn claim_in_tx(
     if phase == "dispatch" {
         outbox(tx, tenant, job_id, now)?;
         if expired {
+            let mut uncertain = old.clone();
+            clear_claim(&mut uncertain, "unknown");
+            write_head(
+                tx,
+                tenant,
+                job_id,
+                phase,
+                Some(&old),
+                uncertain,
+                "unknown",
+                now,
+            )?;
             signing_quota::mark_unknown(tx, tenant, &intent.reservation_id, now)?;
+            old = head(tx, tenant, job_id, phase)?.ok_or(AuthorityError::Binding)?;
         }
     }
     let mut token = [0; 32];
@@ -493,25 +509,29 @@ fn outbox(
     job_id: &str,
     now: i64,
 ) -> Result<(String, Vec<u8>)> {
-    let (job, intent) = bound_job(tx, tenant, job_id, now)?;
+    let (_, intent) = bound_job(tx, tenant, job_id, now)?;
     let row:(String,Vec<u8>,Vec<u8>,i64)=tx.query_row("SELECT intent_id,grant_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,created_at FROM authority_signing_outbox WHERE org_id=? AND project_id=? AND job_id=?",params![tenant.org_id,tenant.project_id,job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?.ok_or(AuthorityError::Binding)?;
-    let stored:(Vec<u8>,Vec<u8>,Vec<u8>)=tx.query_row("SELECT grant_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?",params![tenant.org_id,tenant.project_id,intent.intent_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
-    let response = crate::parse_signer_result(&stored.2)?;
+    // Reverify the actual Ed25519 signature and exact prepared payload at every
+    // dequeue, including historical retries after expiry. Hash equality alone
+    // cannot authenticate an attacker-rewritten result and outbox together.
+    let verified =
+        signing_intents::retained_result(tx, tenant, &intent)?.ok_or(AuthorityError::Binding)?;
+    let issued: i64 = tx.query_row(
+        "SELECT finalized_at FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?",
+        params![tenant.org_id, tenant.project_id, intent.intent_id], |r| r.get(0),
+    )?;
+    let reservation = signing_quota::read(tx, tenant, &intent.reservation_id)?;
     if row.0 != intent.intent_id
-        || row.1 != stored.0
-        || row.2 != stored.1
-        || hash(&hash_bytes(&row.2))? != row.1
-        || response.job_id != job_id
-        || response.intent_id != intent.intent_id
-        || response.payload_hash != job.job().payload_hash
-        || bytes(&response)? != stored.2
-        || canonical_bytes(&response.signed_grant).map_err(|_| invalid("signing result bytes"))?
-            != row.2
-        || now < row.3
+        || row.1 != hash(verified.grant_hash())?
+        || row.2 != verified.canonical_grant_bytes()
+        || row.3 != issued
+        || reservation.issued_at.as_deref() != Some(at(issued)?.as_str())
+        || !matches!(reservation.state.as_str(), "issued" | "unknown" | "active")
+        || now < issued
     {
         return Err(AuthorityError::Binding);
     }
-    Ok((hash_string(&row.1)?, row.2))
+    Ok((verified.grant_hash().to_owned(), row.2))
 }
 
 pub(super) fn lifecycle_status(
@@ -530,8 +550,50 @@ pub(super) fn lifecycle_status(
     if (signer.state == "ready") != dispatch.is_some() {
         return Err(invalid("signing dispatch state"));
     }
+    let (has_result, has_outbox): (bool, bool) = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM authority_signing_results WHERE org_id=?1 AND project_id=?2 AND intent_id=?3), EXISTS(SELECT 1 FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND intent_id=?3)",
+        params![tenant.org_id, tenant.project_id, intent.intent_id], |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    type DeliveryRow = (Vec<u8>, Vec<u8>, Vec<u8>, i64);
+    let delivery: Option<DeliveryRow> = tx.query_row(
+        "SELECT grant_hash,result_hash,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END,recorded_at FROM authority_signing_deliveries WHERE org_id=? AND project_id=? AND job_id=?",
+        params![tenant.org_id, tenant.project_id, job_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    ).optional()?;
+    if (signer.state == "ready") != has_result || has_result != has_outbox {
+        return Err(invalid("signing result lifecycle"));
+    }
+    let compatible = match dispatch.as_ref().map(|d| d.state.as_str()) {
+        None if signer.state == "cancelled" => {
+            reservation.state == "released" && reservation.issued_at.is_none()
+        }
+        None => reservation.state == "reserved" && reservation.issued_at.is_none(),
+        Some("queued") => reservation.state == "issued",
+        Some("claimed") => matches!(reservation.state.as_str(), "issued" | "unknown"),
+        Some("unknown") => reservation.state == "unknown",
+        Some("delivered") => reservation.state == "active",
+        _ => false,
+    };
+    if !compatible
+        || dispatch.as_ref().is_some_and(|d| d.state == "delivered") != delivery.is_some()
+    {
+        return Err(invalid("signing quota lifecycle"));
+    }
     if dispatch.is_some() {
-        outbox(tx, tenant, job_id, now)?;
+        let (grant, _) = outbox(tx, tenant, job_id, now)?;
+        if let Some((delivered_grant, result_hash, result_bytes, recorded)) = delivery
+            && (delivered_grant != hash(&grant)?
+                || result_hash != hash(&hash_bytes(&result_bytes))?
+                || result_bytes.is_empty()
+                || recorded > now
+                || reservation
+                    .issued_at
+                    .as_deref()
+                    .map(crate::timestamp)
+                    .transpose()?
+                    .is_none_or(|issued| recorded < issued))
+        {
+            return Err(invalid("signing delivery projection"));
+        }
     }
     Ok(SigningLifecycleStatus {
         job_id: job_id.into(),
@@ -551,6 +613,7 @@ fn retry_in_tx(
     claim: &SigningClaim,
     now: i64,
 ) -> Result<()> {
+    lifecycle_status(tx, tenant, &claim.job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, &claim.job_id, now)?;
     let old = head(tx, tenant, &claim.job_id, claim.phase)?.ok_or(AuthorityError::Binding)?;
     claim_matches(&old, claim, &claim.job_id, claim.phase, now)?;
@@ -570,9 +633,6 @@ fn retry_in_tx(
         },
     );
     next.available = available;
-    if claim.phase == "dispatch" {
-        signing_quota::mark_unknown(tx, tenant, &intent.reservation_id, now)?;
-    }
     write_head(
         tx,
         tenant,
@@ -586,7 +646,11 @@ fn retry_in_tx(
             "unknown"
         },
         now,
-    )
+    )?;
+    if claim.phase == "dispatch" {
+        signing_quota::mark_unknown(tx, tenant, &intent.reservation_id, now)?;
+    }
+    Ok(())
 }
 
 fn renew_in_tx(
@@ -596,6 +660,7 @@ fn renew_in_tx(
     lease_seconds: i64,
     now: i64,
 ) -> Result<SigningClaim> {
+    lifecycle_status(tx, tenant, &claim.job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, &claim.job_id, now)?;
     if !(1..=MAX_CLAIM_SECONDS).contains(&lease_seconds) {
         return Err(invalid("signing claim duration"));
@@ -608,6 +673,17 @@ fn renew_in_tx(
         .min(crate::timestamp(&intent.valid_until)?);
     if until < claim.until {
         return Err(AuthorityError::Time);
+    }
+    if until == claim.until {
+        return Ok(claim.clone());
+    }
+    let renewals: i64 = tx.query_row(
+        "SELECT count(*) FROM (SELECT 1 FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? AND claim_generation=? AND kind='renewed' LIMIT 32)",
+        params![tenant.org_id, tenant.project_id, claim.job_id, claim.phase, claim.generation.to_be_bytes().as_slice()],
+        |row| row.get(0),
+    )?;
+    if renewals >= MAX_CLAIM_RENEWALS {
+        return Err(AuthorityError::Quota);
     }
     let mut next = old.clone();
     next.until = Some(until);
@@ -632,6 +708,7 @@ fn unknown_in_tx(
     claim: &SigningClaim,
     now: i64,
 ) -> Result<()> {
+    lifecycle_status(tx, tenant, &claim.job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, &claim.job_id, now)?;
     let old = head(tx, tenant, &claim.job_id, "dispatch")?.ok_or(AuthorityError::Binding)?;
     if now < old.updated {
@@ -646,7 +723,6 @@ fn unknown_in_tx(
     }
     claim_identity(&old, claim, &claim.job_id, "dispatch")?;
     outbox(tx, tenant, &claim.job_id, now)?;
-    signing_quota::mark_unknown(tx, tenant, &intent.reservation_id, now)?;
     let mut next = old.clone();
     clear_claim(&mut next, "unknown");
     next.available = now.saturating_add(retry_delay(&old)).min(MAX_TIME);
@@ -659,7 +735,9 @@ fn unknown_in_tx(
         next,
         "unknown",
         now,
-    )
+    )?;
+    signing_quota::mark_unknown(tx, tenant, &intent.reservation_id, now)?;
+    Ok(())
 }
 
 // A future protected target-receipt adapter must construct this witness after
@@ -671,6 +749,23 @@ pub(super) struct VerifiedDelivery {
     grant_hash: String,
     result_bytes: Vec<u8>,
 }
+#[cfg(test)]
+pub(super) fn fixture_deliver(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    claim: &SigningClaim,
+    now: i64,
+) -> Result<()> {
+    let (grant_hash, _) = outbox(tx, tenant, &claim.job_id, now)?;
+    let receipt = VerifiedDelivery {
+        job_id: claim.job_id.clone(),
+        grant_hash: grant_hash.clone(),
+        result_bytes: bytes(
+            &json!({"fixture":"verified target result","job_id":claim.job_id,"grant_hash":grant_hash}),
+        )?,
+    };
+    deliver_in_tx(tx, tenant, claim, &receipt, now)
+}
 #[allow(dead_code)]
 pub(super) fn deliver_in_tx(
     tx: &Transaction<'_>,
@@ -679,6 +774,7 @@ pub(super) fn deliver_in_tx(
     receipt: &VerifiedDelivery,
     now: i64,
 ) -> Result<()> {
+    lifecycle_status(tx, tenant, &claim.job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, &claim.job_id, now)?;
     let (grant_hash, _) = outbox(tx, tenant, &claim.job_id, now)?;
     if receipt.job_id != claim.job_id
@@ -702,7 +798,6 @@ pub(super) fn deliver_in_tx(
         return Ok(());
     }
     claim_matches(&old, claim, &claim.job_id, "dispatch", now)?;
-    signing_quota::mark_active(tx, tenant, &intent.reservation_id, now)?;
     tx.execute(
         "INSERT INTO authority_signing_deliveries VALUES(?,?,?,?,?,?,?)",
         params![
@@ -726,7 +821,9 @@ pub(super) fn deliver_in_tx(
         next,
         "delivered",
         now,
-    )
+    )?;
+    signing_quota::mark_active(tx, tenant, &intent.reservation_id, now)?;
+    Ok(())
 }
 
 fn cancel_in_tx(
@@ -735,15 +832,15 @@ fn cancel_in_tx(
     job_id: &str,
     now: i64,
 ) -> Result<()> {
+    lifecycle_status(tx, tenant, job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, job_id, now)?;
     let old = head(tx, tenant, job_id, "signer")?.ok_or(AuthorityError::Binding)?;
     let committed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_results WHERE org_id=?1 AND project_id=?2 AND intent_id=?3) OR EXISTS(SELECT 1 FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND intent_id=?3)",params![tenant.org_id,tenant.project_id,intent.intent_id],|r|r.get(0))?;
     if committed || old.state == "ready" || head(tx, tenant, job_id, "dispatch")?.is_some() {
         return Err(AuthorityError::Conflict);
     }
-    signing_quota::cancel_unissued(tx, tenant, &intent.reservation_id, now)?;
     if old.state == "cancelled" {
-        return Ok(());
+        return signing_quota::cancel_unissued(tx, tenant, &intent.reservation_id, now);
     }
     let mut next = old.clone();
     clear_claim(&mut next, "cancelled");
@@ -756,7 +853,9 @@ fn cancel_in_tx(
         next,
         "cancelled",
         now,
-    )
+    )?;
+    signing_quota::cancel_unissued(tx, tenant, &intent.reservation_id, now)?;
+    Ok(())
 }
 
 impl AuthorityStore {
@@ -1025,6 +1124,271 @@ mod tests {
             1
         );
         tx.commit().unwrap();
+    }
+
+    #[test]
+    fn heartbeat_noops_do_not_grow_history_and_renewal_cap_survives_restart() {
+        let (mut f, job, _) = prepared();
+        let mut c = claim(&mut f, &job, "signer", 0, 60, NOW).unwrap();
+        let events = f.count("authority_signing_work_events");
+        let audit = f.count("authority_audit");
+        let tx = f.store.connection.transaction().unwrap();
+        for _ in 0..100 {
+            c = renew_in_tx(&tx, &f.tenant, &c, 60, NOW).unwrap();
+        }
+        tx.commit().unwrap();
+        assert_eq!(f.count("authority_signing_work_events"), events);
+        assert_eq!(f.count("authority_audit"), audit);
+        for extension in 1..=MAX_CLAIM_RENEWALS {
+            let tx = f.store.connection.transaction().unwrap();
+            c = renew_in_tx(&tx, &f.tenant, &c, 60 + extension, NOW).unwrap();
+            tx.commit().unwrap();
+        }
+        f.reopen();
+        let tx = f.store.connection.transaction().unwrap();
+        assert!(matches!(
+            renew_in_tx(&tx, &f.tenant, &c, 93, NOW),
+            Err(AuthorityError::Quota)
+        ));
+        assert!(renew_in_tx(&tx, &f.tenant, &c, 92, NOW).is_ok());
+        tx.commit().unwrap();
+        assert_eq!(
+            f.count("authority_signing_work_events"),
+            events + MAX_CLAIM_RENEWALS
+        );
+        assert_eq!(f.count("authority_audit"), audit + MAX_CLAIM_RENEWALS);
+    }
+
+    #[test]
+    fn cancelling_claimed_unissued_job_invalidates_worker_across_restart() {
+        let (mut f, job, reservation) = prepared();
+        let c = claim(&mut f, &job, "signer", 0, 60, NOW).unwrap();
+        let intent = {
+            let tx = f.store.connection.transaction().unwrap();
+            signing_intents::job_at(&tx, &f.tenant, &job)
+                .unwrap()
+                .job()
+                .intent_id
+                .clone()
+        };
+        let result = signing_intents::test_sign(&mut f, &intent, NOW);
+        f.store
+            .cancel_signing_job(&f.tenant, &job, NOW + 1)
+            .unwrap();
+        f.reopen();
+        assert!(signing_intents::test_finalize_result(&mut f, &c, &result, NOW + 1).is_err());
+        let tx = f.store.connection.transaction().unwrap();
+        assert!(renew_in_tx(&tx, &f.tenant, &c, 60, NOW + 1).is_err());
+        assert!(retry_in_tx(&tx, &f.tenant, &c, NOW + 1).is_err());
+        assert!(fixture_claim(&tx, &f.tenant, &job, "signer", WORKER, 1, 60, NOW + 1).is_err());
+        let status = lifecycle_status(&tx, &f.tenant, &job, NOW + 1).unwrap();
+        assert_eq!(status.state, "cancelled");
+        assert_eq!(status.claim_generation, 1);
+        assert_eq!(status.claim_until, None);
+        assert!(
+            !signing_quota::read(&tx, &f.tenant, &reservation)
+                .unwrap()
+                .held()
+        );
+        tx.commit().unwrap();
+        assert_eq!(f.count("authority_signing_results"), 0);
+        assert_eq!(f.count("authority_signing_outbox"), 0);
+        assert_eq!(f.count("authority_signing_quota_usage"), 0);
+    }
+
+    #[test]
+    fn dispatch_reverifies_signature_when_result_and_outbox_hashes_are_rewritten() {
+        // Include a genuinely valid signature over the wrong exact payload.
+        for valid_but_rebound in [false, true] {
+            let (mut f, job, _) = ready();
+            let mut result = {
+                let tx = f.store.connection.transaction().unwrap();
+                let raw: Vec<u8> = tx
+                    .query_row(
+                        "SELECT result_bytes FROM authority_signing_results",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                crate::parse_signer_result(&raw).unwrap()
+            };
+            if valid_but_rebound {
+                struct Evidence(crate::GrantContext);
+                impl crate::AuthorityEvidence for Evidence {
+                    fn verify_for_signing(&self, _: &Value, _: i64) -> Result<crate::GrantContext> {
+                        Ok(self.0.clone())
+                    }
+                }
+                let mut payload = result.signed_grant.payload.clone();
+                payload["not_after"] =
+                    at(crate::timestamp(payload["not_after"].as_str().unwrap()).unwrap() - 1)
+                        .unwrap()
+                        .into();
+                payload["confirm_not_after"] = at(crate::timestamp(
+                    payload["confirm_not_after"].as_str().unwrap(),
+                )
+                .unwrap()
+                    - 1)
+                .unwrap()
+                .into();
+                let context = crate::GrantContext {
+                    org_id: f.tenant.org_id.clone(),
+                    project_id: f.tenant.project_id.clone(),
+                    target_id: payload["target_id"].as_str().unwrap().into(),
+                    plan_hash: payload["plan_hash"].as_str().unwrap().into(),
+                    artifact_hash: payload["artifact_hash"].as_str().unwrap().into(),
+                    baseline_hash: payload["baseline_hash"].as_str().unwrap().into(),
+                    desired_state_hash: payload["desired_state_hash"].as_str().unwrap().into(),
+                    approval_set_hash: payload["approval_set_hash"].as_str().unwrap().into(),
+                    authority_epoch: 1,
+                    now_unix: NOW,
+                };
+                result.signed_grant = crate::sign_grant(
+                    payload,
+                    "fixture-signing-key",
+                    &ed25519_dalek::SigningKey::from_bytes(&[81; 32]),
+                    &Evidence(context),
+                    NOW,
+                )
+                .unwrap();
+            } else {
+                result.signed_grant.dsse.signatures[0].sig =
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 64]);
+            }
+            let result_bytes = bytes(&result).unwrap();
+            let grant = bytes(&result.signed_grant).unwrap();
+            let grant_hash = hash(&hash_bytes(&grant)).unwrap();
+            f.store.connection.execute_batch("DROP TRIGGER authority_signing_results_no_update; DROP TRIGGER authority_signing_outbox_immutable_update;").unwrap();
+            f.store.connection.execute("UPDATE authority_signing_results SET grant_hash=?,result_hash=?,grant_bytes=?,result_bytes=?", params![grant_hash, hash(&hash_bytes(&result_bytes)).unwrap(), grant, result_bytes]).unwrap();
+            f.store
+                .connection
+                .execute(
+                    "UPDATE authority_signing_outbox SET grant_hash=?,grant_bytes=?",
+                    params![grant_hash, grant],
+                )
+                .unwrap();
+            let tx = f.store.connection.transaction().unwrap();
+            assert!(outbox(&tx, &f.tenant, &job, NOW).is_err());
+            assert!(lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
+            assert!(fixture_claim(&tx, &f.tenant, &job, "dispatch", WORKER, 0, 60, NOW).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "requires separately built fw_authority_admin; run scripts/check.sh"]
+    fn cancellation_cli_preserves_commits_retries_tenants_and_issued_unknown() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let binary = std::env::var_os("NOX_TEST_AUTHORITY_ADMIN")
+            .expect("set NOX_TEST_AUTHORITY_ADMIN to separately built fw_authority_admin");
+        let invoke = |f: &Fixture, job: &str, tenant: &AuthorityTenant, full: bool| {
+            let mut child = Command::new(&binary)
+                .args(["cancel-signing-job", "--database"])
+                .arg(&f.path)
+                .args([
+                    "--org-id",
+                    tenant.org_id(),
+                    "--project-id",
+                    tenant.project_id(),
+                ])
+                .stdin(Stdio::piped())
+                .stdout(if full {
+                    Stdio::from(
+                        std::fs::OpenOptions::new()
+                            .write(true)
+                            .open("/dev/full")
+                            .unwrap(),
+                    )
+                } else {
+                    Stdio::piped()
+                })
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(&bytes(&json!({"job_id":job})).unwrap())
+                .unwrap();
+            child.wait_with_output().unwrap()
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let fixture_time = now - 600;
+        let mut f = Fixture::at(fixture_time);
+        let prepared = signing_intents::test_prepare(&mut f, fixture_time);
+        let job = prepared.intent.job_id;
+        let reservation = prepared.intent.reservation_id;
+        claim(&mut f, &job, "signer", 0, 60, fixture_time).unwrap();
+        let other = AuthorityTenant::new(f.tenant.org_id(), "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
+            .unwrap();
+        let rejected = invoke(&f, &job, &other, false);
+        assert_eq!(rejected.status.code(), Some(1));
+        assert_eq!(
+            rejected.stderr,
+            b"AUTHORITY_ADMIN code=SIGNING_CANCELLATION_REJECTED\n"
+        );
+        let lost = invoke(&f, &job, &f.tenant, true);
+        assert_eq!(lost.status.code(), Some(1));
+        assert_eq!(lost.stderr, b"AUTHORITY_ADMIN code=OUTPUT_FAILED\n");
+        f.reopen();
+        let audit = f.count("authority_audit");
+        let events = f.count("authority_signing_work_events");
+        let retry = invoke(&f, &job, &f.tenant, false);
+        assert!(retry.status.success(), "{:?}", retry.stderr);
+        assert_eq!(retry.stdout, bytes(&json!({"job_id":job,"status":"cancelled","signing_allowed":false,"dispatch_allowed":false})).unwrap());
+        assert!(retry.stderr.is_empty());
+        assert_eq!(f.count("authority_audit"), audit);
+        assert_eq!(f.count("authority_signing_work_events"), events);
+        let tx = f.store.connection.transaction().unwrap();
+        let budget = signing_quota::read(&tx, &f.tenant, &reservation).unwrap();
+        assert_eq!(budget.state, "released");
+        assert_eq!(budget.issued_at, None);
+        let generation: Vec<u8> = tx
+            .query_row(
+                "SELECT generation FROM authority_signing_target_heads",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(generation, 1u64.to_be_bytes());
+        tx.commit().unwrap();
+
+        for uncertain in [false, true] {
+            let mut f = Fixture::at(fixture_time);
+            let prepared = signing_intents::test_prepare(&mut f, fixture_time);
+            let job = prepared.intent.job_id;
+            let reservation = prepared.intent.reservation_id;
+            let signer = claim(&mut f, &job, "signer", 0, 60, fixture_time).unwrap();
+            signing_intents::test_finalize(&mut f, &signer, fixture_time).unwrap();
+            if uncertain {
+                let claim = claim(&mut f, &job, "dispatch", 0, 60, fixture_time).unwrap();
+                let tx = f.store.connection.transaction().unwrap();
+                unknown_in_tx(&tx, &f.tenant, &claim, fixture_time).unwrap();
+                tx.commit().unwrap();
+            }
+            let rejected = invoke(&f, &job, &f.tenant, false);
+            assert_eq!(rejected.status.code(), Some(1));
+            assert_eq!(
+                rejected.stderr,
+                b"AUTHORITY_ADMIN code=SIGNING_CANCELLATION_REJECTED\n"
+            );
+            f.reopen();
+            let tx = f.store.connection.transaction().unwrap();
+            assert!(
+                signing_quota::read(&tx, &f.tenant, &reservation)
+                    .unwrap()
+                    .held()
+            );
+            tx.commit().unwrap();
+            assert_eq!(f.count("authority_signing_results"), 1);
+            assert_eq!(f.count("authority_signing_outbox"), 1);
+            assert_eq!(f.count("authority_signing_quota_usage"), 1);
+        }
     }
 
     #[test]
