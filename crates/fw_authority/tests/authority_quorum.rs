@@ -1566,7 +1566,7 @@ fn v2_migration_preserves_history_without_inventing_epoch_identity_or_quorum() {
         AuthorityStore::open(&f.path),
         Err(fw_authority::AuthorityError::MigrationRequired {
             found: 2,
-            required: 7
+            required: 8
         })
     ));
     let backup = f.path.with_file_name("v2-private-backup.sqlite3");
@@ -1577,7 +1577,7 @@ fn v2_migration_preserves_history_without_inventing_epoch_identity_or_quorum() {
         let current = after.iter().find(|r| r.0 == previous.0).unwrap();
         if previous.0 == "authority_schema_migrations" {
             assert!(current.1.starts_with(&previous.1));
-            assert_eq!(current.1.len(), previous.1.len() + 5);
+            assert_eq!(current.1.len(), previous.1.len() + 6);
         } else {
             assert_eq!(current, previous);
         }
@@ -1652,7 +1652,7 @@ fn concurrent_v2_migration_has_one_backup_and_one_complete_new_schema() {
             .unwrap()
             .query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
             .unwrap(),
-        7
+        8
     );
 }
 

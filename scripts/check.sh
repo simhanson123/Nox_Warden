@@ -13,6 +13,12 @@ python -m unittest discover -s scripts -p 'test_native_evidence_diagnostics.py'
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+# The successful cancellation process fixture exists only in cfg(test), while
+# the administrator executable retains the normal closed production resolver.
+cargo build --locked -p fw_authority --bin fw_authority_admin
+NOX_TEST_AUTHORITY_ADMIN="$PWD/target/debug/fw_authority_admin" \
+  cargo test --locked -p fw_authority --lib \
+  cancellation_cli_preserves_commits_retries_tenants_and_issued_unknown -- --ignored
 # Native executors consume grant verification without approval ceremony code.
 cargo test -p fw_authority --no-default-features --locked
 npm run check --prefix web

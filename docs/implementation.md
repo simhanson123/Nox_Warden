@@ -19,7 +19,14 @@ meaningful completion percentage.
 | Distribution and operations | Source, pinned builds and CI | Signed installers, upgrade/uninstall, restore epochs, provider/channel acceptance and production operations |
 
 [Durable signing intent and quota coordination](signing-coordination.md) now
-share the authority transaction. The next dependencies are protected authority
+share the authority transaction. The PR #18 external reports and the confirmed
+reservation-refund finding are preserved in [review continuity](review-continuity.md).
+Schema 8 adds evidence-bound reservation transitions, actual-schema checks and
+private-backup validation of existing reservation history. Trusted local
+cancellation handles expired unissued jobs without refunding issued or UNKNOWN
+work. Dispatch reads revalidate the exact signed payload, and heartbeat history
+is bounded per claim generation. These are storage and verification mechanics;
+the public production resolver remains closed. The next dependencies are protected authority
 bootstrap and generation initialization, qualified production evidence, original
 core request cost binding and protected signer/dispatch deployment. Passing a lab
 or returning a current evidence summary cannot open policy dispatch.
@@ -117,9 +124,10 @@ does not attest caller-declared compiler/validator build digests, and an observe
 signature does not establish protected kernel provenance. Expected installation
 bytes do not prove an approved journal operation. All results remain unqualified
 and unable to dispatch; production observer isolation, management baseline
-qualification and authenticated host dispatch remain open requirements. Schema 7
-adds two-phase signing/quota transaction mechanics, but its protected production
-resolver refuses all preparation and worker operations.
+qualification and authenticated host dispatch remain open requirements. The
+two-phase signing/quota transaction mechanics introduced in schema 7 and hardened
+in schema 8 retain a protected production resolver that refuses all preparation
+and worker operations.
 
 The separate [target metadata flow](target-metadata.md) lets a trusted local
 operator pin a device key, certificate binding and validity independently of

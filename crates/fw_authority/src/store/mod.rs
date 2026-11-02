@@ -144,8 +144,9 @@ impl AuthorityStore {
                 migrations::apply_v5(&tx)?;
                 migrations::apply_v6(&tx)?;
                 migrations::apply_v7(&tx)?;
+                migrations::apply_v8(&tx)?;
             } else {
-                if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6, 7].contains(&version) {
+                if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6, 7, 8].contains(&version) {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
                 let identity: Option<String> = tx
@@ -158,13 +159,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 7 {
+                if version < 8 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 7,
+                        required: 8,
                     });
                 }
-                migrations::validate_v7(&tx)?;
+                migrations::validate_v8(&tx)?;
             }
             tx.commit()?;
         }

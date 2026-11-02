@@ -19,6 +19,7 @@ use std::path::PathBuf;
 pub(super) const NOW: i64 = 1_800_000_000;
 
 pub(super) struct Fixture {
+    pub now: i64,
     pub directory: tempfile::TempDir,
     pub path: PathBuf,
     pub store: AuthorityStore,
@@ -38,10 +39,14 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub fn new() -> Self {
+        Self::at(NOW)
+    }
+
+    pub fn at(now: i64) -> Self {
         let directory = private_directory::private_directory();
         let path = directory.path().join("authority.sqlite3");
         let mut store = AuthorityStore::open(&path).unwrap();
-        let (tenant, plan, requirements, review, references) = native::setup(&mut store, NOW);
+        let (tenant, plan, requirements, review, references) = native::setup(&mut store, now);
         let verifier = WebAuthn::new(ORIGIN).unwrap();
         store
             .provision_principal(
@@ -49,7 +54,7 @@ impl Fixture {
                 PRINCIPAL,
                 "https://signing.fixture.example",
                 PRINCIPAL,
-                NOW,
+                now,
             )
             .unwrap();
         let principal_key = Authenticator::new(PRINCIPAL);
@@ -64,10 +69,10 @@ impl Fixture {
             .unwrap();
         let credential_id = credential.id();
         store
-            .pin_credential(&tenant, &credential, NOW, NOW + 7200, NOW)
+            .pin_credential(&tenant, &credential, now, now + 7200, now)
             .unwrap();
         let activation = store
-            .begin_credential_activation(&tenant, &credential_id, &verifier, NOW)
+            .begin_credential_activation(&tenant, &credential_id, &verifier, now)
             .unwrap();
         store
             .finish_credential_activation(
@@ -75,7 +80,7 @@ impl Fixture {
                 &activation.activation_id,
                 &principal_key.assertion(&activation.options, 1, 5, ORIGIN),
                 &verifier,
-                NOW,
+                now,
             )
             .unwrap();
         let membership_id = store
@@ -83,13 +88,13 @@ impl Fixture {
                 &tenant,
                 PRINCIPAL,
                 ApprovalRole::Owner,
-                NOW,
-                NOW + 7200,
-                NOW,
+                now,
+                now + 7200,
+                now,
             )
             .unwrap();
         store
-            .bind_human_identity(&tenant, PRINCIPAL, PRINCIPAL, NOW)
+            .bind_human_identity(&tenant, PRINCIPAL, PRINCIPAL, now)
             .unwrap();
         store
             .provision_authority_basis(
@@ -97,18 +102,18 @@ impl Fixture {
                 &AuthorityBasis {
                     epoch: 1,
                     role_policy_hash: requirements["role_policy_hash"].as_str().unwrap().into(),
-                    not_before: NOW,
-                    not_after: NOW + 7200,
+                    not_before: now,
+                    not_after: now + 7200,
                 },
-                NOW,
+                now,
             )
             .unwrap();
         store
-            .register_native_compilation(&tenant, native::PLAN, 1, NOW)
+            .register_native_compilation(&tenant, native::PLAN, 1, now)
             .unwrap();
         let compilation =
             fw_native_evidence::compile_evidence(&plan, &review, &references).unwrap();
-        let installation = native::installation(compilation.baseline(), NOW);
+        let installation = native::installation(compilation.baseline(), now);
         let challenge = store
             .challenge_native_observation(
                 &tenant,
@@ -118,17 +123,17 @@ impl Fixture {
                 None,
                 1,
                 1,
-                NOW,
+                now,
             )
             .unwrap();
         let proof = native::proof(
             &challenge,
             installation.clone(),
             native::snapshot(&installation.native),
-            NOW,
+            now,
         );
         let observation = store
-            .admit_native_observation(&tenant, &proof, NOW)
+            .admit_native_observation(&tenant, &proof, now)
             .unwrap();
         assert_eq!(observation.receipt.comparison, "match");
         assert_eq!(
@@ -138,6 +143,7 @@ impl Fixture {
         assert!(!observation.receipt.production_qualified);
         assert!(!observation.receipt.dispatch_allowed);
         let mut fixture = Self {
+            now,
             directory,
             path,
             store,
@@ -154,7 +160,7 @@ impl Fixture {
             principal_key,
             counter: 1,
         };
-        fixture.current_approval_hash = fixture.approve(native::PLAN, NOW);
+        fixture.current_approval_hash = fixture.approve(native::PLAN, now);
         fixture
     }
 

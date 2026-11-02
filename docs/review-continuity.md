@@ -7,7 +7,59 @@ work belong in [the task ledger](../reports/task-ledger.json),
 [verification summary](../reports/README.md) and
 [implementation overview](implementation.md).
 
-## Current integrated review
+## Received PR #18 external reviews
+
+The user supplied Claude Opus 5.5, GLM 5.3 and GLM 5.3 Flash reports for
+`4c0b65ee4399b500a83011426255be54bdc10654`, compared with
+`956de27f4833138da15d0621e0c4163591374826`. PR #18 merged as
+`5a7551d1d7a59a8f92f74dc972953e5162fd5a90`; the reviewed head and merge have
+the same file tree. The [three original reports](reviews/pr18-external-reviews.md)
+are preserved verbatim with source hashes. Reviewer names, executions and
+temporary paths remain user-supplied evidence; their private probe sources were
+not provided and must not be described as rerun by this session.
+
+| Report | Supplied result and disposition |
+| --- | --- |
+| Claude Opus 5.5 | One confirmed Low finding: a normal SQL UPDATE can release an issued reservation's slots while lifecycle reads still report ready/queued. This is the concrete correction target. Separately reported trust-scope, expired-cancellation, heartbeat, dispatch and schema-validation observations require checking and scoped follow-up. |
+| GLM 5.3 | No confirmed defect within its storage/concurrency/recovery scope. Reported 713 workspace and 32 reduced-feature Rust tests, 156 UI tests, 319 shared-umask authority tests, Linux 66/40 and signed Linux 98/43 checks/packets, and 39 new probe assertions. These are external results with overlapping subsets. |
+| GLM 5.3 Flash | No confirmed defect within its CLI/HTTP/UI scope. Reported UI 156, CLI 15, HTTP 33 plus startup 5, authority browser 40, passkey 76, metadata 41 and enrollment browser 25. Its initial unsafe generated-file permissions and corrected probe failures are retained in the original report. |
+
+The two no-finding reports do not negate Claude's reproduced SQL counterexample.
+A state allowlist alone cannot close it: a release, active-state transition or
+slot change must agree with retained work, issuance and delivery evidence before
+accounting can exclude that reservation. Expiry is not cancellation evidence.
+The follow-up starts from the PR #18 merge and preserves `migration_007.sql`;
+new implementation and verification belong in the task ledger and verification
+summary, separate from these three historical reports.
+
+## Reservation-integrity follow-up review
+
+The follow-up independently reproduced L1 against the unchanged PR #18 tree,
+then retained the opposite regression using a real signing fixture and intact
+production guards. Schema 8 binds quota projections and indexed accounting
+membership to immutable transitions and their work/issuance/delivery evidence.
+The admin cancellation command, exact dispatch signature checks and bounded
+heartbeat renewals are described in [signing coordination](signing-coordination.md).
+
+Separate internal reviewers found three additional inconsistencies while the
+batch was integrated: a cancellation event without a matching current work head
+could support release; a corrupted legacy delivery receipt could migrate even
+though normal lifecycle reads rejected it; and an already-open connection could
+lose indexed accounting membership after its delete guard was removed. Each was
+corrected and the same independently failing counterexample passed afterward.
+The corrections respectively require complete head/event agreement, validate
+the full lifecycle before committing migration imports, and check the exact
+bounded set of live accounting guards. These are newly executed internal reviews,
+not fresh executions by the named external models. No further confirmed blocker
+remained within those reviewed scopes.
+
+Full schema validation occurs at open and migration. The live accounting check
+covers its specified membership guards; it does not authenticate every byte
+against an attacker able to replace the whole database and retained trust keys.
+The [verification summary](../reports/README.md) records the completed integrated
+checks without adding overlapping focused test counts.
+
+## PR #18 integrated implementation review
 
 The subsequent durable-signing batch starts from PR #17 merge `956de27`.
 Its implementation, checked commands and remaining production gates are recorded
