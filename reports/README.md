@@ -6,6 +6,36 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
+## Current handoff and new external findings
+
+The [session handoff](../docs/session-handoff.md) and
+[startup prompt](../docs/session-start-prompt.txt) recover work without the old chat.
+The latest implemented baseline is PR20 head `9e021b3`, merged as `6eb68a9`.
+Its [final PR CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41425943304)
+and [main CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41429434650)
+passed. The final PR run's twelve reports and 164 recorded source-file hashes were
+checked against the final source tree before merge. Its runtime counts were
+HTTP24,CLI13,enrollment23,metadata41,catalogue11,passkey76,login14,audit21,
+authority40,Linux66/40 packets,signed Linux98/43 packets,native33/5 captures.
+
+The subsequently supplied [Claude PR20 review](../docs/reviews/pr20-claude-review.md)
+confirms F1–F4 and reports seven Low findings N1–N7. **All seven are still open.**
+The handoff source assessment is not a fix or a new full-suite pass. One new
+public-API probe independently reproduced N2 audit-tail removal with unchanged
+guards and passing current/reopened audit verification; its
+[portable source and commands](../docs/reviews/pr20-local-audit-repro.md) are retained.
+Other reported cases require fresh independent reproductions in the next batch.
+The reviewer's private probes and omitted Docker runs are not claimed as ours.
+
+This handoff changes documentation/review evidence only. Baseline test counts
+below remain historical and are not executions after N1–N7 fixes. The next
+implementation and acceptance matrix are in [the follow-up](../docs/pr20-follow-up.md).
+Handoff checks passed: 27 specification checks, diff whitespace, ledger JSON,
+original-review byte/hash preservation and 102 local Markdown links. A separate
+reviewer found no blocking inconsistency and reran the exact portable N2 commands
+in a fresh directory; this reproduced the same unfixed defect, not an additional
+passing security regression. Full product suites were not rerun for doc-only edits.
+
 ## Reproduce
 
 Install the [build prerequisites](../README.md#run-locally), Python browser
@@ -168,7 +198,7 @@ explicit rowid variants: all were refused, with original status, reopen and
 audit preserved.
 Separate independent probes passed concurrent schema 8 migration, expiry while
 waiting for stdin, and hostile JSON/UTF-8 input. These are internal executions,
-not Claude's pending external review.
+separate from Claude's external review, which was pending at that historical checkpoint and has since been received.
 
 `bash scripts/check.sh` passed **777 workspace Rust tests, 32 reduced-feature
 Rust tests, 158 UI tests and one separately executed cancellation CLI process

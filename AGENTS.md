@@ -14,7 +14,8 @@ This repository is the F-2.0 development specification for a native, open-source
 
 ## Work procedure
 
-For resumed work, read `docs/review-continuity.md`, `reports/task-ledger.json`,
+For resumed work, read `docs/session-handoff.md` first when present, then
+`docs/review-continuity.md`, `reports/task-ledger.json`,
 `reports/README.md` and `docs/implementation.md` before selecting the next task.
 The continuity document distinguishes user-supplied independent reviews from
 recovered source and newly executed checks. Do not assume a lost conversation is

@@ -57,8 +57,9 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
 
 See [implementation boundaries](docs/implementation.md), [platform status](docs/platform-support.md)
 and the concise [task ledger](reports/task-ledger.json) for remaining work.
-The [development handoff](docs/review-continuity.md) records the preserved design,
-independent review history and procedure for continuing after a lost conversation.
+Start a new session with the [session handoff](docs/session-handoff.md) and its
+[copyable prompt](docs/session-start-prompt.txt). The [review history](docs/review-continuity.md)
+preserves supplied reports separately from implementation and fresh executions.
 
 ## Run locally
 

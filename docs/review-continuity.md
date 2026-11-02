@@ -7,6 +7,54 @@ work belong in [the task ledger](../reports/task-ledger.json),
 [verification summary](../reports/README.md) and
 [implementation overview](implementation.md).
 
+For a new session, start with [the complete handoff](session-handoff.md).
+
+## Latest received review: PR #20
+
+The user supplied Claude Opus 5.5's [complete PR20 report](reviews/pr20-claude-review.md)
+for `9e021b31171ae19ff8c9e7eba400d8dd4630a001` against
+`09ef6a866632a9a6e12e2af799cb18b8b55daca9`. PR20 merged as
+`6eb68a9251b76ac164f8efb0fa5ad5ded1336564` with the same source tree. Its final
+[PR CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41425943304) and
+[main CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41429434650)
+passed. The report is preserved verbatim, including CRLF and opening progress
+notes: 17,167 bytes, SHA-256
+`abc796dce74778372c613c253d2891037ca386430d475ea7a8040a97c415aa2c`.
+
+Claude reports F1–F4 corrected and seven Low findings N1–N7, with no reported
+Critical/High/Medium or blocker to continuing development. **All seven remain
+open**; CI and prior internal review do not resolve these newly supplied findings.
+N1/N3/N6 include Claude's direct reproduction; N2/N5/N7 were attributed to its
+migration reviewer without a Claude rerun. N4 is reported confirmed within the
+combined review, without a separately identified direct rerun. Preserve this
+distinction instead of attributing every parallel probe to Claude itself.
+
+The report records one failed full check (exit101), five passing isolated retries
+and a passing full rerun (800 workspace, one explicit CLI process,32 reduced,
+180 UI), plus406 shared-umask,41 metadata and40 authority-browser checks.
+Its initial browser mismatch and corrected explicit executable selection are
+environment observations. Its load/fresh-auth explanation for the test failure
+is a hypothesis, not a root cause established here. Source inspection identifies
+another possible one-second credential/session timestamp boundary to investigate.
+The report did not execute Docker/Linux/native-evidence suites, actual old-binary
+upgrade fixtures, multiprocess races or crash injection. Those are not external
+passes; previous project's isolated CI runs are separate evidence.
+
+The handoff session independently reproduced **N2** through real public principal
+provisioning and audit APIs: two retained audit events became one while both
+principals remained, all trigger SQL stayed unchanged, FK checks stayed clean,
+and current/reopened audit verification accepted the shorter history. The
+[portable reproduction](reviews/pr20-local-audit-repro.md) is newly written local
+evidence, not Claude's private source. N1/N3/N4/N5/N6/N7 received source assessment
+only in this handoff; their external counterexamples were not freshly executed.
+No product fix or rootless implementation is included in this handoff branch.
+
+[Follow-up requirements](pr20-follow-up.md) and the
+[project-only quota preparation](project-policy-quota-design.md) are durable
+instructions for the next session. Fix history/audit/migration foundations before
+building on them. Historical sections below describe their recorded checkpoints;
+old “pending review” statements do not supersede this received PR20 status.
+
 ## Received PR #18 external reviews
 
 The user supplied Claude Opus 5.5, GLM 5.3 and GLM 5.3 Flash reports for
@@ -46,8 +94,7 @@ line endings: 19,378 bytes, SHA-256
 `255d2afcd641b5b86d5c0d54be300326bd7d0b614b961a0e6ebae9e3ef433e9f`.
 The PR body retains the earlier three-model prompt history, which does not imply
 those models reviewed PR #19.
-The older local `docs/review-prompts.md` is historical PR #16 material; do not
-reuse its target for this follow-up.
+`docs/review-prompts.md` retains historical PR #16 material below its current-status notice; do not reuse those old targets for a later follow-up.
 
 The follow-up independently reproduced L1 against the unchanged PR #18 tree,
 then retained the opposite regression using a real signing fixture and intact
