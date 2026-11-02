@@ -83,7 +83,7 @@ fn schema_six_requires_private_explicit_backup_and_creates_no_signing_trust() {
         AuthorityStore::open(&path),
         Err(AuthorityError::MigrationRequired {
             found: 6,
-            required: 9
+            required: 10
         })
     ));
     let backup = dir.path().join("before-v7.sqlite3");
@@ -101,7 +101,7 @@ fn schema_six_requires_private_explicit_backup_and_creates_no_signing_trust() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     let before = Connection::open(backup).unwrap();
     assert_eq!(

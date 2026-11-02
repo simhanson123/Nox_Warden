@@ -302,13 +302,17 @@ remain separate requirements.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 9. The stable family identity
+Fresh authority databases use schema version 10. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1, 2, 3, 4, 5, 6, 7 or 8 database returns `MigrationRequired` without adding tables
+populated version 1–9 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
+Stop the authority service and its workers before migration, then restart them
+with the new binary. Do not mix older running binaries with a migrated database;
+schema 10 strengthens both work admission and the meaning of retained capacity.
+
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v9.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v10.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -339,11 +343,13 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 9 database makes no new backup or state change. Opening a
-version 9 database and the already-current migration path both check migration
+on a valid version 10 database makes no new backup or state change. Opening a
+version 10 database and the already-current migration path both check migration
 checksums and the actual schema against the known table, index and trigger
-definitions. Removing or replacing a guard causes rejection even if the stored
-version and checksum rows remain unchanged. Foreign and
+definitions. The digest excludes only the literal reserved `sqlite_` prefix,
+case-insensitively; a user-created name such as `sqliteX_hidden` is included.
+Removing or replacing a guard, or adding an unexpected object, causes rejection
+even if the stored version and checksum rows remain unchanged. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
 are rejected. The version 3 step never invents a current epoch, role policy, human mapping
 or approval set from historical plans and decisions. Original pre-aggregation
@@ -380,6 +386,29 @@ identity, including SQLite row IDs. These insertion guards also block `REPLACE`
 when recursive triggers are disabled; replacement cannot silently remove an
 original request or plan binding. Exact library retries compare retained bytes
 before insertion and do not append another audit event.
+
+Version 10 preserves migrations 001–009 and validates bounded legacy work
+histories before installing work-event/head/delivery guards and accounting
+indexes that include every `active` reservation. Revisions, allowed transitions,
+claim identity and latest-head agreement must be consistent. Delivery insertion
+requires a claimed dispatch head. Any prior UNKNOWN dispatch event prevents
+accepting a reservation relabeled `issued`, including when the latest dispatch
+head has been re-claimed. Invalid known-schema history aborts the upgrade and
+leaves the source and validated private backup intact.
+Validation permits at most 192 work events per job phase. Older histories from
+before the heartbeat cap may exceed this bound and cannot automatically upgrade;
+the same source/backup preservation applies. Migration never trims historical
+events, rewrites their state or invents claims to fit the current state machine.
+
+The upgrade preserves original proofs, receipts, canonical BLOBs and physical
+`dispatch_slots` projections, including legacy zero values on `active` rows.
+Effective accounting and held-status reads retain one dispatch slot for every
+issued reservation. An unsigned `delivered` record cannot return capacity or
+resolve execution uncertainty. Migration invents no authenticated delivery
+receipt; such verification and release remain future work. The live accounting
+path also checks the full defined quota/work guard set against cached canonical
+SQL. These integrity checks do not protect against coherent replacement of the
+entire authority database and its trust records.
 See [durable signing coordination](signing-coordination.md).
 
 ## Issuance and atomic decision admission

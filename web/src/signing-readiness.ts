@@ -7,6 +7,9 @@ const requiredReasons = signingReasons.slice(0, 4);
 export const intentStates = ['prepared', 'claimed', 'ready', 'cancelled'] as const;
 export const dispatchStates = ['queued', 'claimed', 'unknown', 'delivered'] as const;
 export const reservationStates = ['reserved', 'issued', 'unknown', 'active', 'released'] as const;
+const deliveryReservations: Record<typeof dispatchStates[number], readonly string[]> = {
+  queued: ['issued'], claimed: ['issued', 'unknown'], unknown: ['unknown'], delivered: ['active'],
+};
 export interface SigningIntentStatus {
   intent_id: string; request_id: string; plan_id: string; plan_hash: string; approval_set_hash: string;
   authority_epoch: string; target_generation: string; payload_hash: string; job_id: string; reservation_id: string;
@@ -70,13 +73,17 @@ export function parseSigningReadiness(value: unknown, detail: AuthorityPlan): Si
       || !intentStates.includes(item.state as typeof intentStates[number])
       || item.dispatch_state !== null && !dispatchStates.includes(item.dispatch_state as typeof dispatchStates[number])
       || !reservationStates.includes(item.reservation_state as typeof reservationStates[number]) || typeof item.reservation_held !== 'boolean'
-      || item.current_eligible !== false || item.dispatch_allowed !== false || item.grant_hash !== null && !hash(item.grant_hash)
-      || item.dispatch_state !== null && item.grant_hash === null) invalid();
-    if (['reserved', 'issued', 'unknown'].includes(String(item.reservation_state)) && !item.reservation_held
-      || item.reservation_state === 'released' && item.reservation_held
-      || item.dispatch_state === 'unknown' && (item.reservation_state !== 'unknown' || !item.reservation_held)) invalid();
+      || item.current_eligible !== false || item.dispatch_allowed !== false || item.grant_hash !== null && !hash(item.grant_hash)) invalid();
+    // The signing job, delivery and quota summary describe one retained workflow.
+    // A delivery retry can retain UNKNOWN quota; a recorded delivery cannot release it.
+    if (item.state === 'ready') {
+      if (item.grant_hash === null || item.dispatch_state === null
+        || !deliveryReservations[item.dispatch_state as typeof dispatchStates[number]].includes(String(item.reservation_state))) invalid();
+    } else if (item.dispatch_state !== null || item.grant_hash !== null
+      || item.reservation_state !== (item.state === 'cancelled' ? 'released' : 'reserved')) invalid();
+    if (item.reservation_held !== (item.reservation_state !== 'released')) invalid();
     // An expired/previously approved intent stays history. In particular, neither
-    // expiry nor a different current approval hash releases UNKNOWN reservations.
+    // expiry nor a recorded delivery releases quota after grant issuance.
     intent = item as unknown as SigningIntentStatus;
   }
   return { ...data, latest_intent: intent } as unknown as SigningReadiness;

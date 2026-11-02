@@ -1,2 +1,4 @@
 # Preserve supplied specification bytes and checksums, including CRLF.
 docs/specs/** -text -whitespace
+# Preserve the supplied review verbatim, including CRLF line endings.
+docs/reviews/pr19-claude-review.md -text whitespace=cr-at-eol

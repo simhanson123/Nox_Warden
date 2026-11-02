@@ -20,11 +20,12 @@
       "Costs derive full original requested seconds and sorted original destinations despite shorter plan/policy windows, requiring the current independently pinned root and no larger root budget ceilings. Provenance alone grants no approval, signing or dispatch authority.",
       "Trusted-local register/read commands return bounded summaries and exact historical retries without duplicate audit. Readiness separates missing request binding from the still unavailable core signing profile in eight locales.",
       "Explicit validated private-backup migration preserves schema8 evidence and quota states, creates no invented provenance and verifies actual schema9; prior migrations001..008 and original specifications remain unchanged.",
-      "BEFORE INSERT guards reject SQLite replacement through primary, alternate unique or hidden rowid identities even when recursive triggers are disabled; independent counterexamples were reproduced and rechecked after correction."
+      "BEFORE INSERT guards reject SQLite replacement through primary, alternate unique or hidden rowid identities even when recursive triggers are disabled; independent counterexamples were reproduced and rechecked after correction.",
+      "Schema10 retains every issued dispatch obligation despite unsigned delivery, validates bounded work histories and exact current heads, checks all signing guard definitions, preserves UNKNOWN history and rejects schema-prefix lookalikes. Independent counterexamples and fresh integrated checks passed.."
     ],
-    "next_implementation": "M03/M02: implement rootless general-policy quota configuration/snapshot compatibility as a separate batch; complete core access semantic review, native binding, single absolute lease window and signed workload/delegation authority before any core signing profile. Protected bootstrap/generation and signer/dispatch IPC remain mandatory.",
+    "next_implementation": "M03/M02: implement rootless general-policy quota with versioned project configuration/snapshots and shared accounting of all old issued/UNKNOWN/unqualified-delivery obligations. Revalidate the disposable schema9 FK-rebuild design against schema10 guards before choosing migration11. Core semantic/native/signing authority, single absolute lease window, signed workload/delegation proofs, authenticated completion receipts, protected bootstrap and signer/dispatch IPC remain required.",
     "verification": {
-      "status": "passed_local_integrated_checks_after_consolidated_review",
+      "status": "passed_after_received_review_fixes_and_independent_counterexample_rechecks",
       "commands": [
         "bash scripts/check.sh",
         "umask 0002; cargo test --locked -p fw_authority -p fw_authority_service",
@@ -33,30 +34,52 @@
         "python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture",
         "python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json"
       ],
-      "workspace_rust_passed": 777,
+      "workspace_rust_passed": 800,
       "reduced_feature_rust_passed": 32,
       "explicit_cancellation_cli_process_passed": 1,
       "ordinary_workspace_ignored": 1,
-      "ui_passed": 158,
+      "ui_passed": 180,
+      "shared_umask_authority_passed": 406,
       "authority_browser_passed": 40,
       "metadata_process_passed": 41,
       "native_evidence_process_passed": 33,
       "actual_native_captures": 5,
       "spec_files_preserved": 53,
-      "old_migrations_preserved": "001..008 byte-identical to implementation base",
-      "independent_review": "Two separate internal review scopes. Confirmed INSERT OR REPLACE bypass of schema9 immutable provenance with recursive_triggers=OFF, fixed by BEFORE INSERT guards over all unique identities and explicit hidden rowid. Same independent before/after probe and rowid variants now refuse changes with original bytes, public reads, reopen and audit preserved. Additional independent probes passed concurrent v8 migration, delayed-stdin expiry, hostile JSON/UTF8, wrong root, root/project ceilings, expiry and rollback. No remaining confirmed blocker within scope; Claude-only review of prior PR19 remains pending.",
-      "shared_umask_authority_passed": 383
+      "old_migrations_preserved": "001..009 byte-identical to published schema9 checkpoint df957cd",
+      "external_review_report_preserved_sha256": "255d2afcd641b5b86d5c0d54be300326bd7d0b614b961a0e6ebae9e3ef433e9f",
+      "independent_review": "F1-F4 independently reproduced locally and corrected. Additional internal counterexamples found complete-lifecycle migration gaps, accounting-head hidden-rowid replacement, nullable history projection erasing invalid presence, and contradictory delivered/released UI status. Same independently written probes and permanent regressions passed after correction; separate boundary reviewer rechecked head preservation, nullable history, normal migration and original UI counterexample. Actual CLI schema-object probes covered14 cases. No remaining confirmed blocker in completed review scopes; production signing and authenticated completion receipts remain unavailable."
     },
     "implementation_base": "09ef6a866632a9a6e12e2af799cb18b8b55daca9",
     "external_review": {
       "target": "2ef3aecec27fee6a5c89a63c3b975057bef2e598",
       "base": "5a7551d1d7a59a8f92f74dc972953e5162fd5a90",
       "pull_request": 19,
-      "status": "pending_user_supplied_review",
+      "status": "received_all_four_independently_reproduced_corrected_integrated_checks_passed",
       "reviewers_requested": [
         "Claude Opus 5.5"
       ],
-      "note": "User requested one consolidated Claude-only review of this fixed prior target while the next implementation proceeds separately. No new external result has been received."
+      "note": "User supplied Claude Opus5.5 PR19 review; Claude directly reproduced F1/F2/F3 and attributed F4 to its migration subagent. Our current-code independent probes reproduced all four; external private probe sources were not supplied or claimed rerun. External Docker/native suites were not run. Current PR20 checkpoint remote CI passed before these follow-up changes.",
+      "reports": "docs/reviews/pr19-claude-review.md",
+      "source_sha256": "255d2afcd641b5b86d5c0d54be300326bd7d0b614b961a0e6ebae9e3ef433e9f",
+      "source_bytes": 19378,
+      "findings": [
+        {
+          "id": "F1-unsigned-delivery-refund",
+          "status": "corrected_independent_rechecks_and_integrated_checks_passed"
+        },
+        {
+          "id": "F2-live-evidence-guard-omission",
+          "status": "corrected_independent_rechecks_and_integrated_checks_passed"
+        },
+        {
+          "id": "F3-schema-name-filter",
+          "status": "corrected_independent_rechecks_and_integrated_checks_passed"
+        },
+        {
+          "id": "F4-legacy-unknown-relabel",
+          "status": "corrected_independent_rechecks_and_integrated_checks_passed"
+        }
+      ]
     },
     "implementation_branch": "feat/core-access-provenance",
     "completed_batch": {
@@ -131,7 +154,38 @@
           ]
         }
       ]
-    }
+    },
+    "provenance_checkpoint": {
+      "pull_request": 20,
+      "head": "df957cd9d91717c9db0b2f65759b299fc484ceb3",
+      "ci": "https://github.com/simhanson123/Nox_Warden/actions/runs/41415827668",
+      "ci_conclusion": "success_before_received_PR19_followup_fixes",
+      "verification": {
+        "status": "passed_local_integrated_checks_after_consolidated_review",
+        "commands": [
+          "bash scripts/check.sh",
+          "umask 0002; cargo test --locked -p fw_authority -p fw_authority_service",
+          "cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority -p fw_authority_service --bins --examples",
+          "python scripts/smoke_enrollment.py --authority-metadata --report reports/target-metadata-smoke.json",
+          "python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture",
+          "python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json"
+        ],
+        "workspace_rust_passed": 777,
+        "reduced_feature_rust_passed": 32,
+        "explicit_cancellation_cli_process_passed": 1,
+        "ordinary_workspace_ignored": 1,
+        "ui_passed": 158,
+        "authority_browser_passed": 40,
+        "metadata_process_passed": 41,
+        "native_evidence_process_passed": 33,
+        "actual_native_captures": 5,
+        "spec_files_preserved": 53,
+        "old_migrations_preserved": "001..008 byte-identical to implementation base",
+        "independent_review": "Two separate internal review scopes. Confirmed INSERT OR REPLACE bypass of schema9 immutable provenance with recursive_triggers=OFF, fixed by BEFORE INSERT guards over all unique identities and explicit hidden rowid. Same independent before/after probe and rowid variants now refuse changes with original bytes, public reads, reopen and audit preserved. Additional independent probes passed concurrent v8 migration, delayed-stdin expiry, hostile JSON/UTF8, wrong root, root/project ceilings, expiry and rollback. No remaining confirmed blocker within scope; Claude-only review of prior PR19 remains pending.",
+        "shared_umask_authority_passed": 383
+      }
+    },
+    "implementation_pull_request": 20
   },
   "tasks": [
     {
@@ -165,8 +219,8 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "Authority schema 9 retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..8 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile.",
-      "blocker": "Production authority bootstrap and out-of-band human provisioning; trusted target generation initialization; compiler/validator build identity; qualified management baseline/native observer trust; core access semantic/native/signing profile, single absolute lease window and signed workload/delegation authority; rootless policy preparation; independently deployed signer and authenticated delivery/reconciliation; protected OS accounts; PostgreSQL authority transactions. Lab evidence never grants production signing authority."
+      "implemented": "Authority schema 10 retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..9 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement.",
+      "blocker": "Production authority bootstrap and out-of-band human provisioning; trusted target generation initialization; compiler/validator build identity; qualified management baseline/native observer trust; core access semantic/native/signing profile, single absolute lease window and signed workload/delegation authority; rootless policy preparation; independently deployed signer and authenticated completion receipts, delivery/reconciliation; protected OS accounts; PostgreSQL authority transactions. Lab evidence never grants production signing authority."
     },
     {
       "id": "M04L",

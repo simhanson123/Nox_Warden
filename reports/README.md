@@ -39,8 +39,8 @@ or browser prerequisite is not a passing check.
 
 ## Verified scope
 
-The integrated repository check passes **777 workspace Rust tests, 32 authority
-tests without default features, and 158 UI tests**. It also passes formatting,
+The integrated repository check passes **800 workspace Rust tests, 32 authority
+tests without default features, and 180 UI tests**. It also passes formatting,
 Clippy, frontend types, both production UI builds, 27 specification checks,
 52 core and 28 extended contract fixtures, nine Linux runner regressions,
 six catalogue-diagnostic, thirteen authority-smoke diagnostic and
@@ -82,11 +82,59 @@ The [review handoff](../docs/review-continuity.md) distinguishes supplied extern
 reports from fresh executions. Earlier external private probes were not recovered
 or claimed as reproduced. All three external PR #15 reports have since been supplied; they cover that fixed earlier target and identify a shared admin stdout failure plus adjacent diagnostics follow-up.
 
+## Received review: delivery capacity and complete evidence checks
+
+The user supplied the consolidated Claude Opus 5.5 review of PR #19 while the
+schema 9 provenance checkpoint was passing remote CI. The complete
+[original report](../docs/reviews/pr19-claude-review.md) is retained byte-for-byte.
+Claude directly reproduced F1–F3 and attributed F4 to its migration reviewer;
+our separate current-code probes then reproduced all four. External temporary
+probe files were not supplied, and their executions are not described as ours.
+Claude could not run the native Docker suites in that review environment.
+
+Schema 10 keeps every issued dispatch obligation, including historical unsigned
+`active`/`delivered` records. Their stored slot projections and original BLOBs
+remain unchanged; effective accounting and public `held` status retain capacity.
+An unsigned delivery claim cannot return a slot or prove native activation.
+Authentication of completion receipts remains a separate future dependency.
+Both active-lease and policy-only records remain in the indexed held scan.
+
+Work events must follow the bounded state machine and current claim, and heads
+must match the latest immutable event. Delivery insertion requires a matching
+claimed dispatch head. Insert guards also reject SQLite replacement through
+visible identities and hidden rowids. Live accounting checks all 45 expected
+signing guards against cached canonical SQL, with bounded actual-SQL reads.
+Any retained UNKNOWN event prevents relabelling an issued reservation as certain
+merely because a later dispatch head is claimed. Schema inspection excludes only
+the exact reserved `sqlite_` prefix, so `sqliteX_hidden` cannot evade validation.
+
+Explicit private-backup migration preserves bounded legitimate histories and
+all existing records. Oversized pre-cap work histories fail closed instead of
+being trimmed. During integration, separate probes also exposed missing full
+delivery/outbox lifecycle checks in the new v9→10 path; the migration now checks
+that complete lifecycle at retained work time, without refreshing evidence.
+Independent review also reproduced replacement of an issued accounting head by
+a released head through a hidden-rowid collision with all guards intact. The
+correction makes head identities immutable and advances existing membership by
+UPDATE before inserting only new heads. Bounded nullable work fields retain
+invalid presence instead of turning oversized values into NULL. The browser
+rejects contradictory signer, dispatch, reservation and grant states, including
+`delivered` combined with `released` and no retained capacity.
+Fresh `bash scripts/check.sh` passed **800 workspace Rust tests, 32 reduced-feature
+tests, 180 UI tests and one explicitly invoked cancellation CLI process test**.
+The same independently written counterexamples and targeted regressions were
+rechecked after correction. Fresh metadata checks passed **41**, native evidence
+passed **33 with five kernel captures**, and the authority browser passed **40**.
+Shared-umask authority/service verification passed **406**, with the same one
+separately covered ignored process case. Earlier checkpoint totals below remain
+historical results and are not added to these counts.
+
 ## Original core-access cost provenance
 
 The next M02/M03/M05 batch starts at PR #19 merge `09ef6a8`, on a separate
 branch while the user requests Claude Opus 5.5 review of fixed PR #19 head
-`2ef3aec` against `5a7551d`. No new external review result has been received.
+`2ef3aec` against `5a7551d`. That review has now been received and is being
+addressed in the schema 10 follow-up above.
 PR #19's [complete CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41397285225)
 passed and its final target is unchanged by this work.
 
@@ -189,8 +237,9 @@ correcting it. Independent internal review then reproduced and closed orphan
 cancellation evidence, corrupted legacy delivery migration, and missing live
 accounting-head guard cases; each reviewer reran the same failing counterexample
 after correction. The supplied external reports remain preserved separately in
-[their original text](../docs/reviews/pr18-external-reviews.md). Those named models
-have not yet reviewed this follow-up. Early implementation checks caught a
+[their original text](../docs/reviews/pr18-external-reviews.md). Claude's subsequent
+review is preserved and addressed above; no new GLM review was requested.
+Early implementation checks caught a
 private fixture calling a deliberately closed public worker, a future-dated CLI
 fixture and stale schema-version binaries; corrected fixtures and fresh builds
 passed without changing production gates. Raw logs stay outside source.

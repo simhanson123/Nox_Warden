@@ -169,6 +169,7 @@ pub fn restore_v7(path: &std::path::Path) {
 
 #[allow(dead_code)]
 pub fn restore_v8(path: &std::path::Path) {
+    restore_v9(path);
     let db = rusqlite::Connection::open(path).unwrap();
     db.pragma_update(None, "foreign_keys", "OFF").unwrap();
     // Schema 9 adds empty provenance storage; test-only reconstruction removes
@@ -192,4 +193,66 @@ pub fn restore_v8(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=9;").unwrap();
     db.execute_batch(&trigger).unwrap();
     db.pragma_update(None, "user_version", 8).unwrap();
+}
+
+#[allow(dead_code)]
+pub fn restore_v9(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version == 9 {
+        return;
+    }
+    assert_eq!(version, 10);
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    // Reconstruct only the published schema for migration tests. No retained
+    // work, delivery, quota or provenance rows are changed by this helper.
+    for line in include_str!("../../src/store/migration_010.sql").lines() {
+        for kind in ["INDEX", "TRIGGER"] {
+            if let Some(definition) = line.strip_prefix(&format!("CREATE {kind} ")) {
+                let name = definition.split_whitespace().next().unwrap();
+                db.execute_batch(&format!("DROP {kind} IF EXISTS {name};"))
+                    .unwrap();
+            }
+        }
+    }
+    // Schema 10 broadens these indexes. Restore their exact original SQL,
+    // rather than recreating an equivalent but different schema fingerprint.
+    for name in [
+        "authority_signing_quota_transition_root_held",
+        "authority_signing_quota_transition_project_held",
+    ] {
+        let prefix = format!("CREATE INDEX {name} ");
+        let (_, body) = include_str!("../../src/store/migration_008.sql")
+            .split_once(&prefix)
+            .unwrap();
+        let (definition, _) = body.split_once(';').unwrap();
+        db.execute_batch(&format!("{prefix}{definition};")).unwrap();
+    }
+    // The new identity protections also replace two v8 trigger bodies. The
+    // CREATE scan above removes their v10 definitions along with new guards;
+    // restore the published statements verbatim for a genuine v9 fixture.
+    for name in [
+        "authority_signing_quota_transition_heads_update",
+        "authority_signing_quota_transitions_membership",
+    ] {
+        let prefix = format!("CREATE TRIGGER {name} ");
+        let (_, body) = include_str!("../../src/store/migration_008.sql")
+            .split_once(&prefix)
+            .unwrap();
+        let (definition, _) = body.split_once("END;").unwrap();
+        db.execute_batch(&format!("{prefix}{definition}END;"))
+            .unwrap();
+    }
+    let trigger: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=10;").unwrap();
+    db.execute_batch(&trigger).unwrap();
+    db.pragma_update(None, "user_version", 9).unwrap();
 }

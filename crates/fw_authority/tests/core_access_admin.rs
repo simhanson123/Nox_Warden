@@ -113,6 +113,25 @@ fn signing_rows(db: &Path) -> Vec<(String, Rows)> {
         .collect()
 }
 
+fn database_rows(db: &Path) -> Vec<(String, Rows)> {
+    let connection = rusqlite::Connection::open(db).unwrap();
+    let mut query = connection
+        .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND lower(substr(name,1,7)) <> 'sqlite_' ORDER BY name")
+        .unwrap();
+    let names = query
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    names
+        .into_iter()
+        .map(|name| {
+            let rows = table_rows(db, &name);
+            (name, rows)
+        })
+        .collect()
+}
+
 struct Fixture {
     directory: tempfile::TempDir,
     db: PathBuf,
@@ -575,7 +594,7 @@ fn actual_schema8_migration_preserves_plan_and_audit_without_invented_provenance
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 9), (&backup, 8)] {
+    for (path, version) in [(&fixture.db, 10), (&backup, 8)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -595,4 +614,89 @@ fn actual_schema8_migration_preserves_plan_and_audit_without_invented_provenance
     assert!(fixture.read()["provenance"].is_null());
     success(fixture.run("register-core-access-provenance", &fixture.request()));
     assert_eq!(fixture.read()["provenance"]["lease_seconds"], 3600);
+}
+
+#[test]
+fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retries() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let registered = success(fixture.run("register-core-access-provenance", &fixture.request()));
+    let audit = fixture.audit();
+    let signing = signing_rows(&fixture.db);
+    assert!(signing.iter().all(|(_, rows)| rows.is_empty()));
+    authority_legacy::restore_v9(&fixture.db);
+    let before = database_rows(&fixture.db);
+    for name in [
+        "authority_core_access_requests",
+        "authority_core_access_plan_bindings",
+    ] {
+        assert_eq!(
+            before
+                .iter()
+                .find(|(table, _)| table == name)
+                .unwrap()
+                .1
+                .len(),
+            1
+        );
+    }
+    refused(
+        fixture.run(
+            "read-core-access-provenance",
+            &json!({"plan_id":fixture.plan["plan_id"]}),
+        ),
+        "DATABASE_REJECTED",
+    );
+    let backup = fixture.directory.path().join("schema9.sqlite3");
+    let output = Command::new(env!("CARGO_BIN_EXE_fw_authority_admin"))
+        .args(["migrate", "--database"])
+        .arg(&fixture.db)
+        .arg("--backup")
+        .arg(&backup)
+        .output()
+        .unwrap();
+    assert_eq!(success(output)["status"], "migrated");
+    for (path, version) in [(&fixture.db, 10), (&backup, 9)] {
+        assert_eq!(
+            rusqlite::Connection::open(path)
+                .unwrap()
+                .query_row::<i64, _, _>("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap(),
+            version
+        );
+    }
+    let manifest_path = backup.with_extension("manifest.json");
+    for path in [&backup, &manifest_path] {
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    let manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["database_schema"], 9);
+    assert_eq!(
+        manifest["database_hash"],
+        fw_contracts::hash_bytes(&fs::read(&backup).unwrap())
+    );
+    assert_eq!(database_rows(&backup), before);
+    let after = database_rows(&fixture.db);
+    assert_eq!(after.len(), before.len());
+    for (name, rows) in &before {
+        let migrated = &after.iter().find(|(table, _)| table == name).unwrap().1;
+        if name == "authority_schema_migrations" {
+            assert!(migrated.starts_with(rows));
+            assert_eq!(migrated.len(), rows.len() + 1);
+        } else {
+            assert_eq!(migrated, rows, "{name}");
+        }
+    }
+    assert_eq!(
+        stable_status(fixture.read()["provenance"].clone()),
+        stable_status(registered.clone())
+    );
+    let retry = success(fixture.run("register-core-access-provenance", &fixture.request()));
+    assert_eq!(stable_status(retry), stable_status(registered));
+    assert_eq!(fixture.audit(), audit);
+    assert_eq!(signing_rows(&fixture.db), signing);
+    assert_eq!(database_rows(&fixture.db), after);
 }

@@ -10,6 +10,10 @@ const MAX_CLAIM_SECONDS: i64 = 900;
 // A renewal must strictly extend a claim, and each generation has a durable cap.
 const MAX_CLAIM_RENEWALS: i64 = 32;
 
+#[cfg(test)]
+#[path = "signing_work_guard_tests.rs"]
+mod work_guard_tests;
+
 /// Opaque worker capability. Debug/serialization deliberately omit the token.
 #[derive(Clone)]
 pub struct SigningClaim {
@@ -64,11 +68,13 @@ struct Head {
     available: i64,
     updated: i64,
 }
+// Keep invalid non-NULL optional values present as bounded sentinels. Turning
+// them into NULL would hide forbidden claim metadata on inactive history rows.
 const HEAD_COLUMNS: &str = "CASE WHEN length(state)<=16 THEN state END,
  CASE WHEN length(revision)=8 THEN revision END,
  CASE WHEN length(claim_generation)=8 THEN claim_generation END,
- CASE WHEN claim_hash IS NULL OR length(claim_hash)=32 THEN claim_hash END,
- CASE WHEN worker_id IS NULL OR length(worker_id)=36 THEN worker_id END,
+ CASE WHEN claim_hash IS NULL OR length(claim_hash)=32 THEN claim_hash ELSE X'' END,
+ CASE WHEN worker_id IS NULL OR length(worker_id)=36 THEN worker_id ELSE '' END,
  claim_until,attempts,available_at,updated_at";
 
 fn read_head(row: &rusqlite::Row<'_>) -> rusqlite::Result<Head> {
@@ -87,53 +93,239 @@ fn read_head(row: &rusqlite::Row<'_>) -> rusqlite::Result<Head> {
     })
 }
 
+// A phase has at most five claims, 32 renewals per claim and bounded terminal
+// events. Keep complete history verification bounded rather than trusting only
+// the mutable head and latest event to agree.
+const MAX_WORK_EVENTS: usize = 192;
+
+struct WorkHistory {
+    current: Option<Head>,
+    had_unknown: bool,
+}
+
+fn valid_head(value: &Head, phase: &str) -> Result<()> {
+    let maximum = if phase == "signer" {
+        MAX_SIGNER_ATTEMPTS
+    } else {
+        MAX_DISPATCH_ATTEMPTS
+    };
+    let states = if phase == "signer" {
+        &["prepared", "claimed", "ready", "cancelled"][..]
+    } else {
+        &["queued", "claimed", "unknown", "delivered"][..]
+    };
+    if !matches!(phase, "signer" | "dispatch")
+        || !states.contains(&value.state.as_str())
+        || value.revision == 0
+        || !(0..=maximum).contains(&value.attempts)
+        || value.generation != value.attempts as u64
+    {
+        return Err(invalid("signing work projection"));
+    }
+    time(value.available)?;
+    time(value.updated)?;
+    if value.state == "claimed" {
+        identifier(value.worker.as_deref().ok_or(AuthorityError::Binding)?)?;
+        if value.claim_hash.as_ref().map(Vec::len) != Some(32)
+            || value.until.is_none_or(|until| {
+                until <= value.updated || until - value.updated > MAX_CLAIM_SECONDS
+            })
+        {
+            return Err(invalid("signing claim projection"));
+        }
+    } else if value.claim_hash.is_some() || value.worker.is_some() || value.until.is_some() {
+        return Err(invalid("signing inactive claim"));
+    }
+    Ok(())
+}
+
+fn work_history(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job: &str,
+    phase: &str,
+) -> Result<WorkHistory> {
+    let current = tx.query_row(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase=?"),
+        params![tenant.org_id, tenant.project_id, job, phase], read_head).optional()?;
+    let mut statement = tx.prepare(&format!("SELECT {HEAD_COLUMNS},CASE WHEN length(kind)<=16 THEN kind END FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT {}", MAX_WORK_EVENTS + 1))?;
+    let mut rows = statement.query(params![tenant.org_id, tenant.project_id, job, phase])?;
+    let mut previous: Option<Head> = None;
+    let mut renewals = 0;
+    let mut had_unknown = false;
+    let mut count = 0;
+    let mut bounds = None;
+    while let Some(row) = rows.next()? {
+        count += 1;
+        if count > MAX_WORK_EVENTS {
+            return Err(AuthorityError::Quota);
+        }
+        let next = read_head(row)?;
+        let kind: String = row.get(9)?;
+        valid_head(&next, phase)?;
+        let (created, deadline) = if let Some(value) = bounds {
+            value
+        } else {
+            let value: (i64, i64) = tx.query_row("SELECT created_at,deadline FROM authority_signing_jobs WHERE org_id=? AND project_id=? AND job_id=?", params![tenant.org_id, tenant.project_id, job], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            time(value.0)?;
+            time(value.1)?;
+            bounds = Some(value);
+            value
+        };
+        if next.revision != count as u64
+            || next.updated < created
+            || deadline <= created
+            || next.until.is_some_and(|until| until > deadline)
+        {
+            return Err(invalid("signing work sequence"));
+        }
+        let legal = if let Some(old) = &previous {
+            let same_counter = next.generation == old.generation && next.attempts == old.attempts;
+            let same_available = next.available == old.available;
+            if next.updated < old.updated {
+                return Err(AuthorityError::Time);
+            }
+            match kind.as_str() {
+                "claimed" => {
+                    renewals = 0;
+                    next.state == "claimed"
+                        && next.generation == old.generation + 1
+                        && next.attempts == old.attempts + 1
+                        && same_available
+                        && next.updated >= old.available
+                        && next.updated < deadline
+                        && ((phase == "signer" && old.state == "prepared")
+                            || (phase == "dispatch"
+                                && matches!(old.state.as_str(), "queued" | "unknown"))
+                            || (phase == "signer"
+                                && old.state == "claimed"
+                                && old.until.is_some_and(|until| {
+                                    next.updated >= until.saturating_add(retry_delay(old))
+                                })))
+                }
+                "renewed" => {
+                    renewals += 1;
+                    old.state == "claimed"
+                        && next.state == "claimed"
+                        && same_counter
+                        && same_available
+                        && next.claim_hash == old.claim_hash
+                        && next.worker == old.worker
+                        && next.until > old.until
+                        && old.until.is_some_and(|until| next.updated < until)
+                        && renewals <= MAX_CLAIM_RENEWALS
+                }
+                "retried" => {
+                    phase == "signer"
+                        && old.state == "claimed"
+                        && next.state == "prepared"
+                        && same_counter
+                        && old.until.is_some_and(|until| next.updated < until)
+                        && next.available == next.updated.saturating_add(retry_delay(old))
+                        && next.available < deadline
+                }
+                "unknown" => {
+                    phase == "dispatch"
+                        && old.state == "claimed"
+                        && next.state == "unknown"
+                        && same_counter
+                        && (next.available
+                            == next.updated.saturating_add(retry_delay(old)).min(MAX_TIME)
+                            || (same_available
+                                && old.until.is_some_and(|until| {
+                                    next.updated >= until.saturating_add(retry_delay(old))
+                                })))
+                }
+                "cancelled" => {
+                    phase == "signer"
+                        && matches!(old.state.as_str(), "prepared" | "claimed")
+                        && next.state == "cancelled"
+                        && same_counter
+                        && same_available
+                }
+                "finalized" => {
+                    phase == "signer"
+                        && old.state == "claimed"
+                        && next.state == "ready"
+                        && same_counter
+                        && same_available
+                        && old.until.is_some_and(|until| next.updated < until)
+                }
+                "delivered" => {
+                    phase == "dispatch"
+                        && old.state == "claimed"
+                        && next.state == "delivered"
+                        && same_counter
+                        && same_available
+                        && old.until.is_some_and(|until| next.updated < until)
+                }
+                _ => false,
+            }
+        } else {
+            kind == "created"
+                && next.state
+                    == if phase == "signer" {
+                        "prepared"
+                    } else {
+                        "queued"
+                    }
+                && next.generation == 0
+                && next.attempts == 0
+                && next.available == next.updated
+                && next.updated < deadline
+                && (phase != "signer" || next.updated == created)
+        };
+        if !legal {
+            return Err(invalid("signing work history"));
+        }
+        had_unknown |= next.state == "unknown";
+        previous = Some(next);
+    }
+    if current != previous {
+        return Err(invalid("signing work head mismatch"));
+    }
+    Ok(WorkHistory {
+        current,
+        had_unknown,
+    })
+}
+
 fn head(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     job: &str,
     phase: &str,
 ) -> Result<Option<Head>> {
-    let current = tx.query_row(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase=?"),
-        params![tenant.org_id,tenant.project_id,job,phase], read_head).optional()?;
-    let latest = tx.query_row(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision DESC LIMIT 1"),
-        params![tenant.org_id,tenant.project_id,job,phase], read_head).optional()?;
-    if current != latest {
-        return Err(invalid("signing work head mismatch"));
-    }
-    if let Some(value) = &current {
-        let maximum = if phase == "signer" {
-            MAX_SIGNER_ATTEMPTS
-        } else {
-            MAX_DISPATCH_ATTEMPTS
-        };
-        let states = if phase == "signer" {
-            &["prepared", "claimed", "ready", "cancelled"][..]
-        } else {
-            &["queued", "claimed", "unknown", "delivered"][..]
-        };
-        if !states.contains(&value.state.as_str())
-            || value.revision == 0
-            || !(0..=maximum).contains(&value.attempts)
-            || value.generation != value.attempts as u64
-        {
-            return Err(invalid("signing work projection"));
+    Ok(work_history(tx, tenant, job, phase)?.current)
+}
+
+/// Historical uncertainty cannot be erased by changing only a reservation or
+/// by looking solely at a later claimed work head. This helper never reads quota.
+pub(super) fn reservation_has_unknown_history(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    reservation: &str,
+) -> Result<bool> {
+    let job: Option<String> = tx.query_row("SELECT CASE WHEN length(job_id)=36 THEN job_id END FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?", params![tenant.org_id, tenant.project_id, reservation], |r| r.get(0)).optional()?;
+    job.map(|job| work_history(tx, tenant, &job, "dispatch").map(|history| history.had_unknown))
+        .transpose()
+        .map(|value| value.unwrap_or(false))
+}
+
+/// Maintenance checks every retained phase before adding new SQL guards. No
+/// legacy work bytes or claimed delivery records are upgraded into authority.
+pub(super) fn validate_work_histories(tx: &Transaction<'_>) -> Result<()> {
+    let mut statement =
+        tx.prepare("SELECT CASE WHEN length(org_id)=36 THEN org_id END,CASE WHEN length(project_id)=36 THEN project_id END,CASE WHEN length(job_id)=36 THEN job_id END FROM authority_signing_jobs")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
+        let job: String = row.get(2)?;
+        if work_history(tx, &tenant, &job, "signer")?.current.is_none() {
+            return Err(invalid("missing signing work history"));
         }
-        time(value.available)?;
-        time(value.updated)?;
-        if value.state == "claimed" {
-            identifier(value.worker.as_deref().ok_or(AuthorityError::Binding)?)?;
-            if value.claim_hash.as_ref().map(Vec::len) != Some(32)
-                || value.until.is_none_or(|until| {
-                    until <= value.updated || until - value.updated > MAX_CLAIM_SECONDS
-                })
-            {
-                return Err(invalid("signing claim projection"));
-            }
-        } else if value.claim_hash.is_some() || value.worker.is_some() || value.until.is_some() {
-            return Err(invalid("signing inactive claim"));
-        }
+        work_history(tx, &tenant, &job, "dispatch")?;
     }
-    Ok(current)
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -172,14 +364,6 @@ fn write_head(
         next.available,
         next.updated
     ];
-    if let Some(old) = old {
-        let changed=tx.execute("UPDATE authority_signing_work_heads SET state=?5,revision=?6,claim_generation=?7,claim_hash=?8,worker_id=?9,claim_until=?10,attempts=?11,available_at=?12,updated_at=?13 WHERE org_id=?1 AND project_id=?2 AND job_id=?3 AND phase=?4",fields)?;
-        if changed != 1 || next.revision != old.revision + 1 {
-            return Err(AuthorityError::Conflict);
-        }
-    } else {
-        tx.execute("INSERT INTO authority_signing_work_heads VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",fields)?;
-    }
     tx.execute(
         "INSERT INTO authority_signing_work_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
@@ -199,6 +383,14 @@ fn write_head(
             kind
         ],
     )?;
+    if let Some(old) = old {
+        let changed=tx.execute("UPDATE authority_signing_work_heads SET state=?5,revision=?6,claim_generation=?7,claim_hash=?8,worker_id=?9,claim_until=?10,attempts=?11,available_at=?12,updated_at=?13 WHERE org_id=?1 AND project_id=?2 AND job_id=?3 AND phase=?4",fields)?;
+        if changed != 1 || next.revision != old.revision + 1 {
+            return Err(AuthorityError::Conflict);
+        }
+    } else {
+        tx.execute("INSERT INTO authority_signing_work_heads VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",fields)?;
+    }
     audit(tx, tenant, &format!("signing_{phase}_{kind}"), job, now)
 }
 
@@ -702,6 +894,17 @@ fn renew_in_tx(
     Ok(renewed)
 }
 
+#[cfg(test)]
+pub(super) fn fixture_renew(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    claim: &SigningClaim,
+    lease_seconds: i64,
+    now: i64,
+) -> Result<SigningClaim> {
+    renew_in_tx(tx, tenant, claim, lease_seconds, now)
+}
+
 fn unknown_in_tx(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -740,11 +943,12 @@ fn unknown_in_tx(
     Ok(())
 }
 
-// A future protected target-receipt adapter must construct this witness after
-// authenticating the exact target/job/grant/result. This batch has no production
-// constructor and no public completion endpoint; only unit fixtures construct it.
+// An unsigned delivery record is diagnostic history, not authenticated target
+// evidence. It never releases issued quota. A future authenticated receipt must
+// use a separate verified type and independent trust. No public completion
+// endpoint or production constructor exists; only unit fixtures construct this.
 #[allow(dead_code)]
-pub(super) struct VerifiedDelivery {
+pub(super) struct RecordedDelivery {
     job_id: String,
     grant_hash: String,
     result_bytes: Vec<u8>,
@@ -757,7 +961,7 @@ pub(super) fn fixture_deliver(
     now: i64,
 ) -> Result<()> {
     let (grant_hash, _) = outbox(tx, tenant, &claim.job_id, now)?;
-    let receipt = VerifiedDelivery {
+    let receipt = RecordedDelivery {
         job_id: claim.job_id.clone(),
         grant_hash: grant_hash.clone(),
         result_bytes: bytes(
@@ -771,7 +975,7 @@ pub(super) fn deliver_in_tx(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     claim: &SigningClaim,
-    receipt: &VerifiedDelivery,
+    receipt: &RecordedDelivery,
     now: i64,
 ) -> Result<()> {
     lifecycle_status(tx, tenant, &claim.job_id, now)?;
@@ -1623,7 +1827,7 @@ mod tests {
         };
         assert!(claim(&mut f, &job, "dispatch", 1, 10, NOW + 2).is_err());
         let second = claim(&mut f, &job, "dispatch", 1, 10, NOW + 6).unwrap();
-        let receipt = VerifiedDelivery {
+        let receipt = RecordedDelivery {
             job_id: job.clone(),
             grant_hash: before.0.clone(),
             result_bytes: bytes(
@@ -1649,7 +1853,7 @@ mod tests {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .unwrap();
         deliver_in_tx(&tx, &f.tenant, &second, &receipt, NOW + 7).unwrap();
-        let changed = VerifiedDelivery {
+        let changed = RecordedDelivery {
             result_bytes: b"different result".to_vec(),
             ..receipt
         };
@@ -1687,6 +1891,19 @@ mod tests {
                 .execute("DELETE FROM authority_signing_work_events", [])
                 .is_err()
         );
+        assert!(
+            f.store
+                .connection
+                .execute(
+                    "UPDATE authority_signing_work_heads SET state='cancelled' WHERE job_id=?",
+                    [&job],
+                )
+                .is_err()
+        );
+        f.store
+            .connection
+            .execute_batch("DROP TRIGGER authority_signing_work_heads_update")
+            .unwrap();
         f.store
             .connection
             .execute(

@@ -147,11 +147,11 @@
     "signing.delivery.queued": "Queued",
     "signing.delivery.claimed": "Claimed by delivery worker",
     "signing.delivery.unknown": "Outcome unknown",
-    "signing.delivery.delivered": "Delivery recorded",
+    "signing.delivery.delivered": "Delivery recorded; quota retained",
     "signing.quota.reserved": "Reserved",
     "signing.quota.issued": "Issued",
     "signing.quota.unknown": "Unresolved; reservation held",
-    "signing.quota.active": "Active reservation",
+    "signing.quota.active": "Quota retained after delivery",
     "signing.quota.released": "Released"
   },
   "ko": {
@@ -302,11 +302,11 @@
     "signing.delivery.queued": "대기 중",
     "signing.delivery.claimed": "전달 작업자가 점유함",
     "signing.delivery.unknown": "결과 불명",
-    "signing.delivery.delivered": "전달 기록됨",
+    "signing.delivery.delivered": "전달 기록됨 — 할당량 유지",
     "signing.quota.reserved": "예약됨",
     "signing.quota.issued": "발급됨",
     "signing.quota.unknown": "미확정 — 예약 유지",
-    "signing.quota.active": "활성 예약",
+    "signing.quota.active": "전달 후 할당량 유지",
     "signing.quota.released": "해제됨"
   },
   "ja": {
@@ -457,11 +457,11 @@
     "signing.delivery.queued": "待機中",
     "signing.delivery.claimed": "配信ワーカーが取得済み",
     "signing.delivery.unknown": "結果不明",
-    "signing.delivery.delivered": "配信を記録済み",
+    "signing.delivery.delivered": "配信を記録済み・割当を保持",
     "signing.quota.reserved": "予約済み",
     "signing.quota.issued": "発行済み",
     "signing.quota.unknown": "未解決・予約を保持",
-    "signing.quota.active": "有効な予約",
+    "signing.quota.active": "配信後も割当を保持",
     "signing.quota.released": "解放済み"
   },
   "es": {
@@ -612,11 +612,11 @@
     "signing.delivery.queued": "En cola",
     "signing.delivery.claimed": "Reclamado por el trabajador de entrega",
     "signing.delivery.unknown": "Resultado desconocido",
-    "signing.delivery.delivered": "Entrega registrada",
+    "signing.delivery.delivered": "Entrega registrada; cuota retenida",
     "signing.quota.reserved": "Reservada",
     "signing.quota.issued": "Emitida",
     "signing.quota.unknown": "Sin resolver; reserva retenida",
-    "signing.quota.active": "Reserva activa",
+    "signing.quota.active": "Cuota retenida tras la entrega",
     "signing.quota.released": "Liberada"
   },
   "de": {
@@ -767,11 +767,11 @@
     "signing.delivery.queued": "Eingereiht",
     "signing.delivery.claimed": "Vom Übermittlungsprozess übernommen",
     "signing.delivery.unknown": "Ausgang unbekannt",
-    "signing.delivery.delivered": "Übermittlung erfasst",
+    "signing.delivery.delivered": "Übermittlung erfasst; Kontingent weiter belegt",
     "signing.quota.reserved": "Reserviert",
     "signing.quota.issued": "Ausgestellt",
     "signing.quota.unknown": "Ungeklärt; Reservierung gehalten",
-    "signing.quota.active": "Aktive Reservierung",
+    "signing.quota.active": "Kontingent bleibt nach der Übermittlung belegt",
     "signing.quota.released": "Freigegeben"
   },
   "fr": {
@@ -922,11 +922,11 @@
     "signing.delivery.queued": "En attente",
     "signing.delivery.claimed": "Prise en charge par le processus de livraison",
     "signing.delivery.unknown": "Résultat inconnu",
-    "signing.delivery.delivered": "Livraison enregistrée",
+    "signing.delivery.delivered": "Livraison enregistrée ; quota retenu",
     "signing.quota.reserved": "Réservé",
     "signing.quota.issued": "Émis",
     "signing.quota.unknown": "Non résolu ; réservation retenue",
-    "signing.quota.active": "Réservation active",
+    "signing.quota.active": "Quota retenu après la livraison",
     "signing.quota.released": "Libéré"
   },
   "zh-Hans": {
@@ -1077,11 +1077,11 @@
     "signing.delivery.queued": "已排队",
     "signing.delivery.claimed": "已由发送工作进程领取",
     "signing.delivery.unknown": "结果未知",
-    "signing.delivery.delivered": "发送已记录",
+    "signing.delivery.delivered": "发送已记录；配额仍被占用",
     "signing.quota.reserved": "已预留",
     "signing.quota.issued": "已签发",
     "signing.quota.unknown": "未解决；保留预留",
-    "signing.quota.active": "有效预留",
+    "signing.quota.active": "发送后仍占用配额",
     "signing.quota.released": "已释放"
   },
   "zh-Hant": {
@@ -1232,11 +1232,11 @@
     "signing.delivery.queued": "已排入佇列",
     "signing.delivery.claimed": "已由傳送工作程序領取",
     "signing.delivery.unknown": "結果未知",
-    "signing.delivery.delivered": "傳送已記錄",
+    "signing.delivery.delivered": "傳送已記錄；配額仍被占用",
     "signing.quota.reserved": "已預留",
     "signing.quota.issued": "已核發",
     "signing.quota.unknown": "未解決；保留預留",
-    "signing.quota.active": "有效預留",
+    "signing.quota.active": "傳送後仍占用配額",
     "signing.quota.released": "已釋放"
   }
 }

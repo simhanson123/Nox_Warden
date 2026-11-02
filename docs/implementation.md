@@ -31,6 +31,14 @@ cost uses the full original requested duration and destination set even when a
 plan's policy window is shorter, and requires the delegated root to match the
 independently configured quota root. Trusted local import and lookup return
 bounded evidence summaries; they do not establish approval or signing authority.
+The [received Claude PR #19 report](reviews/pr19-claude-review.md) prompted a
+schema 10 follow-up: every issued reservation retains effective dispatch capacity
+despite unsigned historical delivery records, and work-history/state-machine
+guards, live guard validation and exact schema filtering are strengthened.
+Legacy slot columns and evidence bytes are preserved. `active`/`delivered` labels
+remain historical diagnostics and do not prove native activation or resolve
+UNKNOWN. The follow-up's verification is tracked separately from the earlier
+schema 9 checkpoint.
 The public production resolver remains closed. The next dependencies are the
 complete core semantic-review/native/signing profile, rootless general-policy
 quotas, protected authority bootstrap and generation initialization, qualified
@@ -132,8 +140,11 @@ bytes do not prove an approved journal operation. All results remain unqualified
 and unable to dispatch; production observer isolation, management baseline
 qualification and authenticated host dispatch remain open requirements. The
 two-phase signing/quota transaction mechanics introduced in schema 7 and hardened
-in schema 8 retain a protected production resolver that refuses all preparation
-and worker operations.
+in schemas 8 and 10 retain a protected production resolver that refuses all
+preparation and worker operations. Unsigned retained delivery records never
+return issued dispatch capacity; an authenticated receipt protocol is still
+required before release can be supported. Migration preserves those records
+without promoting them into production evidence.
 
 Schema 9 adds [original core-access cost provenance](core-access-provenance-cli.md).
 The bounded verifier checks exact request, envelope and delegation hashes against
