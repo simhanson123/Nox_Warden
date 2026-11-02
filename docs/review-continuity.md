@@ -34,6 +34,11 @@ summary, separate from these three historical reports.
 
 ## Reservation-integrity follow-up review
 
+The current follow-up is [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).
+Its body retains the complete three-model review prompts and exact current base
+and target. The older local `docs/review-prompts.md` is historical PR #16 material;
+do not reuse its target for this follow-up.
+
 The follow-up independently reproduced L1 against the unchanged PR #18 tree,
 then retained the opposite regression using a real signing fixture and intact
 production guards. Schema 8 binds quota projections and indexed accounting

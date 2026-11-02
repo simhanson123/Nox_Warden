@@ -6,7 +6,7 @@
     "recovered_baseline": "d5cb339a8fa4a63d0c1cebad7a3609ed932798ce",
     "design_provenance": "reports/spec-import.json",
     "review_history": "docs/review-continuity.md",
-    "independent_review_prompts": "docs/review-prompts.md",
+    "independent_review_prompts": "https://github.com/simhanson123/Nox_Warden/pull/19",
     "method": "Implement substantial integrated batches with parallel file ownership and necessary automated checks; perform one consolidated independent review after the batch works, correct confirmed failures, then verify integration. Print complete external review prompts in conversation and retain exact targets.",
     "next_dependencies": [
       "Qualify production observer/management-baseline/native gates and establish compiler/validator build identity; development recompilation and signed lab observations do not satisfy these production gates.",
@@ -120,7 +120,9 @@
         "Trusted local quota/readiness/intent CLI, authenticated read-only service and eight-locale UI with expiry/rollback/history separation.",
         "Public production resolver remains closed; successful mechanics use private cfg(test)-only witnesses, actual P-256 approvals and signed lab evidence/results. Core access cost binding and rootless general-policy preparation remain unsupported."
       ]
-    }
+    },
+    "implementation_pull_request": 19,
+    "implementation_commit": "ecab551a2ddb36f436fab4ef52073eab487ba3cf"
   },
   "tasks": [
     {

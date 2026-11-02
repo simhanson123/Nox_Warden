@@ -1,5 +1,9 @@
 # Independent review prompts
 
+> Historical PR #16 prompts below. Current reservation-integrity review prompts,
+> exact base and target are in [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).
+> Do not reuse the historical SHA for the current follow-up.
+
 All three PR #15 reviews at `43146fd753ab288f8e1618f5fdead6b8b2093d3b`
 against `f400d03f0bca873d42a1af114fb4632e2357d03a` have been supplied by the user;
 their results and follow-up belong in review-continuity and the task ledger.
