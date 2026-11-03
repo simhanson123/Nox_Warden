@@ -203,6 +203,155 @@ fn columns(connection: &Connection, table: &str) -> String {
         .join(",")
 }
 
+// This creates a physically stale partial index while returning sqlite_schema
+// to its exact original bytes. It intentionally never updates application rows.
+fn empty_held_index(connection: &Connection, index: &str) {
+    let original: String = connection
+        .query_row("SELECT sql FROM sqlite_schema WHERE name=?", [index], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let empty = original.replacen("WHERE ", "WHERE 0 AND ", 1);
+    assert_ne!(empty, original);
+    connection
+        .execute_batch("PRAGMA writable_schema=ON")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE sqlite_schema SET sql=? WHERE name=?",
+            params![empty, index],
+        )
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA writable_schema=RESET")
+        .unwrap();
+    connection
+        .execute_batch(&format!("REINDEX {index}"))
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA writable_schema=ON")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE sqlite_schema SET sql=? WHERE name=?",
+            params![original, index],
+        )
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA writable_schema=RESET")
+        .unwrap();
+}
+
+#[test]
+fn stale_physical_held_index_with_exact_schema_refuses_live_open_and_maintenance() {
+    for index in [
+        "authority_signing_quota_transition_project_held",
+        "authority_signing_quota_transition_root_held",
+    ] {
+        let mut f = Fixture::new();
+        let prepared = signing_intents::test_prepare(&mut f, NOW);
+        let tx = f.store.connection.transaction().unwrap();
+        let cost = signing_quota::read(&tx, &f.tenant, &prepared.intent.reservation_id)
+            .unwrap()
+            .cost;
+        tx.commit().unwrap();
+        let db = Connection::open(&f.path).unwrap();
+        let rows_before: i64 = db
+            .query_row(
+                "SELECT count(*) FROM authority_signing_quota_transition_heads NOT INDEXED",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows_before, 1);
+        empty_held_index(&db, index);
+        // Metadata-only comparison cannot see the missing physical index rows.
+        migrations::validate_live_schema(&db).unwrap();
+        let indexed: i64 = db.query_row(&format!("SELECT count(*) FROM authority_signing_quota_transition_heads INDEXED BY {index} WHERE state IN ('reserved','issued','unknown','active')"), [], |r| r.get(0)).unwrap();
+        assert_eq!(indexed, 0);
+        assert_eq!(
+            db.query_row::<i64, _, _>(
+                "SELECT count(*) FROM authority_signing_quota_transition_heads NOT INDEXED",
+                [],
+                |r| r.get(0)
+            )
+            .unwrap(),
+            rows_before
+        );
+        let physical: String = db
+            .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+            .unwrap();
+        assert_ne!(physical, "ok");
+        let tx = f.store.connection.transaction().unwrap();
+        let admitted = signing_quota::reserve(
+            &tx,
+            &f.tenant,
+            "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            &cost,
+            NOW + 120,
+            NOW,
+        )
+        .is_ok();
+        tx.rollback().unwrap();
+        let opened = AuthorityStore::open(&f.path).is_ok();
+        let backup = f.directory.path().join("damaged-index.sqlite3");
+        let maintained = AuthorityStore::migrate(&f.path, &backup).is_ok();
+        assert!(
+            !admitted && !opened && !maintained,
+            "{index}: stale physical index accepted live={admitted}, open={opened}, maintenance={maintained}"
+        );
+        assert!(!backup.exists());
+        // Refusal never repairs the index or rewrites the held obligation.
+        assert_ne!(
+            db.query_row::<String, _, _>("PRAGMA integrity_check", [], |r| r.get(0))
+                .unwrap(),
+            "ok"
+        );
+    }
+}
+
+#[test]
+fn stale_physical_source_index_is_rejected_before_upgrade_rebuild_or_backup() {
+    for version in [9, 11, 12] {
+        let mut f = Fixture::new();
+        signing_intents::test_prepare(&mut f, NOW);
+        drop(f.store);
+        match version {
+            9 => migrations::legacy::restore_v9(&f.path),
+            11 => migrations::legacy::restore_v11(&f.path),
+            12 => migrations::legacy::restore_v12(&f.path),
+            _ => unreachable!(),
+        }
+        let db = Connection::open(&f.path).unwrap();
+        empty_held_index(&db, "authority_signing_quota_transition_project_held");
+        match version {
+            9 => migrations::validate_v9(&db).unwrap(),
+            11 => migrations::validate_v11(&db).unwrap(),
+            12 => migrations::validate_v12(&db).unwrap(),
+            _ => unreachable!(),
+        }
+        assert_ne!(
+            db.query_row::<String, _, _>("PRAGMA integrity_check", [], |r| r.get(0))
+                .unwrap(),
+            "ok"
+        );
+        let backup = f.directory.path().join("stale-source.sqlite3");
+        assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
+        assert!(!backup.exists());
+        assert!(!backup.with_extension("manifest.json").exists());
+        assert_eq!(
+            db.query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap(),
+            version
+        );
+        assert_ne!(
+            db.query_row::<String, _, _>("PRAGMA integrity_check", [], |r| r.get(0))
+                .unwrap(),
+            "ok"
+        );
+    }
+}
+
 #[test]
 fn reserved_objects_are_refused_before_legacy_upgrade_creates_a_backup() {
     for (kind, table, sql) in [

@@ -45,7 +45,7 @@ fn nullable_upgrade_preserves_guarded_rooted_lifecycles_and_all_rowids() {
         let before = retained_rows(&f.path);
         let backup = f.directory.path().join("schema11.sqlite3");
         AuthorityStore::migrate(&f.path, &backup).unwrap();
-        assert_eq!(version(&f.path), 12);
+        assert_eq!(version(&f.path), 13);
         assert_eq!(version(&backup), 11);
         assert_eq!(retained_rows(&backup), before);
         assert_retained(&f.path, &before);
@@ -121,7 +121,7 @@ fn abrupt_process_exit_after_parent_drop_recovers_the_original_transaction() {
     assert_eq!(retained_rows(&backup), before);
     let next = f.directory.path().join("after-crash.sqlite3");
     AuthorityStore::migrate(&f.path, &next).unwrap();
-    assert_eq!(version(&f.path), 12);
+    assert_eq!(version(&f.path), 13);
     assert_retained(&f.path, &before);
 }
 
@@ -141,7 +141,7 @@ fn competing_maintenance_processes_commit_one_upgrade_and_keep_all_evidence() {
         usize::from(first.exists()) + usize::from(second.exists()),
         1
     );
-    assert_eq!(version(&f.path), 12);
+    assert_eq!(version(&f.path), 13);
     assert_retained(&f.path, &before);
 }
 
@@ -165,12 +165,124 @@ fn migration_process_worker() {
     let path = std::env::var_os("FW_TEST_MIGRATION_SOURCE").unwrap();
     let backup = std::env::var_os("FW_TEST_MIGRATION_BACKUP").unwrap();
     // Warm only the independent schema reference before the deliberate exit.
-    known_v12().unwrap();
-    if std::env::var("FW_TEST_MIGRATION_CRASH").is_ok_and(|stage| stage == "parent-dropped") {
-        MIGRATION_FAILURE.with(|requested| *requested.borrow_mut() = Some("parent-dropped"));
+    known_v13().unwrap();
+    if let Ok(stage) = std::env::var("FW_TEST_MIGRATION_CRASH") {
+        let stage = match stage.as_str() {
+            "parent-dropped" => "parent-dropped",
+            "backup-files-created" => "backup-files-created",
+            _ => panic!("unknown fixture crash stage"),
+        };
+        MIGRATION_FAILURE.with(|requested| *requested.borrow_mut() = Some(stage));
         MIGRATION_CRASH.with(|crash| crash.set(true));
     }
     AuthorityStore::migrate(Path::new(&path), Path::new(&backup)).unwrap();
+}
+
+#[test]
+fn schema12_upgrade_preserves_all_retained_bytes_and_current_maintenance_is_noop() {
+    for state in ["reserved", "released", "issued", "unknown", "active"] {
+        let (f, _) = prepared_in_state(state);
+        drop(f.store);
+        legacy::restore_v12(&f.path);
+        validate_v12(&Connection::open(&f.path).unwrap()).unwrap();
+        let before = retained_rows(&f.path);
+        let backup = f.directory.path().join("schema12.sqlite3");
+        assert!(matches!(
+            AuthorityStore::open(&f.path),
+            Err(AuthorityError::MigrationRequired {
+                found: 12,
+                required: 13
+            })
+        ));
+        AuthorityStore::migrate(&f.path, &backup).unwrap();
+        assert_eq!(version(&f.path), 13);
+        assert_eq!(version(&backup), 12);
+        assert_eq!(retained_rows(&backup), before);
+        assert_retained(&f.path, &before);
+        assert_private_backup(&backup, 12);
+        let current = retained_rows(&f.path);
+        let noop = f.directory.path().join("same-version.sqlite3");
+        AuthorityStore::migrate(&f.path, &noop).unwrap();
+        assert!(!noop.exists());
+        assert!(!noop.with_extension("manifest.json").exists());
+        assert_eq!(retained_rows(&f.path), current);
+        AuthorityStore::open(&f.path).unwrap();
+    }
+}
+
+#[test]
+fn schema13_errors_restore_schema12_bytes_history_backup_and_foreign_keys() {
+    for stage in [
+        "schema13-guards-created",
+        "schema13-version-recorded",
+        "before-commit",
+    ] {
+        let (f, _) = prepared_in_state("active");
+        drop(f.store);
+        legacy::restore_v12(&f.path);
+        let before = retained_rows(&f.path);
+        let schema = schema_digest(&Connection::open(&f.path).unwrap()).unwrap();
+        let backup = f.directory.path().join("schema12-failed.sqlite3");
+        MIGRATION_FAILURE.with(|requested| *requested.borrow_mut() = Some(stage));
+        MIGRATION_FK_RESTORED.with(|restored| restored.set(false));
+        let result = AuthorityStore::migrate(&f.path, &backup);
+        MIGRATION_FAILURE.with(|requested| *requested.borrow_mut() = None);
+        assert!(
+            matches!(
+                result,
+                Err(AuthorityError::Invalid(
+                    "injected authority migration failure"
+                ))
+            ),
+            "{stage}: {result:?}"
+        );
+        assert!(MIGRATION_FK_RESTORED.with(|restored| restored.get()));
+        assert_eq!(version(&f.path), 12);
+        assert_eq!(retained_rows(&f.path), before);
+        assert_eq!(retained_rows(&backup), before);
+        assert_eq!(
+            schema_digest(&Connection::open(&f.path).unwrap()).unwrap(),
+            schema
+        );
+        assert_private_backup(&backup, 12);
+    }
+}
+
+#[test]
+fn interrupted_backup_retains_incomplete_private_pair_and_new_destination_recovers() {
+    let (f, _) = prepared_in_state("active");
+    drop(f.store);
+    legacy::restore_v12(&f.path);
+    let before = retained_rows(&f.path);
+    let interrupted = f.directory.path().join("interrupted.sqlite3");
+    let status = worker(&f.path, &interrupted)
+        .env("FW_TEST_MIGRATION_CRASH", "backup-files-created")
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(89));
+    assert_eq!(version(&f.path), 12);
+    assert_eq!(retained_rows(&f.path), before);
+    for path in [&interrupted, &interrupted.with_extension("manifest.json")] {
+        assert_eq!(fs::metadata(path).unwrap().len(), 0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o077, 0);
+        }
+    }
+    assert!(AuthorityStore::migrate(&f.path, &interrupted).is_err());
+    let fresh = f.directory.path().join("retry.sqlite3");
+    AuthorityStore::migrate(&f.path, &fresh).unwrap();
+    assert_eq!(version(&f.path), 13);
+    assert_eq!(retained_rows(&fresh), before);
+    assert_retained(&f.path, &before);
+    assert!(interrupted.exists());
+    assert_eq!(
+        fs::metadata(interrupted.with_extension("manifest.json"))
+            .unwrap()
+            .len(),
+        0
+    );
 }
 
 #[test]

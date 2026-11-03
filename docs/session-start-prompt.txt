@@ -9,10 +9,14 @@ F00/F01 우선순위와 해당 작업의 F03/F04/F07/F08/F12 원본을 확인하
 
 PR21 인계 문서는2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3으로 병합됐다.
 원격 docs/pr20-review-handoff 브랜치는 보존하라.
-후속 fix/authority-history-and-project-quota의 최신 PR/HEAD/CI를 조회하라.
-그 브랜치는 N1–N7 보강(schema11)과 프로젝트 일반 정책 quota(schema12),
-버전별 CLI/API/readiness/UI를 통합한다. 구현/검증/병합 상태는 최신 자료로
-확인하며 과거 검사 수를 새 결과로 재사용하지 마라.
+PR22 head2cccdb3ba1f22fd461c53bc350bb2d1bc07fffd0은
+main d54021a9df32c0a041c52002b05a0e9d64058c0f에 같은 트리로 병합됐다.
+PR CI41564239539는 성공했고 main CI41566909739는 metadata 만료 검사에서 실패했다.
+Claude의 PR22 검토는 이미 받았고 docs/reviews/pr22-claude-review.md에 보존했다.
+docs/pr22-follow-up.md와 fix/quota-open-integrity의 최신 PR/HEAD/CI를 조회하라.
+이 후속은 D1–D6(schema13), 현재 project-pin revision 조회 CLI,
+HTTP 접두사 검사와 테스트 시각 안정화를 통합한다. 실제 구현/검증/병합 상태는
+최신 자료로 확인하며 과거 검사 수를 새 결과로 재사용하지 마라.
 
 docs/pr20-follow-up.md, docs/project-policy-quota-design.md,
 docs/signing-coordination.md, docs/authority-store.md를 읽어라.
@@ -25,7 +29,7 @@ rootless는 위임루트 없는 quota이며 OS 관리자 권한 없는 방화벽
 검사와 결함수정 후 commit/push/PR/CI/병합까지 계속 진행하라.
 통상 단계마다 확인을 요구하지 말고 원격브랜치 삭제/history 재작성은 하지 마라.
 다음 외부 검토는 Claude Opus5.5 하나에 실제 새 base/head SHA를 고정한
-전체 복사용 프롬프트로 통합 요청하라. 이미 받은 PR20 검토를 반복 요청하지 마라.
+전체 복사용 프롬프트로 통합 요청하라. 이미 받은 PR20/PR22 검토를 반복 요청하지 마라.
 
 다음 제품 작업은 ledger 의존성에 따라 core 의미/native/signing 통합,
 단일 절대 임대창과 서명된 workload/delegation 권위, 보호 bootstrap/OS계정,

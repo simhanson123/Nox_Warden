@@ -21,6 +21,7 @@ mod sets;
 mod signing_intents;
 mod signing_jobs;
 mod signing_quota;
+mod signing_quota_recovery;
 #[cfg(test)]
 mod signing_test_support;
 pub use signing_intents::*;
@@ -150,9 +151,10 @@ impl AuthorityStore {
                 migrations::apply_v10(&tx)?;
                 migrations::apply_v11(&tx)?;
                 migrations::apply_v12(&tx)?;
+                migrations::apply_v13(&tx)?;
             } else {
                 if application != APPLICATION_ID
-                    || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].contains(&version)
+                    || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].contains(&version)
                 {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
@@ -166,13 +168,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 12 {
+                if version < 13 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 12,
+                        required: 13,
                     });
                 }
-                migrations::validate_v12(&tx)?;
+                migrations::validate_v13(&tx)?;
             }
             tx.commit()?;
         }
@@ -411,15 +413,6 @@ fn audit(
             resource,
             now,
             canonical
-        ],
-    )?;
-    tx.execute(
-        "UPDATE authority_audit_heads SET sequence=?,event_hash=? WHERE org_id=? AND project_id=?",
-        params![
-            sequence.to_be_bytes().as_slice(),
-            digest,
-            tenant.org_id,
-            tenant.project_id
         ],
     )?;
     Ok(())

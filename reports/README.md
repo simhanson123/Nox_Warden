@@ -6,7 +6,85 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## Integrated history integrity and project quota follow-up
+## PR22 integrity corrections
+
+The schema13 batch starts at PR22 merge
+`d54021a9df32c0a041c52002b05a0e9d64058c0f` on `fix/quota-open-integrity`.
+The [received Claude report](../docs/reviews/pr22-claude-review.md) and
+[correction matrix](../docs/pr22-follow-up.md) preserve the external findings and
+their attribution. The pasted report is UTF-8/LF with SHA256
+`174db04e57e473b21484ecf27415794e1911d50263a967052692178c1c2d2775`;
+private external probes were not obtained or rerun.
+
+New archived-baseline fixtures reproduced hidden held projections (D1), stale
+physical partial-index contents with restored SQL (D2), and a committed intentless
+reservation (D5). The new D5 shape also passed the baseline's actual non-test
+maintenance CLI; the current binary rejects that same saved DB. This differs from
+the supplied D5 variant and is reported separately. Published-schema fixtures
+independently reproduce audit gaps and stale staged bindings (D3/D4), followed by
+opposite refusal/atomicity regressions. Existing migrations001–012, specifications
+and previous review bytes are unchanged.
+
+The [replayable old-source fixture](../docs/reviews/pr22-legacy-renewal-repro.md)
+builds actual schema10 code at `2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3`, with
+only an added test exporter, and commits two normal renewals in the same second.
+The archived PR22 non-test schema12 migrator rejects a copy with
+`MIGRATION_REJECTED`; 17 independent checks verify the unchanged original/candidate
+and a valid exact private backup. Current maintenance migrated its 64 original
+tables/94 original rows to 13 with
+identical rowids, SQLite types and BLOB/audit bytes and an exact private backup.
+Four original work/audit pairs have distinct ordered bindings. Additional permanent
+fixtures reconstruct historical schemas; they are not all old-binary-created.
+
+Consolidated internal GPT-6.1 Sol ultra review found no confirmed blocker in the
+new crate diff. Fresh independent probes checked 38,904 audit-trigger cases over
+unsigned carries/exhaustion and FK/recursive settings, and 16 non-test CLI/SQL
+refusals plus write-free recovery reads. A second worker cross-reviewed the
+atomic projections and legacy matching outside their implementation ownership.
+This is not a new Claude execution or production/native qualification.
+
+Fresh final validation on 2026-11-03 passed the complete `bash scripts/check.sh`
+entry point: **873 workspace Rust tests**, 2 intentionally ignored declarations,
+1 explicitly executed CLI fixture, 32 reduced-feature tests and 190 UI tests in 10
+files, plus both UI production builds. Shared `(umask 0002; cargo test --locked
+-p fw_authority -p fw_authority_service)` passed **478**, with 2 ignored. Nested
+subprocess summaries are excluded from those totals. Formatting, workspace
+all-target Clippy with warnings denied, spec 27, contracts 52+28, locale parity and
+Python diagnostics 9/6/14/3 passed. These are fresh results on the final code.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Current real binaries |
+| Enrollment browser / metadata | 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Actual browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 40 | Current services, restart and strict readiness |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Native evidence | 33 | 5 actual kernel captures |
+
+All 12 JSON reports were newly written after canonical validation; 198 reported
+source/binary hash entries (98 unique paths, including 10 binary entries) matched.
+The 292-file executable/test input snapshot and 28-file independent review snapshot
+also matched. All three lab containers were removed; the managed local daemon
+remains healthy with no containers. Environment: Rust1.99.1, Node24.19.0/npm11.9.0,
+Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154.0.8037.57 and Docker28.4.0.
+The scripts explicitly select the managed Unix socket and preserve proxy/CA/auth;
+only writable `BUILDX_CONFIG` is supplied for the restricted home directory.
+
+The first canonical attempt was deliberately stopped before a known obsolete
+arithmetic-fixture assumption reached failure. That invocation and an overlapping
+52-test quota run are ABORTED, not passed. The arithmetic
+fixture now scopes its existing test-only exemption per thread; genuine integrity
+fixtures and production builds retain strict intent/job validation. The corrected
+race passed its focused rerun before the full canonical restart.
+
+PR22's PR CI41564239539 passed. Its separate main CI41566909739 **failed** because
+the short metadata fixture expired during setup before the slow-stdin scenario.
+The revised test establishes process input readiness before arming expiry,
+explicitly verifies acceptance at its pre-input time, then verifies actual CLI
+refusal after expiry. Production authentication/freshness code is unchanged.
+
+## Historical PR22 integrated history and project quota validation
 
 The implementation starts at merged handoff PR21,
 `2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3`, on
@@ -38,7 +116,8 @@ exercise real COMMIT BUSY, abrupt exit after table DROP, competing processes,
 eight rollback checkpoints, exact backups and FK restoration. Missing/ambiguous
 historical audit mappings are refused rather than manufactured. An internal
 10,108-case SQL probe independently checked unsigned audit-head successors.
-The external Claude review for this new batch has not been run.
+At this checkpoint the external Claude review had not run; its subsequently
+received findings are preserved in the PR22 correction section above.
 
 Fresh local validation completed on 2026-11-03. Rust workspace components pass
 **851 tests** (169 authority library +233 authority integrations +449 remaining

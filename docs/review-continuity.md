@@ -9,6 +9,32 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR22 consolidated review
+
+The user supplied [Claude Opus5.5's complete PR22 review](reviews/pr22-claude-review.md)
+for `2cccdb3ba1f22fd461c53bc350bb2d1bc07fffd0` against
+`2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3`; its merge is
+`d54021a9df32c0a041c52002b05a0e9d64058c0f` with the same tree.
+The pasted text is preserved as UTF-8/LF, SHA256
+`174db04e57e473b21484ecf27415794e1911d50263a967052692178c1c2d2775`.
+It is not a byte claim about an unavailable original attachment.
+
+The report confirms the original N1–N7 reproductions corrected and reports six
+new defects: D1 Low–Medium (directly reproduced by Claude), D2–D6 Low (parallel
+reviewers). D1 hides held capacity by changing a head after removing/restoring its
+guard; D5 exposes incomplete open validation. D2 corrupts physical index contents
+while retaining exact SQL. D3/D4 concern audit sequencing and pre-staged work
+bindings; D6 rejects valid same-second legacy renewals. All were open at receipt.
+The [correction matrix](pr22-follow-up.md) distinguishes new local reproductions
+from external private probes, which have not been obtained or rerun.
+
+Claude's workspace851, explicit CLI1, reduced32, UI190, shared-umask456 and browser
+results are attributed external executions, not checks on the new fixes. Docker
+Linux/native suites were not run in that review. Local current verification must
+be recorded separately. PR22's PR CI41564239539 succeeded; post-merge main
+CI41566909739 failed in a short-lived metadata test setup and is not a PASS.
+The follow-up preserves production auth conditions while correcting that fixture.
+
 ## Integrated follow-up after PR20
 
 The schema11/schema12 follow-up implements N1–N7 history/audit corrections and
@@ -22,14 +48,14 @@ changes. They caught and prompted corrections to imported reservation history,
 an accidental lifetime job ceiling, failure injection that was blocked too early,
 retained-root clock observation after cutover and initial-job transaction ordering.
 This is internal review, not a new Claude execution. Exact executed checks and
-current CI belong in [verification](../reports/README.md). The next external review
-is one Claude Opus5.5 request against the actual fixed follow-up base/head.
+current CI belong in [verification](../reports/README.md). The subsequent PR22
+Claude review was received and is recorded above; it identified the D1–D6 follow-up.
 
 The following PR20 section records the state **when that report was received**.
 Its open statuses are historical; current disposition is in the
 [follow-up matrix](pr20-follow-up.md) and task ledger.
 
-## Latest received review: PR #20
+## Received PR20 review (historical checkpoint)
 
 The user supplied Claude Opus 5.5's [complete PR20 report](reviews/pr20-claude-review.md)
 for `9e021b31171ae19ff8c9e7eba400d8dd4630a001` against

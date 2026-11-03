@@ -4,6 +4,15 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The [PR22 external review](reviews/pr22-claude-review.md) identified hidden quota
+membership, incomplete open/physical validation, audit/binding atomicity and
+legitimate same-second legacy migration gaps. The
+[schema13 follow-up](pr22-follow-up.md) adds complete retained validation at open,
+independent bounded membership checks, atomic event/head/binding projections,
+ordered legacy matching and current-pin recovery reads. Original migrations
+001–012 remain unchanged. Current verification belongs in the reports summary;
+these storage changes do not complete production enforcement.
+
 The [PR20 external review](reviews/pr20-claude-review.md) led to schema11
 history/audit corrections and schema12 project-only quota. The follow-up preserves
 all published migrations through010 and original review bytes; fresh baseline

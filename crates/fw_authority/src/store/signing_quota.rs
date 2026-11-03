@@ -283,6 +283,30 @@ fn pin_head(tx: &Transaction<'_>, org: &str, kind: &str, id: &str) -> Result<Opt
     }
     head.map(|v| pin_at(tx, org, kind, id, v)).transpose()
 }
+/// Retained administrative state for recovering the revision used by CAS.
+/// Expiry and revocation do not erase a pin or change its stored revision.
+pub(super) fn project_pin_recovery(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+) -> Result<Option<Value>> {
+    pin_head(tx, &tenant.org_id, "project", &tenant.project_id)?
+        .map(|pin| {
+            let revoked = revoked(tx, &pin)?;
+            Ok(json!({
+                "pin_schema_version": if pin.record.pin.root_id.is_some() {
+                    "fw.signing-project-quota-pin/v1"
+                } else {
+                    "fw.signing-project-quota-pin/v2"
+                },
+                "quota_scope": if pin.record.pin.root_id.is_some() { "root" } else { "project" },
+                "revision": pin.revision.to_string(),
+                "pinned_at": pin.record.pinned_at,
+                "pin": pin.record.pin,
+                "revoked": revoked
+            }))
+        })
+        .transpose()
+}
 fn revoked(tx: &Transaction<'_>, pin: &Pin) -> Result<bool> {
     Ok(tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_revocations WHERE org_id=? AND bucket_kind=? AND bucket_id=? AND revision=?)",params![pin.record.org_id,pin.record.bucket_kind,pin.record.bucket_id,pin.revision],|r|r.get(0))?)
 }
@@ -674,12 +698,18 @@ struct Stored {
     active: i64,
     dispatch: i64,
 }
+#[derive(Clone, Copy)]
+enum ReservationRead {
+    Committed,
+    BeforeJob,
+    InitializingJob,
+}
 pub(super) fn read(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     id: &str,
 ) -> Result<SigningBudgetReservation> {
-    read_record(tx, tenant, id, true, false, false)
+    read_record(tx, tenant, id, true, false, ReservationRead::Committed)
 }
 pub(super) fn read_initializing_job(
     tx: &Transaction<'_>,
@@ -689,7 +719,14 @@ pub(super) fn read_initializing_job(
     // The job and intent have just been inserted, but signer-created must still
     // be appended in this transaction. This is the only caller allowed to read
     // that state; a committed job without genesis fails ordinary reads.
-    let saved = read_record(tx, tenant, id, true, false, true)?;
+    let saved = read_record(
+        tx,
+        tenant,
+        id,
+        true,
+        false,
+        ReservationRead::InitializingJob,
+    )?;
     let advanced:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_audits a WHERE a.org_id=i.org_id AND a.project_id=i.project_id AND a.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND o.job_id=i.job_id)))",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
     if saved.state != "reserved" || saved.issued_at.is_some() || advanced {
         return Err(AuthorityError::Conflict);
@@ -702,10 +739,10 @@ fn read_record(
     id: &str,
     check_transition: bool,
     pending_unknown_transition: bool,
-    initializing_job: bool,
+    initializing: ReservationRead,
 ) -> Result<SigningBudgetReservation> {
     identifier(id)?;
-    validate_reservation_graph(tx, tenant, id, initializing_job)?;
+    validate_reservation_graph(tx, tenant, id, initializing)?;
     let row:Stored=tx.query_row("SELECT root_id,plan_id,plan_hash,lease_id,lease_seconds,cost_hash,CASE WHEN length(cost_bytes)<=262144 THEN cost_bytes END,CASE WHEN length(snapshot_bytes)<=32768 THEN snapshot_bytes END,reserved_at,reserved_until,state,issued_at,active_slots,dispatch_slots FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|Ok(Stored{root:r.get(0)?,plan:r.get(1)?,plan_hash:r.get(2)?,lease:r.get(3)?,seconds:r.get(4)?,cost_hash:r.get(5)?,cost:r.get(6)?,snapshot:r.get(7)?,reserved_at:r.get(8)?,reserved_until:r.get(9)?,state:r.get(10)?,issued_at:r.get(11)?,active:r.get(12)?,dispatch:r.get(13)?}))?;
     let cost: SigningQuotaCost = decode(&row.cost)?;
     let snapshot: Snapshot = decode(&row.snapshot)?;
@@ -941,7 +978,7 @@ pub(super) fn validate_legacy_reservations(tx: &Transaction<'_>) -> Result<()> {
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
         let id: String = row.get(2)?;
-        let saved = read_record(tx, &tenant, &id, false, false, false)?;
+        let saved = read_record(tx, &tenant, &id, false, false, ReservationRead::Committed)?;
         let intent_id:String=tx.query_row("SELECT intent_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
         let intent = signing_intents::intent_at(tx, &tenant, &intent_id)?;
         signing_intents::job_at(tx, &tenant, &intent.job_id)?;
@@ -990,7 +1027,7 @@ pub(super) fn backfill_legacy_transitions(tx: &Transaction<'_>) -> Result<()> {
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
         let id: String = row.get(2)?;
-        let saved = read_record(tx, &tenant, &id, false, false, false)?;
+        let saved = read_record(tx, &tenant, &id, false, false, ReservationRead::Committed)?;
         let witness =
             transition_witness(tx, &tenant, &id, &saved.state)?.ok_or(AuthorityError::Binding)?;
         tx.execute("INSERT INTO authority_signing_quota_transitions VALUES(?,?,?,0,?,?,?,?,?,'imported',?,?,?)",params![tenant.org_id,tenant.project_id,id,saved.state,saved.issued_at.as_deref().map(crate::timestamp).transpose()?,saved.active_slots,saved.dispatch_slots,witness.3,witness.0,witness.1,witness.2])?;
@@ -1014,6 +1051,47 @@ enum AccountingScope<'a> {
     Root(&'a str),
     Project,
 }
+fn accounting_membership(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    scope: AccountingScope<'_>,
+    now: i64,
+    reservations: bool,
+) -> Result<BTreeSet<(String, String)>> {
+    let (key, index_kind, bucket) = match scope {
+        AccountingScope::Root(root) => ("root_id", "root", root),
+        AccountingScope::Project => ("project_id", "project", tenant.project_id.as_str()),
+    };
+    let (table, held_index, accounting_index) = if reservations {
+        (
+            "authority_signing_quota_reservations",
+            format!("authority_signing_quota_{index_kind}_states"),
+            format!("authority_signing_quota_{index_kind}_accounting"),
+        )
+    } else {
+        (
+            "authority_signing_quota_transition_heads",
+            format!("authority_signing_quota_transition_{index_kind}_held"),
+            format!("authority_signing_quota_transition_{index_kind}_accounting"),
+        )
+    };
+    let sql = format!(
+        "SELECT project_id,reservation_id FROM {table} INDEXED BY {held_index} WHERE org_id=?1 AND {key}=?2 AND state IN ('reserved','issued','unknown','active') UNION ALL SELECT project_id,reservation_id FROM {table} INDEXED BY {accounting_index} WHERE org_id=?1 AND {key}=?2 AND state='released' AND lease_id IS NOT NULL AND issued_at>?3 AND issued_at<=?4 LIMIT {}",
+        MAX_ACCOUNTED_ROWS + 1
+    );
+    let mut statement = tx.prepare(&sql)?;
+    let mut rows = statement.query(params![tenant.org_id, bucket, now - WINDOW, now])?;
+    let mut membership = BTreeSet::new();
+    while let Some(row) = rows.next()? {
+        if membership.len() == MAX_ACCOUNTED_ROWS {
+            return Err(AuthorityError::Quota);
+        }
+        if !membership.insert((row.get(0)?, row.get(1)?)) {
+            return Err(invalid("signing quota duplicate accounting membership"));
+        }
+    }
+    Ok(membership)
+}
 fn account(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -1025,30 +1103,19 @@ fn account(
         .map_err(|_| invalid("quota accounting guard missing or changed"))?;
     // The complete independently constructed schema inventory also covers
     // audit dependencies and rejects unexpected internal-named objects.
-    // Two bounded indexed scans: live slots (including expired UNKNOWN), then
-    // released history inside the exact rolling interval. Never truncate and
-    // claim admission; excess work returns Quota for the entire transaction.
-    let (key, index_kind, bucket) = match scope {
-        AccountingScope::Root(root) => ("root_id", "root", root),
-        AccountingScope::Project => ("project_id", "project", tenant.project_id.as_str()),
-    };
-    let sql = format!(
-        "SELECT project_id,reservation_id FROM authority_signing_quota_transition_heads INDEXED BY authority_signing_quota_transition_{index_kind}_held WHERE org_id=?1 AND {key}=?2 AND state IN ('reserved','issued','unknown','active') UNION ALL SELECT project_id,reservation_id FROM authority_signing_quota_transition_heads INDEXED BY authority_signing_quota_transition_{index_kind}_accounting WHERE org_id=?1 AND {key}=?2 AND state='released' AND lease_id IS NOT NULL AND issued_at>?3 AND issued_at<=?4 LIMIT {}",
-        MAX_ACCOUNTED_ROWS + 1
-    );
-    let mut statement = tx.prepare(&sql)?;
-    let mut rows = statement.query(params![tenant.org_id, bucket, now - WINDOW, now])?;
+    // Compare independently indexed source reservations with projected heads.
+    // Nonpartial source indexes include unsigned active policy deliveries and
+    // cannot disappear merely because a head or its partial index lost held
+    // membership. Both scans bound live/window obligations, not lifetime jobs.
+    let reservations = accounting_membership(tx, tenant, scope, now, true)?;
+    let heads = accounting_membership(tx, tenant, scope, now, false)?;
+    if reservations != heads {
+        return Err(invalid("signing quota accounting membership"));
+    }
     let mut result = SigningQuotaUsage::default();
     let mut destinations = BTreeSet::new();
-    let mut rows_seen = 0;
     let mut destinations_seen = 0usize;
-    while let Some(row) = rows.next()? {
-        rows_seen += 1;
-        if rows_seen > MAX_ACCOUNTED_ROWS {
-            return Err(AuthorityError::Quota);
-        }
-        let project: String = row.get(0)?;
-        let id: String = row.get(1)?;
+    for (project, id) in reservations {
         let row_tenant = AuthorityTenant::new(&tenant.org_id, &project)?;
         let saved = read(tx, &row_tenant, &id)?;
         if matches!(scope,AccountingScope::Root(root) if saved.root_id.as_deref()!=Some(root)) {
@@ -1220,7 +1287,10 @@ pub(super) fn reserve(
             params![tenant.org_id, tenant.project_id, id, destination],
         )?;
     }
-    read(tx, tenant, id)
+    // Only this newly inserted reservation may precede its intent/job. The
+    // caller must finish preparation in this same transaction; committed
+    // reads and subsequent admission require the complete graph.
+    read_record(tx, tenant, id, true, false, ReservationRead::BeforeJob)
 }
 
 pub(super) fn finalize(
@@ -1329,7 +1399,7 @@ pub(super) fn mark_unknown(
     // Its quota projection has not advanced yet. Only this transition may read
     // that intermediate issued state; the SQL evidence guard below must still
     // bind the exact latest UNKNOWN witness and timestamp before committing.
-    let saved = read_record(tx, tenant, id, true, true, false)?;
+    let saved = read_record(tx, tenant, id, true, true, ReservationRead::Committed)?;
     observed(tx, tenant, saved.root_id.as_deref(), now)?;
     if saved.state == "unknown" {
         return Ok(());
@@ -1401,6 +1471,9 @@ mod tests {
     }
     mod integrity_tests {
         include!("signing_quota_integrity_tests.rs");
+    }
+    mod projection_integrity_tests {
+        include!("signing_quota_projection_integrity_tests.rs");
     }
     mod rootless_lifecycle_tests {
         include!("signing_rootless_lifecycle_tests.rs");
@@ -2177,6 +2250,10 @@ mod tests {
     #[test]
     fn separate_connections_and_projects_cannot_oversubscribe_one_root() {
         use std::sync::{Arc, Barrier};
+        // This arithmetic race intentionally omits signing jobs. Keep its
+        // primitive capability scoped to each thread, as with Fixture above.
+        assert!(!PRIMITIVE_QUOTA_FIXTURE.replace(true));
+        let _primitive = PrimitiveQuotaFixture;
         let mut builder = tempfile::Builder::new();
         #[cfg(unix)]
         {
@@ -2209,6 +2286,8 @@ mod tests {
                 let path = path.clone();
                 let barrier = barrier.clone();
                 std::thread::spawn(move || {
+                    assert!(!PRIMITIVE_QUOTA_FIXTURE.replace(true));
+                    let _primitive = PrimitiveQuotaFixture;
                     let mut store = AuthorityStore::open(path).unwrap();
                     let tenant = AuthorityTenant::new(&id(1), &id(p)).unwrap();
                     barrier.wait();

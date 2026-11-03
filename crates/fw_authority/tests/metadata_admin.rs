@@ -6,6 +6,7 @@ mod native_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 use ed25519_dalek::SigningKey;
+use fw_authority::{AuthorityStore, AuthorityTenant, TargetTransportPin};
 use fw_contracts::{canonical_bytes, hash_bytes};
 use fw_target_evidence::{TargetMetadataChallenge, sign_report, timestamp};
 use serde_json::{Value, json};
@@ -117,8 +118,11 @@ fn proof(db: &Path) -> Value {
     proof_for_challenge(c)
 }
 fn proof_for_challenge(c: Value) -> Value {
-    let challenge: TargetMetadataChallenge = serde_json::from_value(c).unwrap();
     let now = chrono::Utc::now().timestamp();
+    proof_for_challenge_at(c, now)
+}
+fn proof_for_challenge_at(c: Value, now: i64) -> Value {
+    let challenge: TargetMetadataChallenge = serde_json::from_value(c).unwrap();
     let features = ["timed_allow","persistent_deny","strict_current_union","atomic_apply","semantic_readback","writer_fencing","independent_watchdog","new_management_probe","interface_scope","process_binding","independent_expiry","boot_guard","crash_fail_closed","absolute_deadline_guard"].into_iter().map(|name|(name.to_owned(),json!({"state":"unverified","reason_code":"CAPABILITY_NOT_QUALIFIED","evidence_hash":null}))).collect::<serde_json::Map<_,_>>();
     let report = json!({"schema_version":"f.target-capability/v1","capability_version":"f.target-capability/v1","target_id":TARGET,"platform":"linux","enforcement_backend":"nftables","os_version":"fixture kernel","backend_version":"unavailable","executor_build_hash":hash_bytes(b"fixture executable"),"checked_at":timestamp(now).unwrap(),"valid_until":timestamp(now+300).unwrap(),"profiles":[],"families":[],"directions":[],"protocols":[],"binding_kinds":[],"features":features,"max_policies":4096,"max_rules":100000,"max_artifact_bytes":16777216,"qualification_profiles":[],"interfaces":[]});
     serde_json::to_value(
@@ -353,15 +357,15 @@ fn admin_rejects_aliases_missing_databases_and_private_input_diagnostics() {
 
 #[test]
 fn slow_stdin_does_not_use_command_start_time_to_accept_expired_proof() {
-    let (_directory, db) = fixture(4);
-    let input = proof(&db);
-    let expires =
-        fw_target_evidence::parse_time(input["challenge"]["expires_at"].as_str().unwrap()).unwrap();
+    let (_directory, db) = fixture(300);
+    let mut store = AuthorityStore::open(&db).unwrap();
+    let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+    let started_at = chrono::Utc::now().timestamp();
     let mut child = command(&db, "admit-target").spawn().unwrap();
     // Confirm the actual executable reached its blocking input read before the
     // deadline; no fixed startup-delay assumption or product test clock is used.
     let waiting = PathBuf::from(format!("/proc/{}/wchan", child.id()));
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let state = fs::read_to_string(&waiting).unwrap();
         if state.contains("pipe_read") {
@@ -374,6 +378,34 @@ fn slow_stdin_does_not_use_command_start_time_to_accept_expired_proof() {
         assert!(Instant::now() < deadline, "admin did not reach stdin");
         std::thread::sleep(Duration::from_millis(10));
     }
+    // Start the short lifetime only after the real process is ready. Expensive
+    // fixture creation and database-open checks must not consume that lifetime.
+    // The proof is already valid at command start, so a stale pre-stdin clock
+    // would accept it rather than reject a challenge issued in its future.
+    let expires = chrono::Utc::now().timestamp() + 8;
+    let public = SigningKey::from_bytes(&SEED).verifying_key().to_bytes();
+    store
+        .pin_target_transport(
+            &tenant,
+            &TargetTransportPin {
+                target_id: TARGET.into(),
+                public_key: public,
+                certificate_fingerprint: hash_bytes(b"short-lived fixture certificate"),
+                platform: "linux".into(),
+                not_before: started_at - 1,
+                not_after: expires,
+            },
+            Some(1),
+            started_at,
+        )
+        .unwrap();
+    let challenge = store
+        .issue_target_report_challenge(&tenant, TARGET, started_at)
+        .unwrap();
+    let input = proof_for_challenge_at(serde_json::to_value(&challenge).unwrap(), started_at);
+    let signed = serde_json::from_value(input.clone()).unwrap();
+    fw_target_evidence::verify_report(&challenge, &signed, &public, "linux", started_at, expires)
+        .unwrap();
     assert!(chrono::Utc::now().timestamp() < expires);
     while chrono::Utc::now().timestamp() <= expires {
         std::thread::sleep(Duration::from_millis(30));

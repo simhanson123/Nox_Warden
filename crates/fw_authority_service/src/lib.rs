@@ -538,10 +538,9 @@ impl Runtime {
         let (identity, _) = self.authenticated(&id, now)?;
         let tenant = identity.tenant()?;
         if method == "GET"
-            && path.starts_with("/authority/v2/plans/")
             && let Some(plan_id) = path
-                .trim_start_matches("/authority/v2/plans/")
-                .strip_suffix("/signing-readiness")
+                .strip_prefix("/authority/v2/plans/")
+                .and_then(|plan_id| plan_id.strip_suffix("/signing-readiness"))
         {
             if uuid::Uuid::parse_str(plan_id).is_err() {
                 return Err(Failure::Invalid);
@@ -569,8 +568,9 @@ impl Runtime {
             }
             return Ok(json_response(json!({"plans":plans}), None));
         }
-        if method == "GET" && path.starts_with("/authority/v1/plans/") {
-            let plan_id = path.trim_start_matches("/authority/v1/plans/");
+        if method == "GET"
+            && let Some(plan_id) = path.strip_prefix("/authority/v1/plans/")
+        {
             if let Some(plan_id) = plan_id.strip_suffix("/signing-readiness") {
                 if uuid::Uuid::parse_str(plan_id).is_err() {
                     return Err(Failure::Invalid);

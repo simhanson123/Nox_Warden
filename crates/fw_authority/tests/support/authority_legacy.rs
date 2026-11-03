@@ -368,6 +368,7 @@ fn reference_v10() -> rusqlite::Connection {
 /// be represented in released schemas and is deliberately refused.
 #[allow(dead_code)]
 pub fn restore_v11(path: &std::path::Path) {
+    restore_v12(path);
     let mut db = rusqlite::Connection::open(path).unwrap();
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -466,6 +467,94 @@ pub fn restore_v11(path: &std::path::Path) {
         .unwrap()
     );
     tx.pragma_update(None, "user_version", 11).unwrap();
+    tx.commit().unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Reconstruct exact released schema12 guards and indexes around unchanged
+/// retained rows. This is fixture metadata reconstruction, not an old binary.
+#[allow(dead_code)]
+pub fn restore_v12(path: &std::path::Path) {
+    let mut db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    if version <= 12 {
+        return;
+    }
+    assert_eq!(version, 13);
+    let reference = reference_v10();
+    for sql in [
+        include_str!("../../src/store/migration_011.sql"),
+        include_str!("../../src/store/migration_011_work_bindings.sql"),
+        include_str!("../../src/store/migration_011_work.sql"),
+    ] {
+        reference.execute_batch(sql).unwrap();
+    }
+    let guards = reference
+        .prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for (name, _) in &guards {
+        reference
+            .execute_batch(&format!("DROP TRIGGER {name}"))
+            .unwrap();
+    }
+    reference
+        .execute_batch(include_str!("../../src/store/migration_012.sql"))
+        .unwrap();
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let tx = db.transaction().unwrap();
+    let triggers = tx
+        .prepare("SELECT name FROM sqlite_schema WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for name in triggers {
+        tx.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+    }
+    let indexes = tx
+        .prepare("SELECT name FROM sqlite_schema WHERE type='index' AND sql IS NOT NULL")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for name in indexes {
+        let retained: bool = reference
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='index' AND name=?)",
+                [&name],
+                |r| r.get(0),
+            )
+            .unwrap();
+        if !retained {
+            tx.execute_batch(&format!("DROP INDEX {name}")).unwrap();
+        }
+    }
+    tx.execute(
+        "DELETE FROM authority_schema_migrations WHERE version=13",
+        [],
+    )
+    .unwrap();
+    for (name, sql) in guards {
+        let sql = match name.as_str() {
+            "authority_signing_quota_transition_heads_insert" => {
+                sql.replace("r.root_id=NEW.root_id", "r.root_id IS NEW.root_id")
+            }
+            "authority_signing_quota_transition_heads_update" => {
+                sql.replace("NEW.root_id!=OLD.root_id", "NEW.root_id IS NOT OLD.root_id")
+            }
+            _ => sql,
+        };
+        tx.execute_batch(&sql).unwrap();
+    }
+    tx.pragma_update(None, "user_version", 12).unwrap();
     tx.commit().unwrap();
     db.pragma_update(None, "foreign_keys", "ON").unwrap();
 }

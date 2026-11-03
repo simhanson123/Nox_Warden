@@ -2364,6 +2364,67 @@ fn assert_no_signing_work(f: &Fixture) {
 }
 
 #[tokio::test]
+async fn signing_readiness_rejects_repeated_route_prefixes_after_live_review_authentication() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    for version in ["v1", "v2"] {
+        let path = format!(
+            "/authority/{version}/plans//authority/{version}/plans/{PLAN}/signing-readiness"
+        );
+        assert_eq!(
+            request(addr, "GET", &path, None, None, None, ORIGIN)
+                .await
+                .status,
+            401
+        );
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &path,
+                auth.cookie.as_deref(),
+                None,
+                None,
+                ORIGIN
+            )
+            .await
+            .status,
+            403
+        );
+        let rejected = request(
+            addr,
+            "GET",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN,
+        )
+        .await;
+        assert_eq!(rejected.status, 400, "{}", rejected.raw);
+        assert!(rejected.body.get("quota_configured").is_none());
+        let canonical = format!("/authority/{version}/plans/{PLAN}/signing-readiness");
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &canonical,
+                auth.cookie.as_deref(),
+                auth.body["csrf_token"].as_str(),
+                None,
+                ORIGIN,
+            )
+            .await
+            .status,
+            200
+        );
+    }
+    assert_no_signing_work(&f);
+    task.abort();
+}
+
+#[tokio::test]
 async fn signing_readiness_requires_live_review_proof_and_never_creates_signing_work() {
     let f = Fixture::configured(true);
     let (addr, task) = f.start(NOW + 1).await;

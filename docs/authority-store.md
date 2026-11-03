@@ -302,17 +302,20 @@ remain separate requirements.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 12. The stable family identity
+Fresh authority databases use schema version 13. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1–11 database returns `MigrationRequired` without adding tables
+populated version 1–12 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 Stop the authority service and its workers before migration, then restart them
 with the new binary. Do not mix older running binaries with a migrated database;
-schema11 strengthens retained history, audit and reference validation; schema12 adds nullable project-only quota roots.
+Schema11 strengthens retained history, audit and reference validation; schema12
+adds nullable project-only quota roots. Schema13 makes full retained validation
+mandatory at open and adds atomic audit/work bindings and independent accounting
+membership checks.
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v12.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v13.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -336,6 +339,15 @@ Backup files and manifests contain restricted authority data and stay outside
 public logs and source commits. Restoring an old backup over live revocations,
 credential counters or executor authority requires a separate recovery procedure.
 
+An abrupt exit during backup creation can leave a private backup file with an
+empty or incomplete manifest. Such a pair is not a verified recovery backup.
+Keep the original database and incomplete pair for inspection and retry migration
+with a different, unused backup basename. Destination preflight deliberately
+refuses to overwrite that pair; the program does not silently delete it or reuse
+an incomplete manifest. Only a successfully completed, validated backup/manifest
+pair establishes backup completion. Do not restore the incomplete copy over the
+source or remove source WAL/journal files to force a retry.
+
 The migration validates the exact known starting schema and credential
 projections, computes public-key fingerprints when upgrading version 1 records
 including revoked ones, and commits the new registries, migration checksums and version switch
@@ -343,8 +355,8 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version12 database makes no new backup or state change. Version10
-requires an explicit backed-up upgrade. Opening version12 and current-version
+on a valid version13 database makes no new backup or state change. Version12
+requires an explicit backed-up upgrade. Opening version13 and current-version
 maintenance compare checksums and the exact known object inventory, including
 autoindexes; optional sqlite_stat1/stat4 tables require exact structural metadata.
 Neither sqlite_-prefixed objects nor lookalikes such as sqliteX_hidden are exempt.
@@ -374,7 +386,9 @@ guards. A released reservation without matching cancellation evidence is rejecte
 elapsed time never supplies that evidence. A known-schema database with
 inconsistent retained state is backed up first, then the migration fails and rolls
 back, leaving the original source state and the validated private backup available
-for investigation. An unrecognized schema is refused before creating a backup.
+for investigation. An unrecognized schema or physically corrupt SQLite database
+is refused before creating a backup; physical validation precedes any rebuild so
+maintenance cannot silently repair a corrupt accounting index during upgrade.
 Migration does not rewrite original proofs, receipts, audit bytes or signer trust.
 Version 9 preserves migrations 001–008 and adds empty immutable core-access
 request and plan-binding tables. Existing version 8 evidence and signing history
@@ -641,16 +655,27 @@ kind/time audit bindings and project the head atomically. UUID syntax and retain
 dispatch-created/delivery/preceding-claim times agree in SQL and Rust.
 
 Migration links existing work events only to uniquely matching original audit
-records. Missing or ambiguous matches are rejected with the source and backup
+records. Matching requires a complete monotonic bijection within each tenant,
+job and phase: equal counts, contiguous work revisions, strictly increasing audit
+sequences, exact kind/time and valid canonical audit bytes. Two legitimate renewals
+in the same second have one complete ordered assignment and can migrate. Missing,
+surplus or unjustifiably ordered records are rejected with source and backup
 preserved. It does not manufacture an old event, job, completion receipt or
 refund. Current schema inventory compares exact known object metadata, including
 autoindexes; optional ANALYZE tables have explicit structural checks. A reserved
 SQLite-looking name never exempts an unknown trigger, table, index or view.
 
-Global reference checks run at open/maintenance. Sensitive accounting validates
-its indexed obligations and their bounded histories, without scanning every old
-cancelled job or adding a lifetime job ceiling. Unrelated historic orphans on an
-already-open connection are caught by the next full open/maintenance validation.
+Schema13 open and current-version maintenance run physical SQLite integrity,
+reference graph, complete audit chain, quota transition/projection and retained
+work/lifecycle validation within one transaction. They reject hidden held heads,
+reservations without intents and stale index contents even when all schema SQL
+has been restored exactly. They do not repair corrupt indexes or rewrite history.
+Sensitive live accounting compares bounded reservation and head membership sets
+using independent indexes, then validates each obligation and its bounded history.
+Nonpartial reservation state indexes include unsigned active policy deliveries.
+This avoids scanning every old cancelled job or imposing a lifetime job ceiling.
+Unrelated historic corruption on an already-open connection is checked at the
+next full open/maintenance validation, not certified by each bounded admission.
 An attacker able to replace the entire DB can also replace its local audit chain;
 external anchors and protected OS deployment remain outstanding.
 
@@ -663,3 +688,10 @@ Source version/checksums, private backup, graph, integrity and schema checks rem
 mandatory; populated databases require explicit maintenance and retired old handles.
 See [project quota](project-policy-quota-design.md) for cutover and shared-capacity
 semantics. Rootless quota grants no OS privilege and opens no signer/dispatch gate.
+
+Schema13 audit INSERT requires the exact unsigned successor and matching previous
+hash, and atomically advances its head. A work-event INSERT consumes the current
+unclaimed audit event and atomically inserts its unique binding and projects its
+work head. Standalone bindings cannot be staged for later consumption, including
+with foreign keys disabled. All previously published SQL through012 is retained;
+the new guards and indexes are installed by migration013.

@@ -243,9 +243,21 @@ fn sql_audit_head_successor_preserves_unsigned_u64_boundaries() {
             |r| r.get(0),
         )
         .unwrap();
+    let append_guards =
+        ["authority_audit_exact_next", "authority_audit_project_head"].map(|name| {
+            let sql: String = connection
+                .query_row("SELECT sql FROM sqlite_schema WHERE name=?", [name], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            connection
+                .execute_batch(&format!("DROP TRIGGER {name}"))
+                .unwrap();
+            sql
+        });
     // A focused SQL arithmetic fixture cannot contain 2^63 genuine events.
-    // It isolates the exact BLOB successor predicate while Rust chain checking
-    // continues to require a complete canonical history in production reads.
+    // Isolate the retained head's BLOB successor predicate from the schema13
+    // atomic append guards, which require a genuine complete preceding tail.
     for previous in [
         0u64,
         15,
@@ -290,5 +302,8 @@ fn sql_audit_head_successor_preserves_unsigned_u64_boundaries() {
             }
             tx.rollback().unwrap();
         }
+    }
+    for guard in append_guards {
+        connection.execute_batch(&guard).unwrap();
     }
 }

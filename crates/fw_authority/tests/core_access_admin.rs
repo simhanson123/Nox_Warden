@@ -594,7 +594,7 @@ fn actual_schema8_migration_preserves_plan_and_audit_without_invented_provenance
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 12), (&backup, 8)] {
+    for (path, version) in [(&fixture.db, 13), (&backup, 8)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -656,7 +656,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 12), (&backup, 9)] {
+    for (path, version) in [(&fixture.db, 13), (&backup, 9)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -693,7 +693,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         let migrated = &after.iter().find(|(table, _)| table == name).unwrap().1;
         if name == "authority_schema_migrations" {
             assert!(migrated.starts_with(rows));
-            assert_eq!(migrated.len(), 12);
+            assert_eq!(migrated.len(), 13);
         } else {
             assert_eq!(migrated, rows, "{name}");
         }

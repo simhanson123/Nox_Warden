@@ -5,6 +5,13 @@ history/audit protections. Here **rootless** means no delegation root; the nativ
 firewall still requires the OS authority defined in the product specifications.
 Production signing and dispatch remain closed.
 
+The subsequent [schema13 correction](pr22-follow-up.md) preserves this design and
+adds complete retained/physical validation at open and maintenance, plus bounded
+independent reservation/head membership checks in live accounting. Nonpartial
+reservation scope/state indexes cover all held states, including unsigned active
+policy deliveries; the accounting bound remains a live/window bound, not a cap
+on lifetime cancelled jobs. Existing schema12 SQL is unchanged.
+
 Project pins and reservations may omit a root. A project created without a root
 remains project-only. An administrator can use revision CAS to change an existing
 root A to project-only scope and restore A; retained history permanently forbids

@@ -7,6 +7,30 @@ Read this file, [startup prompt](session-start-prompt.txt), `AGENTS.md`,
 No previous chat, attachment, temporary file, agent mailbox or cached binary is
 needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
+## Current PR22 review follow-up
+
+PR22 head `2cccdb3ba1f22fd461c53bc350bb2d1bc07fffd0` merged as
+`d54021a9df32c0a041c52002b05a0e9d64058c0f`, with the same tree.
+Its PR CI41564239539 passed; post-merge main CI41566909739 failed in the short
+metadata-input expiry test setup. Do not label that main run successful.
+The user supplied [Claude's complete PR22 review](reviews/pr22-claude-review.md).
+Its D1–D6 correction batch starts at that merge on `fix/quota-open-integrity`;
+resolve the latest PR/head/checks remotely. The
+[correction matrix](pr22-follow-up.md) and latest reports/ledger record its status.
+
+Schema13 adds full retained and physical validation at open/maintenance, bounded
+independent reservation/head accounting, exact-next atomic audit head projection,
+event-owned work/audit bindings and uniquely ordered legacy audit backfill.
+The trusted local CLI can read the retained current project-pin revision after
+lost output; repeated readiness path prefixes are rejected. Existing SQL001–012
+and specifications are unchanged. New fixtures are independent of Claude's private
+probe sources; the preserved report's test counts are external historical results.
+The metadata timing fix changes the test setup, not production freshness rules.
+
+The next external review is again one Claude Opus5.5 consolidated review of the
+new fixed base/head. The PR body and conversation provide the full prompt. Do not
+request the already received PR22 review again or treat internal review as Claude.
+
 ## Baselines and completed scope
 
 PR20 reviewed head: `9e021b31171ae19ff8c9e7eba400d8dd4630a001`;
@@ -72,7 +96,7 @@ validation. Avoid repeated small handoffs/full-suite waits. Fix found defects
 within the batch. Commit/push/open PR/finish CI/merge after required checks within
 the authorized development workflow; keep remote branches and shared history.
 
-The next user-mediated external review uses **Claude Opus5.5 only**, covering the
+Each user-mediated external review uses **Claude Opus5.5 only**, covering the
 actual new fixed base/head in one complete copyable prompt. Preparing that prompt
 is not execution; internal agents are not a Claude review. The current prompt is
 linked from [review prompts](review-prompts.md) and the follow-up PR.

@@ -18,6 +18,10 @@ pub(super) const MIGRATION_WORK: &str = include_str!("migration_011_work.sql");
 mod work_guard_tests;
 
 #[cfg(test)]
+#[path = "signing_atomic_audit_tests.rs"]
+mod atomic_audit_tests;
+
+#[cfg(test)]
 #[path = "signing_work_audit_tests.rs"]
 mod work_audit_tests;
 
@@ -362,38 +366,71 @@ fn verify_work_audit(
     Ok(u64::from_be_bytes(sequence))
 }
 
-/// Legacy audit bytes have no work revision. Only one exact historical match
-/// is sufficient evidence: absent or ambiguous candidates abort the upgrade.
-/// New events instead retain an explicit, immutable one-use audit identity.
+/// Legacy audits have no work revision. Every retained phase must therefore
+/// admit a complete, strictly ordered bijection: equal counts, then equal kind
+/// and time at each ordered position. Even identical same-second renewals have
+/// exactly one monotonic assignment; missing, surplus or reordered evidence
+/// cannot be justified and aborts the upgrade. Original rows stay untouched.
 pub(super) fn backfill_work_audits(tx: &Transaction<'_>) -> Result<()> {
     tx.execute_batch(MIGRATION_WORK_BINDINGS)?;
-    let mut statement = tx.prepare("SELECT org_id,project_id,job_id,phase,revision,kind,updated_at FROM authority_signing_work_events ORDER BY org_id,project_id,job_id,phase,revision")?;
-    let mut rows = statement.query([])?;
+    let mut jobs = tx.prepare("SELECT org_id,project_id,job_id FROM authority_signing_jobs ORDER BY org_id,project_id,job_id")?;
+    let mut rows = jobs.query([])?;
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
         let job: String = row.get(2)?;
         identifier(&job)?;
-        let phase: String = row.get(3)?;
-        let revision: [u8; 8] = row.get(4)?;
-        let kind: String = row.get(5)?;
-        let updated: i64 = row.get(6)?;
-        let audit_kind = format!("signing_{phase}_{kind}");
-        let mut candidates = tx.prepare("SELECT CASE WHEN length(sequence)=8 THEN sequence END,CASE WHEN length(event_hash)=32 THEN event_hash END FROM authority_audit WHERE org_id=? AND project_id=? AND resource_id=? AND kind=? AND recorded_at=? ORDER BY sequence LIMIT 2")?;
-        let candidates = candidates
-            .query_map(
-                params![tenant.org_id, tenant.project_id, job, audit_kind, updated],
-                |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?)),
-            )?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        if candidates.len() != 1 {
-            return Err(invalid("missing or ambiguous legacy signing work audit"));
+        for phase in ["signer", "dispatch"] {
+            backfill_phase_audits(tx, &tenant, &job, phase)?;
         }
-        let (sequence, digest) = &candidates[0];
-        audit_log::verify_bound_event(tx, &tenant, sequence, digest, &audit_kind, &job, updated)?;
-        let previous: Option<Vec<u8>> = tx.query_row("SELECT audit_sequence FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision DESC LIMIT 1", params![tenant.org_id,tenant.project_id,job,phase], |r| r.get(0)).optional()?;
-        if previous.as_ref().is_some_and(|old| old >= sequence) {
-            return Err(invalid("legacy signing work audit order"));
+    }
+    Ok(())
+}
+
+fn backfill_phase_audits(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job: &str,
+    phase: &str,
+) -> Result<()> {
+    let mut events = tx.prepare("SELECT revision,kind,updated_at FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT 193")?;
+    let events = events
+        .query_map(params![tenant.org_id, tenant.project_id, job, phase], |r| {
+            Ok((
+                r.get::<_, [u8; 8]>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    // The closed list excludes unrelated resource audits while retaining every
+    // possible work mutation for this phase, including surplus evidence.
+    let mut audits = tx.prepare("SELECT CASE WHEN length(sequence)=8 THEN sequence END,CASE WHEN length(event_hash)=32 THEN event_hash END,kind,recorded_at FROM authority_audit WHERE org_id=?1 AND project_id=?2 AND resource_id=?3 AND kind IN ('signing_'||?4||'_created','signing_'||?4||'_claimed','signing_'||?4||'_renewed','signing_'||?4||'_retried','signing_'||?4||'_cancelled','signing_'||?4||'_finalized','signing_'||?4||'_unknown','signing_'||?4||'_delivered') ORDER BY sequence LIMIT 193")?;
+    let audits = audits
+        .query_map(params![tenant.org_id, tenant.project_id, job, phase], |r| {
+            Ok((
+                r.get::<_, [u8; 8]>(0)?,
+                r.get::<_, [u8; 32]>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if events.len() > MAX_WORK_EVENTS || events.len() != audits.len() {
+        return Err(invalid("missing or surplus legacy signing work audit"));
+    }
+    let mut previous = None;
+    for (index, ((revision, kind, updated), (sequence, digest, audit_kind, recorded))) in
+        events.iter().zip(&audits).enumerate()
+    {
+        if u64::from_be_bytes(*revision) != (index as u64) + 1
+            || audit_kind != &format!("signing_{phase}_{kind}")
+            || updated != recorded
+            || previous.is_some_and(|old| old >= *sequence)
+        {
+            return Err(invalid("unjustified legacy signing work audit order"));
         }
+        time(*updated)?;
+        audit_log::verify_bound_event(tx, tenant, sequence, digest, audit_kind, job, *updated)?;
         tx.execute(
             "INSERT INTO authority_signing_work_audits VALUES(?,?,?,?,?,?,?,?,?)",
             params![
@@ -404,10 +441,11 @@ pub(super) fn backfill_work_audits(tx: &Transaction<'_>) -> Result<()> {
                 revision.as_slice(),
                 kind,
                 updated,
-                sequence,
-                digest
+                sequence.as_slice(),
+                digest.as_slice()
             ],
         )?;
+        previous = Some(*sequence);
     }
     Ok(())
 }
@@ -479,7 +517,6 @@ fn write_head(
         .map_or(Some(1), |h| h.revision.checked_add(1))
         .ok_or(AuthorityError::Quota)?;
     audit(tx, tenant, &format!("signing_{phase}_{kind}"), job, now)?;
-    tx.execute("INSERT INTO authority_signing_work_audits SELECT ?1,?2,?3,?4,?5,?6,?7,sequence,event_hash FROM authority_audit_heads WHERE org_id=?1 AND project_id=?2", params![tenant.org_id,tenant.project_id,job,phase,next.revision.to_be_bytes().as_slice(),kind,now])?;
     tx.execute(
         "INSERT INTO authority_signing_work_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
