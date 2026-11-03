@@ -92,7 +92,10 @@ disclosing whether another tenant has registered it.
 
 Invalid provenance requests and rejected bindings exit with status 1 and the
 fixed diagnostic `AUTHORITY_ADMIN code=CORE_ACCESS_PROVENANCE_REJECTED`.
-Argument, database, tenant and output failures retain the administration tool's
+Malformed tenant identifiers use `TENANT_REJECTED`. A syntactically valid but
+unavailable or unprovisioned tenant reached through a provenance operation uses
+`CORE_ACCESS_PROVENANCE_REJECTED`, preserving cross-tenant non-disclosure.
+Argument, database and output failures retain the administration tool's
 existing fixed diagnostics. Errors do not echo supplied object contents,
 identifiers or database paths. Successful stdout is canonical JSON without a
 trailing newline.

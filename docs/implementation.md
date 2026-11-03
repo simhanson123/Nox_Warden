@@ -4,6 +4,12 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The [new PR20 external review](reviews/pr20-claude-review.md) reports seven open
+Low findings N1–N7 in retained history/audit, SQL guards and migration validation.
+Follow the [session handoff](session-handoff.md) and [correction matrix](pr20-follow-up.md)
+before building the next quota profile on those mechanisms. PR20 CI success
+predates this follow-up and does not mark these findings fixed.
+
 This is a Linux-first development implementation with verified isolated native
 execution, not an installable production release. The task ledger records one
 verified setup milestone, seven partially implemented milestones and five blocked
