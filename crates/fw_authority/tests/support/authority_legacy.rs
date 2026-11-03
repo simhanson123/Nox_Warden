@@ -197,6 +197,7 @@ pub fn restore_v8(path: &std::path::Path) {
 
 #[allow(dead_code)]
 pub fn restore_v9(path: &std::path::Path) {
+    restore_v10(path);
     let db = rusqlite::Connection::open(path).unwrap();
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -255,4 +256,216 @@ pub fn restore_v9(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=10;").unwrap();
     db.execute_batch(&trigger).unwrap();
     db.pragma_update(None, "user_version", 9).unwrap();
+}
+
+/// Reconstruct published schema10 metadata without changing retained source rows.
+/// This is a downgrade fixture builder, not evidence from an old binary.
+#[allow(dead_code)]
+pub fn restore_v10(path: &std::path::Path) {
+    restore_v11(path);
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    if version <= 10 {
+        return;
+    }
+    assert_eq!(version, 11);
+    let reference = reference_v10();
+    let triggers = db
+        .prepare("SELECT name FROM sqlite_schema WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for name in triggers {
+        db.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+    }
+    db.execute_batch("DROP TABLE IF EXISTS authority_signing_work_audits; DROP INDEX IF EXISTS authority_signing_work_audit_candidates; DROP INDEX IF EXISTS authority_signing_reservation_intent_lookup; DELETE FROM authority_schema_migrations WHERE version>10;").unwrap();
+    let definitions = reference
+        .prepare("SELECT sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for sql in definitions {
+        db.execute_batch(&sql).unwrap();
+    }
+    db.pragma_update(None, "user_version", 10).unwrap();
+}
+
+fn reference_v10() -> rusqlite::Connection {
+    let reference = rusqlite::Connection::open_in_memory().unwrap();
+    reference
+        .execute_batch(include_str!("../../src/store/schema.sql"))
+        .unwrap();
+    for table in [
+        "authority_metadata",
+        "authority_principals",
+        "authority_requirements",
+        "authority_requirement_roles",
+        "authority_plans",
+        "authority_plan_retirements",
+        "authority_evidence",
+        "authority_decisions",
+        "authority_audit",
+    ] {
+        reference.execute_batch(&format!("CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'immutable authority record'); END; CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'immutable authority record'); END;")).unwrap();
+    }
+    for table in [
+        "authority_credentials",
+        "authority_roles",
+        "authority_challenges",
+        "authority_activations",
+    ] {
+        reference.execute_batch(&format!("CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained authority record'); END;")).unwrap();
+    }
+    for sql in [
+        include_str!("../../src/store/migration_002.sql"),
+        include_str!("../../src/store/migration_003.sql"),
+        include_str!("../../src/store/migration_004.sql"),
+        include_str!("../../src/store/migration_005.sql"),
+    ] {
+        reference.execute_batch(sql).unwrap();
+    }
+    for table in [
+        "authority_target_keys",
+        "authority_target_key_revocations",
+        "authority_target_pins",
+        "authority_target_challenges",
+        "authority_target_metadata",
+    ] {
+        reference.execute_batch(&format!("CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'immutable target evidence'); END; CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained target evidence'); END;")).unwrap();
+    }
+    reference
+        .execute_batch(include_str!("../../src/store/migration_006.sql"))
+        .unwrap();
+    for table in [
+        "authority_native_pins",
+        "authority_native_pin_revocations",
+        "authority_native_observer_keys",
+        "authority_native_observer_revocations",
+        "authority_native_compilations",
+        "authority_native_challenges",
+        "authority_native_observations",
+    ] {
+        reference.execute_batch(&format!("CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'immutable native evidence'); END; CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained native evidence'); END;")).unwrap();
+    }
+    for sql in [
+        include_str!("../../src/store/migration_007.sql"),
+        include_str!("../../src/store/migration_008.sql"),
+        include_str!("../../src/store/migration_009.sql"),
+        include_str!("../../src/store/migration_010.sql"),
+    ] {
+        reference.execute_batch(sql).unwrap();
+    }
+    reference
+}
+
+/// Reverse only the three structural table changes; null-root/v2 data cannot
+/// be represented in released schemas and is deliberately refused.
+#[allow(dead_code)]
+pub fn restore_v11(path: &std::path::Path) {
+    let mut db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    if version <= 11 {
+        return;
+    }
+    assert_eq!(version, 12);
+    for table in [
+        "authority_signing_quota_pins",
+        "authority_signing_quota_reservations",
+        "authority_signing_quota_transition_heads",
+    ] {
+        assert!(
+            !db.query_row::<bool, _, _>(
+                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE root_id IS NULL)"),
+                [],
+                |r| r.get(0)
+            )
+            .unwrap(),
+            "cannot reconstruct rooted legacy schema with rootless data"
+        );
+    }
+    let reference = reference_v10();
+    reference
+        .execute_batch(include_str!("../../src/store/migration_011.sql"))
+        .unwrap();
+    reference
+        .execute_batch(include_str!(
+            "../../src/store/migration_011_work_bindings.sql"
+        ))
+        .unwrap();
+    reference
+        .execute_batch(include_str!("../../src/store/migration_011_work.sql"))
+        .unwrap();
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let tx = db.transaction().unwrap();
+    let triggers = tx
+        .prepare("SELECT name FROM sqlite_schema WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for name in triggers {
+        tx.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+    }
+    for table in [
+        "authority_signing_quota_pins",
+        "authority_signing_quota_reservations",
+        "authority_signing_quota_transition_heads",
+    ] {
+        let columns = reference
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        let columns = std::iter::once("rowid".to_owned())
+            .chain(columns)
+            .collect::<Vec<_>>()
+            .join(",");
+        let create: String = reference
+            .query_row("SELECT sql FROM sqlite_schema WHERE name=?", [table], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        tx.execute_batch(&format!("CREATE TABLE {table}_legacy_copy AS SELECT {columns} FROM {table}; DROP TABLE {table}; {create}; INSERT INTO {table}({columns}) SELECT {columns} FROM {table}_legacy_copy; DROP TABLE {table}_legacy_copy;")).unwrap();
+        let indexes=reference.prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND tbl_name=? AND sql IS NOT NULL ORDER BY name").unwrap().query_map([table],|r|r.get::<_,String>(0)).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        for sql in indexes {
+            tx.execute_batch(&sql).unwrap();
+        }
+    }
+    tx.execute(
+        "DELETE FROM authority_schema_migrations WHERE version=12",
+        [],
+    )
+    .unwrap();
+    let definitions = reference
+        .prepare("SELECT sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for sql in definitions {
+        tx.execute_batch(&sql).unwrap();
+    }
+    assert!(
+        !tx.query_row::<bool, _, _>(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |r| r.get(0)
+        )
+        .unwrap()
+    );
+    tx.pragma_update(None, "user_version", 11).unwrap();
+    tx.commit().unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
 }

@@ -15,9 +15,11 @@ signed observation and a current human approval set.
 
 ## Pin root and project quota separately
 
-The root bucket belongs to an organization. The project pin independently binds
-that project's limits to a root. Both limits apply; creating another root does
-not allow a bound project to reset its quota history by switching roots.
+The root bucket belongs to an organization. A rooted project pin independently
+binds that project's limits to a root; both limits apply. A project-only pin
+limits general policy without a delegation root. Both scopes share one project
+budget and preserve previously held obligations. Creating another root cannot
+reset project history.
 The trusted local administrator can manage that organization's root through any
 provisioned project in the same organization. The first project to pin a root
 does not own it exclusively. An identifier from another organization does not
@@ -65,6 +67,50 @@ retry with the current revision returns that revision; changed limits or validit
 create a new revision. Omitting the expected revision after creation is a conflict.
 Successful pinning returns its revision and does not enable signing or dispatch.
 
+## Configure project-only general policy
+
+Only `pin-signing-project-quota` accepts this explicit versioned input. Omit
+`pin.root_id` entirely; a null root, partial root metadata, unknown version or
+unknown field is rejected. Legacy unversioned input still requires a root UUID.
+The root-pin command always requires its root and never accepts v2 project input.
+
+```json
+{
+  "schema_version": "fw.signing-project-quota-pin/v2",
+  "pin": {
+    "limits": {
+      "active_leases": 2,
+      "new_leases_per_day": 4,
+      "unique_destinations_per_day": 8,
+      "cumulative_seconds_per_day": 3600,
+      "concurrent_deployments": 1
+    },
+    "not_before": 1793491200,
+    "not_after": 1793494800
+  },
+  "expected_revision": null
+}
+```
+
+Run the same `pin-signing-project-quota` command shown above. For a newly
+configured project, use null expected revision. To cut an existing rooted project
+over to project-only scope, supply its current project revision string. The
+response contains `schema_version: "fw.signing-project-quota-pin/v2"`,
+`quota_scope: "project"`, the revision and both false permission fields; it
+contains no root field.
+
+A project first configured with root A may move A→project-only→A using explicit
+CAS revisions. Restoration uses the original unversioned mandatory-root input
+with A and the current project revision. Root B is always refused, including
+while the current pin has no root. A project first configured project-only must
+remain project-only. Exact retries with the current revision add no pin or audit
+entry. Cutover neither releases old obligations nor resets the project budget.
+
+General policy costs no lease, seconds, destinations or active-lease slots and
+reserves one dispatch slot. The other positive pin limit fields remain required;
+project-only scope cannot authorize access leases. This is an accounting choice,
+not an OS privilege mode. Production signing and dispatch remain closed.
+
 `revoke-signing-root-quota` reads
 `{"root_id":"ROOT_UUID","expected_revision":"1"}`.
 `revoke-signing-project-quota` reads `{"expected_revision":"1"}`.
@@ -73,14 +119,14 @@ that pin; it does not erase history or prove that an earlier dispatch ended.
 
 ## Inspect readiness and request preparation
 
-`read-signing-readiness` reads `{"plan_id":"PLAN_UUID"}`. Both readiness and
+`read-signing-readiness-v2` reads `{"plan_id":"PLAN_UUID"}`. Both readiness and
 `request-signing` require a trusted `--approval-origin` argument matching the
 authority review deployment. There is no default origin and the JSON request
 cannot override it. The verifier rechecks retained WebAuthn evidence; origin
 configuration does not manufacture human approval.
 
 ```sh
-target/debug/fw_authority_admin read-signing-readiness \
+target/debug/fw_authority_admin read-signing-readiness-v2 \
   --database authority/authority.sqlite3 \
   --org-id ORG_UUID --project-id PROJECT_UUID \
   --approval-origin http://localhost:8790 < plan-reference.json
@@ -94,6 +140,24 @@ The response reports current blocking conditions separately from stored evidence
 Pinning quota may resolve a quota-configuration blocker while production
 qualification and protected signer deployment remain incomplete. A retained
 matching observation is evidence, not a signing capability.
+
+The v2 response includes `quota_scope` (`root`, `project` or null),
+`quota_root_id` (a UUID only for root scope), and
+`latest_dispatch_unknown_seen` (a boolean, or null when no latest intent exists).
+Scope describes current valid configuration independently of any latest
+historical reservation. Expired/revoked pins have null scope and a missing quota
+blocker. Core requests with project-only configuration or missing original
+provenance report `quota_configured: false`. A past UNKNOWN stays visible after
+later recorded delivery and does not establish enforcement or return quota.
+
+The original `read-signing-readiness` command retains the v1 15-field shape for
+rooted or unavailable configuration. It rejects current project-only
+configuration with `SIGNING_READINESS_REJECTED`; select the explicit v2 command.
+The matching authenticated read-only HTTP route is
+`GET /authority/v2/plans/{plan_id}/signing-readiness`; v1 does not downgrade a
+project-only response. The authority UI uses v2 explicitly. Both versions now
+report missing core provenance as missing applicable quota; retained v1 pin and
+reservation bytes are preserved.
 
 `request-signing` accepts only this reference shape:
 
@@ -146,6 +210,10 @@ that tenant has no such intent. An absent intent is not fabricated from the
 request ID. The response contains no private key or raw signed payload, and its
 `signing_allowed` and `dispatch_allowed` fields remain false. This command does
 not enumerate other tenants or expose a grant-delivery endpoint.
+Historical intent reads and job retries use the project clock plus the retained
+reservation's root clock, if any. Restoring a rooted configuration does not add
+that root's clock to an older project-only job. Readiness also checks the current
+configuration's clock because it reports current pin eligibility.
 
 Signing requests have the existing 128 KiB stdin limit. Unknown fields,
 duplicate JSON keys, invalid identifiers, unexpected options and noncanonical
@@ -166,7 +234,7 @@ for the shared output contract and
 
 ```sh
 source scripts/dev-env.sh
-cargo test --locked -p fw_authority --test signing_admin
+cargo test --locked -p fw_authority --test signing_admin --test signing_readiness_versions
 cargo build --locked -p fw_authority --bin fw_authority_admin
 NOX_TEST_AUTHORITY_ADMIN="$PWD/target/debug/fw_authority_admin" \
   cargo test --locked -p fw_authority --lib \
@@ -175,7 +243,7 @@ NOX_TEST_AUTHORITY_ADMIN="$PWD/target/debug/fw_authority_admin" \
 
 These regressions run the actual administration executable against private
 SQLite databases, including signed lab observation and WebAuthn fixtures.
-The second test uses private `cfg(test)` preparation to give the real executable
+The explicitly ignored cancellation test uses private `cfg(test)` preparation to give the real executable
 retained unissued and issued work. It covers expired claimed work, tenant
 refusal, output loss after cancellation, exact retry without extra events,
 unchanged generation and issued/UNKNOWN refusal. `scripts/check.sh` builds the

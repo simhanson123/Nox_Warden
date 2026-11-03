@@ -302,17 +302,17 @@ remain separate requirements.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 10. The stable family identity
+Fresh authority databases use schema version 12. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1–9 database returns `MigrationRequired` without adding tables
+populated version 1–11 database returns `MigrationRequired` without adding tables
 or treating its keys as newly enrolled. The explicit maintenance operation is:
 
 Stop the authority service and its workers before migration, then restart them
 with the new binary. Do not mix older running binaries with a migrated database;
-schema 10 strengthens both work admission and the meaning of retained capacity.
+schema11 strengthens retained history, audit and reference validation; schema12 adds nullable project-only quota roots.
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v10.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v12.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -343,11 +343,11 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version 10 database makes no new backup or state change. Opening a
-version 10 database and the already-current migration path both check migration
-checksums and the actual schema against the known table, index and trigger
-definitions. The digest excludes only the literal reserved `sqlite_` prefix,
-case-insensitively; a user-created name such as `sqliteX_hidden` is included.
+on a valid version12 database makes no new backup or state change. Version10
+requires an explicit backed-up upgrade. Opening version12 and current-version
+maintenance compare checksums and the exact known object inventory, including
+autoindexes; optional sqlite_stat1/stat4 tables require exact structural metadata.
+Neither sqlite_-prefixed objects nor lookalikes such as sqliteX_hidden are exempt.
 Removing or replacing a guard, or adding an unexpected object, causes rejection
 even if the stored version and checksum rows remain unchanged. Foreign and
 future versions, changed migration checksums and pre-existing backup filenames
@@ -630,3 +630,36 @@ For storage and failure review, examine:
 
 See the [verification summary](../reports/README.md) for executed results and
 the [implementation overview](implementation.md) for the remaining product work.
+
+## Retained history and project-only quota
+
+Schema11 rejects hidden-rowid, primary-key and alternate-key collisions before
+SQLite replacement conflict handling, including FK OFF / recursive triggers OFF
+writers. Audit heads can advance only to the exact next retained event using
+unsigned64 sequence checks. Work events consume unique tenant/job/phase/revision/
+kind/time audit bindings and project the head atomically. UUID syntax and retained
+dispatch-created/delivery/preceding-claim times agree in SQL and Rust.
+
+Migration links existing work events only to uniquely matching original audit
+records. Missing or ambiguous matches are rejected with the source and backup
+preserved. It does not manufacture an old event, job, completion receipt or
+refund. Current schema inventory compares exact known object metadata, including
+autoindexes; optional ANALYZE tables have explicit structural checks. A reserved
+SQLite-looking name never exempts an unknown trigger, table, index or view.
+
+Global reference checks run at open/maintenance. Sensitive accounting validates
+its indexed obligations and their bounded histories, without scanning every old
+cancelled job or adding a lifetime job ceiling. Unrelated historic orphans on an
+already-open connection are caught by the next full open/maintenance validation.
+An attacker able to replace the entire DB can also replace its local audit chain;
+external anchors and protected OS deployment remain outstanding.
+
+Schema12 rebuilds quota pins, reservations and transition heads for nullable roots.
+Only its dedicated maintenance connection disables FKs, before the transaction;
+rollback/commit precedes restoration and readback of FK ON. Original rowids and
+typed values, including canonical v1 bytes, are checked before commit. The full
+expected guard set is derived independently, with null-safe identity comparisons.
+Source version/checksums, private backup, graph, integrity and schema checks remain
+mandatory; populated databases require explicit maintenance and retired old handles.
+See [project quota](project-policy-quota-design.md) for cutover and shared-capacity
+semantics. Rootless quota grants no OS privilege and opens no signer/dispatch gate.

@@ -41,7 +41,7 @@ export default function SigningReadiness({ client, detail, locale, onUnauthorize
     const controller = new AbortController(); const expected = plan.current;
     setSnapshot(undefined); setUnavailable(false); setLoading(true);
     const requestedMonotonic = performance.now();
-    void client.request('/plans/' + encodeURIComponent(String(expected.plan.plan_id)) + '/signing-readiness', undefined, controller.signal).then(value => {
+    void client.request('/plans/' + encodeURIComponent(String(expected.plan.plan_id)) + '/signing-readiness', undefined, controller.signal, 'v2').then(value => {
       if (controller.signal.aborted) return;
       const parsed = parseSigningReadiness(value, expected); const wall = Date.now();
       setSnapshot({ value: parsed, context, wall, requestedMonotonic, receivedMonotonic: performance.now(), observedWall: { current: wall } });
@@ -78,6 +78,8 @@ export default function SigningReadiness({ client, detail, locale, onUnauthorize
         {fresh && value.target_generation !== null && <><dt>{t('signing.generation')}</dt><dd>{value.target_generation}</dd></>}
       </dl>
       {fresh && value.quota_configured && <p>{t('signing.quotaConfigured')}</p>}
+      {fresh && value.quota_scope && <p>{t(value.quota_scope === 'project' ? 'signing.projectQuota' : 'signing.rootQuota')}</p>}
+      {fresh && value.quota_root_id && <p>{t('signing.quotaRoot')}: <code>{value.quota_root_id}</code></p>}
       <ul aria-label={t('signing.reasons')}>{value.reasons.map(reason => <li key={reason}>{t(`signing.reason.${reason}`)}</li>)}</ul>
       <section role="region" aria-label={t('signing.latestIntent')}><h4>{t('signing.latestIntent')}</h4>
         {!intent ? <p>{t('signing.noIntent')}</p> : <>
@@ -94,6 +96,7 @@ export default function SigningReadiness({ client, detail, locale, onUnauthorize
           </dl>
           <p>{t(intent.reservation_held ? 'signing.held' : 'signing.notHeld')}</p>
           {intent.dispatch_state === 'unknown' && <p className="notice warning">{t('signing.unknownHelp')}</p>}
+          {value.latest_dispatch_unknown_seen && intent.dispatch_state !== 'unknown' && <p className="notice warning">{t('signing.pastUnknown')}</p>}
           {remaining(intent.valid_until, snapshot) <= 0 && <p className="notice warning">{t('signing.intentExpired')}</p>}
         </>}
       </section>

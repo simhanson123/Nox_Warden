@@ -9,6 +9,26 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Integrated follow-up after PR20
+
+The schema11/schema12 follow-up implements N1–N7 history/audit corrections and
+project-only quota together. New independent baseline fixtures reproduced every
+finding; current regressions require mutation refusal, retained evidence or
+fail-closed migration/read behavior. Original migration001–010 and the supplied
+review remain unchanged. The old private reviewer probes were not used.
+
+Internal GPT-6.1 Sol reviewers checked the integrated storage/runtime/API/UI
+changes. They caught and prompted corrections to imported reservation history,
+an accidental lifetime job ceiling, failure injection that was blocked too early,
+retained-root clock observation after cutover and initial-job transaction ordering.
+This is internal review, not a new Claude execution. Exact executed checks and
+current CI belong in [verification](../reports/README.md). The next external review
+is one Claude Opus5.5 request against the actual fixed follow-up base/head.
+
+The following PR20 section records the state **when that report was received**.
+Its open statuses are historical; current disposition is in the
+[follow-up matrix](pr20-follow-up.md) and task ledger.
+
 ## Latest received review: PR #20
 
 The user supplied Claude Opus 5.5's [complete PR20 report](reviews/pr20-claude-review.md)
@@ -22,8 +42,7 @@ notes: 17,167 bytes, SHA-256
 `abc796dce74778372c613c253d2891037ca386430d475ea7a8040a97c415aa2c`.
 
 Claude reports F1–F4 corrected and seven Low findings N1–N7, with no reported
-Critical/High/Medium or blocker to continuing development. **All seven remain
-open**; CI and prior internal review do not resolve these newly supplied findings.
+Critical/High/Medium or blocker to continuing development. **All seven were open at receipt**; CI and prior internal review did not resolve those findings.
 N1/N3/N6 include Claude's direct reproduction; N2/N5/N7 were attributed to its
 migration reviewer without a Claude rerun. N4 is reported confirmed within the
 combined review, without a separately identified direct rerun. Preserve this

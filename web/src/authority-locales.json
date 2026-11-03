@@ -122,7 +122,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "No current independent human approval set is available.",
     "signing.reason.TARGET_METADATA_MISSING": "Current authenticated target metadata is missing.",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "Current verified native baseline evidence is unavailable.",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "Root and project quotas have not been configured.",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "The quota configuration required for this plan is unavailable.",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "The protected target generation has not been initialized.",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "The required core request binding is unavailable.",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "Access lease signing is unavailable in this build.",
@@ -152,7 +152,11 @@
     "signing.quota.issued": "Issued",
     "signing.quota.unknown": "Unresolved; reservation held",
     "signing.quota.active": "Quota retained after delivery",
-    "signing.quota.released": "Released"
+    "signing.quota.released": "Released",
+    "signing.projectQuota": "General policy uses project quota without a delegation root.",
+    "signing.rootQuota": "This project uses root and project quotas.",
+    "signing.quotaRoot": "Quota delegation root",
+    "signing.pastUnknown": "This delivery previously had an UNKNOWN outcome. A later delivery record does not verify enforcement or release held quota."
   },
   "ko": {
     "title": "독립 승인 권위",
@@ -277,7 +281,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "현재 유효한 독립 사람 승인 집합이 없습니다.",
     "signing.reason.TARGET_METADATA_MISSING": "현재 유효한 인증된 대상 메타데이터가 없습니다.",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "현재 유효한 검증된 네이티브 기준 상태 근거가 없습니다.",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "루트 및 프로젝트 할당량이 설정되지 않았습니다.",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "이 계획에 필요한 할당량 구성을 사용할 수 없습니다.",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "보호된 대상 세대가 초기화되지 않았습니다.",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "필수 코어 요청 바인딩을 사용할 수 없습니다.",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "이 빌드에서는 임시 접근 허용에 서명할 수 없습니다.",
@@ -307,7 +311,11 @@
     "signing.quota.issued": "발급됨",
     "signing.quota.unknown": "미확정 — 예약 유지",
     "signing.quota.active": "전달 후 할당량 유지",
-    "signing.quota.released": "해제됨"
+    "signing.quota.released": "해제됨",
+    "signing.projectQuota": "일반 정책은 위임 루트 없이 프로젝트 할당량을 사용합니다.",
+    "signing.rootQuota": "이 프로젝트는 루트 및 프로젝트 할당량을 사용합니다.",
+    "signing.quotaRoot": "할당량 위임 루트",
+    "signing.pastUnknown": "이 전달에는 이전에 UNKNOWN 결과가 있었습니다. 이후 전달 기록은 집행을 검증하거나 보유 할당량을 해제하지 않습니다."
   },
   "ja": {
     "title": "独立承認機関",
@@ -432,7 +440,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "現在有効な独立した人による承認セットがありません。",
     "signing.reason.TARGET_METADATA_MISSING": "現在有効な認証済み対象メタデータがありません。",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "現在有効な検証済みネイティブ基準状態の証拠がありません。",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "ルートとプロジェクトの割当が設定されていません。",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "この計画に必要な割り当て設定を利用できません。",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "保護された対象世代が初期化されていません。",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "必要なコア要求の結び付けを利用できません。",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "このビルドでは一時的なアクセス許可に署名できません。",
@@ -462,7 +470,11 @@
     "signing.quota.issued": "発行済み",
     "signing.quota.unknown": "未解決・予約を保持",
     "signing.quota.active": "配信後も割当を保持",
-    "signing.quota.released": "解放済み"
+    "signing.quota.released": "解放済み",
+    "signing.projectQuota": "一般ポリシーは委任ルートなしでプロジェクト割り当てを使用します。",
+    "signing.rootQuota": "このプロジェクトはルートとプロジェクトの割り当てを使用します。",
+    "signing.quotaRoot": "割り当ての委任ルート",
+    "signing.pastUnknown": "この配信には過去に UNKNOWN の結果がありました。後の配信記録は適用の検証や保持中の割り当ての解放を意味しません。"
   },
   "es": {
     "title": "Autoridad independiente",
@@ -587,7 +599,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "No hay un conjunto vigente de aprobaciones humanas independientes.",
     "signing.reason.TARGET_METADATA_MISSING": "Faltan metadatos autenticados y vigentes del destino.",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "No hay pruebas vigentes de la base nativa verificada.",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "No se han configurado las cuotas de raíz y proyecto.",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "La configuración de cuota necesaria para este plan no está disponible.",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "No se ha inicializado la generación protegida del destino.",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "No está disponible la vinculación requerida de la solicitud principal.",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "La firma de permisos de acceso temporal no está disponible en esta compilación.",
@@ -617,7 +629,11 @@
     "signing.quota.issued": "Emitida",
     "signing.quota.unknown": "Sin resolver; reserva retenida",
     "signing.quota.active": "Cuota retenida tras la entrega",
-    "signing.quota.released": "Liberada"
+    "signing.quota.released": "Liberada",
+    "signing.projectQuota": "La política general usa la cuota del proyecto sin una raíz de delegación.",
+    "signing.rootQuota": "Este proyecto usa cuotas de raíz y de proyecto.",
+    "signing.quotaRoot": "Raíz de delegación de cuota",
+    "signing.pastUnknown": "Esta entrega tuvo un resultado UNKNOWN. Un registro posterior no verifica la aplicación ni libera la cuota retenida."
   },
   "de": {
     "title": "Unabhängige Autorität",
@@ -742,7 +758,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "Es liegt kein aktueller Satz unabhängiger menschlicher Freigaben vor.",
     "signing.reason.TARGET_METADATA_MISSING": "Aktuelle authentifizierte Zielmetadaten fehlen.",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "Aktuelle verifizierte Nachweise des nativen Ausgangszustands fehlen.",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "Root- und Projektkontingente sind nicht konfiguriert.",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "Die für diesen Plan erforderliche Kontingentkonfiguration ist nicht verfügbar.",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "Die geschützte Zielgeneration ist nicht initialisiert.",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "Die erforderliche Bindung an die Kernanfrage ist nicht verfügbar.",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "Das Signieren befristeter Zugriffsberechtigungen ist in diesem Build nicht verfügbar.",
@@ -772,7 +788,11 @@
     "signing.quota.issued": "Ausgestellt",
     "signing.quota.unknown": "Ungeklärt; Reservierung gehalten",
     "signing.quota.active": "Kontingent bleibt nach der Übermittlung belegt",
-    "signing.quota.released": "Freigegeben"
+    "signing.quota.released": "Freigegeben",
+    "signing.projectQuota": "Allgemeine Richtlinien verwenden das Projektkontingent ohne Delegierungswurzel.",
+    "signing.rootQuota": "Dieses Projekt verwendet Wurzel- und Projektkontingente.",
+    "signing.quotaRoot": "Delegierungswurzel des Kontingents",
+    "signing.pastUnknown": "Diese Zustellung hatte zuvor ein UNKNOWN-Ergebnis. Ein späterer Zustellnachweis bestätigt weder die Durchsetzung noch gibt er gehaltenes Kontingent frei."
   },
   "fr": {
     "title": "Autorité indépendante",
@@ -897,7 +917,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "Aucun ensemble actuel d’approbations humaines indépendantes n’est disponible.",
     "signing.reason.TARGET_METADATA_MISSING": "Les métadonnées authentifiées actuelles de la cible sont absentes.",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "Les preuves actuelles de l’état natif de référence vérifié sont indisponibles.",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "Les quotas racine et projet ne sont pas configurés.",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "La configuration de quota requise pour ce plan est indisponible.",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "La génération protégée de la cible n’est pas initialisée.",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "La liaison requise à la demande de base est indisponible.",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "La signature des autorisations d’accès temporaires est indisponible dans cette version.",
@@ -927,7 +947,11 @@
     "signing.quota.issued": "Émis",
     "signing.quota.unknown": "Non résolu ; réservation retenue",
     "signing.quota.active": "Quota retenu après la livraison",
-    "signing.quota.released": "Libéré"
+    "signing.quota.released": "Libéré",
+    "signing.projectQuota": "La politique générale utilise le quota du projet sans racine de délégation.",
+    "signing.rootQuota": "Ce projet utilise les quotas de racine et de projet.",
+    "signing.quotaRoot": "Racine de délégation du quota",
+    "signing.pastUnknown": "Cette livraison a eu un résultat UNKNOWN. Un enregistrement ultérieur ne vérifie pas l’application et ne libère pas le quota retenu."
   },
   "zh-Hans": {
     "title": "独立审批机构",
@@ -1052,7 +1076,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "没有当前有效的独立人工审批集。",
     "signing.reason.TARGET_METADATA_MISSING": "缺少当前经过认证的目标元数据。",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "当前经过验证的原生基准状态证据不可用。",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "尚未配置根级和项目配额。",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "此计划所需的配额配置不可用。",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "尚未初始化受保护的目标代次。",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "所需的核心请求绑定不可用。",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "此构建版本不支持临时访问授权签名。",
@@ -1082,7 +1106,11 @@
     "signing.quota.issued": "已签发",
     "signing.quota.unknown": "未解决；保留预留",
     "signing.quota.active": "发送后仍占用配额",
-    "signing.quota.released": "已释放"
+    "signing.quota.released": "已释放",
+    "signing.projectQuota": "常规策略使用项目配额，无需委托根。",
+    "signing.rootQuota": "此项目使用根配额和项目配额。",
+    "signing.quotaRoot": "配额委托根",
+    "signing.pastUnknown": "此次交付曾出现 UNKNOWN 结果。之后的交付记录不能验证执行情况，也不会释放保留的配额。"
   },
   "zh-Hant": {
     "title": "獨立審批機構",
@@ -1207,7 +1235,7 @@
     "signing.reason.APPROVAL_SET_MISSING": "沒有目前有效的獨立人工核准集合。",
     "signing.reason.TARGET_METADATA_MISSING": "缺少目前經過驗證的目標中繼資料。",
     "signing.reason.NATIVE_BASELINE_UNAVAILABLE": "目前經過驗證的原生基準狀態證據無法取得。",
-    "signing.reason.QUOTA_CONFIGURATION_MISSING": "尚未設定根層級和專案配額。",
+    "signing.reason.QUOTA_CONFIGURATION_MISSING": "此計畫所需的配額設定無法使用。",
     "signing.reason.TARGET_GENERATION_UNINITIALIZED": "尚未初始化受保護的目標世代。",
     "signing.reason.CORE_REQUEST_BINDING_UNAVAILABLE": "所需的核心請求繫結無法使用。",
     "signing.reason.CORE_SIGNING_PROFILE_UNAVAILABLE": "此建置版本不支援暫時存取授權簽章。",
@@ -1237,6 +1265,10 @@
     "signing.quota.issued": "已核發",
     "signing.quota.unknown": "未解決；保留預留",
     "signing.quota.active": "傳送後仍占用配額",
-    "signing.quota.released": "已釋放"
+    "signing.quota.released": "已釋放",
+    "signing.projectQuota": "一般原則使用專案配額，無需委派根。",
+    "signing.rootQuota": "此專案使用根配額和專案配額。",
+    "signing.quotaRoot": "配額委派根",
+    "signing.pastUnknown": "此次傳遞曾出現 UNKNOWN 結果。之後的傳遞記錄不能驗證執行情況，也不會釋放保留的配額。"
   }
 }

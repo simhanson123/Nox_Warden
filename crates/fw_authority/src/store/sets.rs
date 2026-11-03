@@ -227,9 +227,10 @@ impl AuthorityStore {
                 canonical
             ],
         )?;
-        tx.execute(
-            "INSERT INTO authority_basis_heads VALUES(?,?,?,1) ON CONFLICT(org_id,project_id)
-            DO UPDATE SET basis_id=excluded.basis_id,revision=authority_basis_heads.revision+1",
+        retained_projection(
+            &tx,
+            "UPDATE authority_basis_heads SET basis_id=?3,revision=revision+1 WHERE org_id=?1 AND project_id=?2",
+            "INSERT INTO authority_basis_heads VALUES(?1,?2,?3,1)",
             params![tenant.org_id, tenant.project_id, id],
         )?;
         bump_security(&tx, tenant)?;
@@ -387,7 +388,7 @@ impl AuthorityStore {
         if now < decision.created_at {
             return Err(AuthorityError::Time);
         }
-        if tx.execute("INSERT OR IGNORE INTO authority_decision_revocations VALUES(?,?,?,?,'operator_withdrawal',?)",
+        if tx.execute("INSERT INTO authority_decision_revocations SELECT ?1,?2,?3,?4,'operator_withdrawal',?5 WHERE NOT EXISTS(SELECT 1 FROM authority_decision_revocations WHERE org_id=?1 AND project_id=?2 AND approval_id=?3)",
             params![tenant.org_id,tenant.project_id,approval_id,actor,now])?==1 {
             bump_security(&tx,tenant)?; audit(&tx,tenant,"approval_decision_revoked",approval_id,now)?;
         }
@@ -430,7 +431,7 @@ impl AuthorityStore {
         if now < row.0 {
             return Err(AuthorityError::Time);
         }
-        if tx.execute("INSERT OR IGNORE INTO authority_set_revocations VALUES(?,?,?,?,'operator_withdrawal',?)",
+        if tx.execute("INSERT INTO authority_set_revocations SELECT ?1,?2,?3,?4,'operator_withdrawal',?5 WHERE NOT EXISTS(SELECT 1 FROM authority_set_revocations WHERE org_id=?1 AND project_id=?2 AND approval_set_id=?3)",
             params![tenant.org_id,tenant.project_id,approval_set_id,actor,now])?==1 {
             bump_security(&tx,tenant)?;
             audit(&tx,tenant,"approval_set_revoked",approval_set_id,now)?;
@@ -885,8 +886,12 @@ pub(super) fn aggregate(
             ],
         )?;
     }
-    tx.execute("INSERT INTO authority_set_heads VALUES(?,?,?,?,1) ON CONFLICT(org_id,project_id,plan_id)
-        DO UPDATE SET approval_set_id=excluded.approval_set_id,revision=authority_set_heads.revision+1",params![tenant.org_id,tenant.project_id,plan_id,id])?;
+    retained_projection(
+        tx,
+        "UPDATE authority_set_heads SET approval_set_id=?4,revision=revision+1 WHERE org_id=?1 AND project_id=?2 AND plan_id=?3",
+        "INSERT INTO authority_set_heads VALUES(?1,?2,?3,?4,1)",
+        params![tenant.org_id, tenant.project_id, plan_id, id],
+    )?;
     audit(tx, tenant, "approval_set_recorded", &id, now)?;
     Ok(AggregationOutcome::Approved {
         approval_set_id: id,

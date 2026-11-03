@@ -132,6 +132,7 @@ impl AuthorityStore {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Deferred)?;
+        migrations::validate_live_schema(&tx)?;
         let known: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM authority_projects WHERE org_id=? AND project_id=?)",
             params![tenant.org_id, tenant.project_id],
@@ -183,4 +184,74 @@ impl AuthorityStore {
         tx.commit()?;
         Ok(Some(verified))
     }
+}
+
+/// Verify one exact retained event without scanning the tenant's history.
+pub(super) fn verify_bound_event(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    sequence: &[u8],
+    expected_hash: &[u8],
+    kind: &str,
+    resource: &str,
+    recorded: i64,
+) -> Result<()> {
+    let sequence_bytes: [u8; 8] = sequence
+        .try_into()
+        .map_err(|_| invalid("bound audit sequence"))?;
+    let expected: [u8; 32] = expected_hash
+        .try_into()
+        .map_err(|_| invalid("bound audit hash"))?;
+    let mut statement = tx.prepare(&format!("SELECT {COLUMNS} FROM authority_audit WHERE org_id=? AND project_id=? AND sequence=? AND kind=? AND resource_id=? AND recorded_at=?"))?;
+    let mut rows = statement.query(params![
+        tenant.org_id,
+        tenant.project_id,
+        sequence,
+        kind,
+        resource,
+        recorded
+    ])?;
+    let retained = event(
+        rows.next()?.ok_or(invalid("missing bound audit event"))?,
+        tenant,
+    )?;
+    if retained.sequence != u64::from_be_bytes(sequence_bytes) || retained.hash != expected {
+        return Err(invalid("bound audit event mismatch"));
+    }
+    Ok(())
+}
+
+/// Upgrade-time verification streams every retained tenant chain. Missing history
+/// is refused; canonical bytes and timestamps are never regenerated or repaired.
+pub(super) fn validate_retained_chains(tx: &Transaction<'_>) -> Result<()> {
+    let mut projects =
+        tx.prepare("SELECT org_id,project_id FROM authority_projects ORDER BY org_id,project_id")?;
+    let mut tenants = projects.query([])?;
+    while let Some(row) = tenants.next()? {
+        let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
+        let stored = head(tx, &tenant)?.ok_or(invalid("authority audit missing head"))?;
+        let mut sequence = 0u64;
+        let mut hash = [0u8; 32];
+        let mut recorded_at = None;
+        let mut statement=tx.prepare(&format!("SELECT {COLUMNS} FROM authority_audit WHERE org_id=? AND project_id=? ORDER BY sequence"))?;
+        let mut rows = statement.query(params![tenant.org_id, tenant.project_id])?;
+        while let Some(row) = rows.next()? {
+            let item = event(row, &tenant)?;
+            sequence = sequence
+                .checked_add(1)
+                .ok_or(invalid("authority audit sequence exhausted"))?;
+            if item.sequence != sequence
+                || item.previous != hash
+                || recorded_at.is_some_and(|old| item.recorded_at < old)
+            {
+                return Err(invalid("authority audit retained history"));
+            }
+            hash = item.hash;
+            recorded_at = Some(item.recorded_at);
+        }
+        if stored != (sequence, hash) {
+            return Err(invalid("authority audit head mismatch"));
+        }
+    }
+    Ok(())
 }

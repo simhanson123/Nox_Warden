@@ -529,7 +529,7 @@ fn v5_backup_migration_preserves_metadata_and_invents_no_native_trust() {
         AuthorityStore::open(&f.path),
         Err(AuthorityError::MigrationRequired {
             found: 5,
-            required: 10
+            required: 12
         })
     ));
     let backup = f.path.with_file_name("before-v6.sqlite3");
@@ -628,8 +628,13 @@ fn stored_compilation_and_observation_projections_reject_coherent_corruption() {
                 db.execute_batch("DROP TRIGGER authority_native_challenges_no_update; UPDATE authority_native_challenges SET expires_at=expires_at+1;").unwrap();
             }
             3 => {
-                db.execute_batch("DELETE FROM authority_native_observation_heads;")
-                    .unwrap();
+                assert!(
+                    db.execute_batch("DELETE FROM authority_native_observation_heads;")
+                        .is_err()
+                );
+                let guard:String=db.query_row("SELECT sql FROM sqlite_schema WHERE name='authority_native_observation_heads_no_delete'",[],|row|row.get(0)).unwrap();
+                db.execute_batch("DROP TRIGGER authority_native_observation_heads_no_delete; DELETE FROM authority_native_observation_heads;").unwrap();
+                db.execute_batch(&guard).unwrap();
             }
             4 => {
                 db.execute_batch("PRAGMA ignore_check_constraints=ON; DROP TRIGGER authority_native_observations_no_update; UPDATE authority_native_observations SET proof_bytes=zeroblob(3145729);").unwrap();

@@ -12,15 +12,16 @@ const time = (value: number) => new Date(value).toISOString().replace('.000Z', '
 const now = () => Math.floor(Date.now() / 1000) * 1000;
 function detail(): AuthorityPlan {
   return { plan_hash: hash('a'), requirements_hash: hash('b'), roles: [], current_principal_decisions: [],
-    plan: { plan_id: id('4'), org_id: id('2'), project_id: id('3'), target_id: id('9'),
+    plan: { plan_id: id('4'), change_kind: 'policy_change', org_id: id('2'), project_id: id('3'), target_id: id('9'),
       valid_until: time(now() + 3600000), authority_epoch: '2', target_generation: '7' }, requirements: {} };
 }
 function readiness(plan = detail()) {
-  return { schema_version: 'fw.signing-readiness/v1', org_id: plan.plan.org_id, project_id: plan.plan.project_id,
+  return { schema_version: 'fw.signing-readiness/v2', org_id: plan.plan.org_id, project_id: plan.plan.project_id,
     target_id: plan.plan.target_id, plan_id: plan.plan.plan_id, plan_hash: plan.plan_hash,
     checked_at: time(now()), valid_until: time(now() + 30000), signing_allowed: false, dispatch_allowed: false,
     reasons: ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'],
     approval_set_hash: hash('c'), quota_configured: true, target_generation: '8',
+    quota_scope: 'root', quota_root_id: id('a'), latest_dispatch_unknown_seen: true as boolean | null,
     latest_intent: { intent_id: id('5'), request_id: id('6'), plan_id: plan.plan.plan_id, plan_hash: plan.plan_hash,
       approval_set_hash: hash('d'), authority_epoch: '2', target_generation: '7', payload_hash: hash('e'), job_id: id('7'), reservation_id: id('8'),
       created_at: time(now() - 60000), valid_until: time(now() + 30000), state: 'ready', dispatch_state: 'unknown',
@@ -50,7 +51,7 @@ test('current prerequisites and retained intents are separate read-only evidence
   expect(history).toHaveTextContent('Quota slots remain held by this reservation.');
   expect(history).toHaveTextContent(value.latest_intent.grant_hash);
   expect(parseSigningReadiness(value, plan).latest_intent?.approval_set_hash).not.toBe(value.approval_set_hash);
-  expect(fetch.mock.calls[0][0]).toBe('/authority/v1/plans/' + plan.plan.plan_id + '/signing-readiness');
+  expect(fetch.mock.calls[0][0]).toBe('/authority/v2/plans/' + plan.plan.plan_id + '/signing-readiness');
   expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'GET', credentials: 'same-origin', cache: 'no-store' });
   expect(new Headers(fetch.mock.calls[0][1]?.headers).get('X-Authority-CSRF')).toBe('memory-proof');
   expect(within(panel).getAllByRole('button')).toHaveLength(1);
@@ -59,7 +60,7 @@ test('current prerequisites and retained intents are separate read-only evidence
 
 test.each([false, true])('core signing remains blocked when original request binding is unavailable: %s', async (bindingUnavailable) => {
   const plan = detail(); plan.plan.change_kind = 'add_access_lease';
-  const value = { ...readiness(plan), latest_intent: null };
+  const value = { ...readiness(plan), latest_intent: null, latest_dispatch_unknown_seen: null };
   value.reasons.push('CORE_SIGNING_PROFILE_UNAVAILABLE');
   if (bindingUnavailable) value.reasons.push('CORE_REQUEST_BINDING_UNAVAILABLE');
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
@@ -74,6 +75,13 @@ test.each([false, true])('core signing remains blocked when original request bin
 });
 
 test.each([
+  ['legacy version downgrade', (v: ReturnType<typeof readiness>) => { v.schema_version = 'fw.signing-readiness/v1'; }],
+  ['unknown version', (v: ReturnType<typeof readiness>) => { v.schema_version = 'fw.signing-readiness/v3'; }],
+  ['partial project-only root', (v: ReturnType<typeof readiness>) => { v.quota_scope = 'project'; }],
+  ['partial rooted configuration', (v: ReturnType<typeof readiness>) => { Object.assign(v, { quota_root_id: null }); }],
+  ['unknown quota scope', (v: ReturnType<typeof readiness>) => { v.quota_scope = 'global'; }],
+  ['missing UNKNOWN history', (v: ReturnType<typeof readiness>) => { v.latest_dispatch_unknown_seen = false; }],
+  ['UNKNOWN history with reset issuance', (v: ReturnType<typeof readiness>) => { v.latest_intent.dispatch_state = 'claimed'; v.latest_intent.reservation_state = 'issued'; }],
   ['another plan', (v: ReturnType<typeof readiness>) => { v.plan_id = id('1'); }],
   ['another tenant', (v: ReturnType<typeof readiness>) => { v.org_id = id('1'); }],
   ['another target', (v: ReturnType<typeof readiness>) => { v.target_id = id('1'); }],
@@ -104,6 +112,37 @@ test.each([
   expect(() => parseSigningReadiness(value, plan)).toThrow();
 });
 
+test('project-only quota and past UNKNOWN remain visible after a recorded delivery', async () => {
+  const plan = detail(); plan.plan.change_kind = 'policy_change';
+  const value = { ...readiness(plan), quota_scope: 'project', quota_root_id: null };
+  value.latest_intent.dispatch_state = 'delivered';
+  value.latest_intent.reservation_state = 'active';
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  expect(await screen.findByText('General policy uses project quota without a delegation root.')).toBeInTheDocument();
+  expect(screen.getByText('This delivery previously had an UNKNOWN outcome. A later delivery record does not verify enforcement or release held quota.')).toBeInTheDocument();
+  expect(screen.getByText('Quota slots remain held by this reservation.')).toBeInTheDocument();
+  expect(screen.getByText('Production signing and deployment remain blocked.')).toBeInTheDocument();
+  expect(parseSigningReadiness(value, plan).latest_dispatch_unknown_seen).toBe(true);
+});
+
+test('project-only configuration cannot satisfy core quota prerequisites', () => {
+  const plan = detail(); plan.plan.change_kind = 'add_access_lease';
+  const value = { ...readiness(plan), quota_scope: 'project', quota_root_id: null, quota_configured: false };
+  value.reasons.push('QUOTA_CONFIGURATION_MISSING', 'CORE_SIGNING_PROFILE_UNAVAILABLE', 'CORE_REQUEST_BINDING_UNAVAILABLE');
+  expect(parseSigningReadiness(value, plan).quota_configured).toBe(false);
+  expect(() => parseSigningReadiness({ ...value, quota_configured: true, reasons: value.reasons.filter(r => r !== 'QUOTA_CONFIGURATION_MISSING') }, plan)).toThrow();
+});
+
+test('an unavailable v2 endpoint does not retry the v1 contract', async () => {
+  const plan = detail();
+  const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ error: 'unavailable' }, 404));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  await screen.findByText('Signing readiness is unavailable. Refresh to recheck.');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0][0]).toBe('/authority/v2/plans/' + plan.plan.plan_id + '/signing-readiness');
+});
+
 test.each([
   { name: 'prepared', state: 'prepared', dispatch: null, reservation: 'reserved', held: true, grant: false },
   { name: 'claimed signer', state: 'claimed', dispatch: null, reservation: 'reserved', held: true, grant: false },
@@ -115,7 +154,7 @@ test.each([
   { name: 'recorded delivery', state: 'ready', dispatch: 'delivered', reservation: 'active', held: true, grant: true },
 ])('coherent expired history remains readable without authority: $name', ({ state, dispatch, reservation, held, grant }) => {
   const plan = detail(); const base = readiness(plan);
-  const value = { ...base, latest_intent: { ...base.latest_intent, state, dispatch_state: dispatch,
+  const value = { ...base, latest_dispatch_unknown_seen: reservation === 'unknown', latest_intent: { ...base.latest_intent, state, dispatch_state: dispatch,
     reservation_state: reservation, reservation_held: held, grant_hash: grant ? hash('f') : null, valid_until: time(now() - 1000) } };
   expect(parseSigningReadiness(value, plan).latest_intent).toMatchObject({
     state, dispatch_state: dispatch, reservation_state: reservation, reservation_held: held,
@@ -192,7 +231,7 @@ test('a delivery response claiming released quota cannot display contradictory r
 
 test('refresh rechecks missing prerequisites without creating an intent or carrying forward a failed response', async () => {
   const plan = detail(); const value = readiness(plan);
-  const missing = { ...value, approval_set_hash: null, target_generation: null, quota_configured: false, latest_intent: null,
+  const missing = { ...value, approval_set_hash: null, target_generation: null, quota_configured: false, quota_scope: null, quota_root_id: null, latest_intent: null, latest_dispatch_unknown_seen: null,
     reasons: [...value.reasons, 'APPROVAL_SET_MISSING', 'TARGET_GENERATION_UNINITIALIZED', 'QUOTA_CONFIGURATION_MISSING'] };
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response(missing)).mockResolvedValueOnce(response({ error: 'unavailable' }, 503));
   render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
@@ -243,7 +282,7 @@ test('a previous plan response cannot replace a newer selected plan or expose it
   const old = detail(); const next = { ...detail(), plan_hash: hash('9'), plan: { ...detail().plan, plan_id: id('1') } };
   let deliverOld!: (response: Response) => void;
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(() => new Promise(resolve => { deliverOld = resolve; }))
-    .mockResolvedValueOnce(response({ ...readiness(next), latest_intent: null }));
+    .mockResolvedValueOnce(response({ ...readiness(next), latest_intent: null, latest_dispatch_unknown_seen: null }));
   const api = client(); const unauthorized = vi.fn();
   const rendered = render(<SigningReadiness client={api} detail={old} locale="en" onUnauthorized={unauthorized}/>);
   rendered.rerender(<SigningReadiness client={api} detail={next} locale="en" onUnauthorized={unauthorized}/>);

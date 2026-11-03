@@ -34,6 +34,7 @@ use std::{
 use subtle::ConstantTimeEq;
 
 const PREFIX: &str = "/authority/v1";
+const PREFIX_V2: &str = "/authority/v2";
 const COOKIE: &str = "__Host-fw_authority";
 const MAX_SESSIONS: usize = 128;
 const SESSION_SECONDS: i64 = 900;
@@ -390,7 +391,7 @@ async fn handle_inner(service: Service, request: Request) -> Result<Response> {
         return Err(Failure::Invalid);
     }
     let method = parts.method.as_str().to_owned();
-    let api = path.starts_with(PREFIX);
+    let api = path.starts_with(PREFIX) || path.starts_with(PREFIX_V2);
     boundary(&service, &parts.headers, api, &method)?;
     if method != "GET" && method != "POST" {
         return Ok(StatusCode::METHOD_NOT_ALLOWED.into_response());
@@ -518,7 +519,7 @@ impl Runtime {
         body: &[u8],
         now: i64,
     ) -> Result<Response> {
-        if !path.starts_with(PREFIX) {
+        if !path.starts_with(PREFIX) && !path.starts_with(PREFIX_V2) {
             if method != "GET" {
                 return Ok(StatusCode::METHOD_NOT_ALLOWED.into_response());
             }
@@ -536,6 +537,25 @@ impl Runtime {
         self.rate_authenticated(&id, now)?;
         let (identity, _) = self.authenticated(&id, now)?;
         let tenant = identity.tenant()?;
+        if method == "GET"
+            && path.starts_with("/authority/v2/plans/")
+            && let Some(plan_id) = path
+                .trim_start_matches("/authority/v2/plans/")
+                .strip_suffix("/signing-readiness")
+        {
+            if uuid::Uuid::parse_str(plan_id).is_err() {
+                return Err(Failure::Invalid);
+            }
+            self.store
+                .review_plan(&tenant, &identity.principal_id, plan_id, now)?;
+            let status = self
+                .store
+                .signing_readiness_v2(&tenant, plan_id, &self.verifier, now)?;
+            return Ok(json_response(
+                serde_json::to_value(status).map_err(|_| Failure::Unavailable)?,
+                None,
+            ));
+        }
         if method == "GET" && path == "/authority/v1/plans" {
             let ids = self
                 .store

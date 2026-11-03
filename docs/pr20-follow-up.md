@@ -1,11 +1,17 @@
-# PR20 review follow-up: open correction and acceptance matrix
+# PR20 review follow-up: corrections and acceptance matrix
 
 Implementation baseline: PR20 head `9e021b31171ae19ff8c9e7eba400d8dd4630a001`,
 merged as `6eb68a9251b76ac164f8efb0fa5ad5ded1336564`, authority schema10.
 The [original external report](reviews/pr20-claude-review.md) is retained verbatim.
-All N1–N7 are **open and unfixed**. Their Low severity is attributed to that report.
-This handoff contains source assessment and one new public-API N2 reproduction;
-it does not rerun the external reviewer's unavailable private probes.
+The N1–N7 corrections are implemented in authority schema11 and retained by
+schema12's project-quota rebuild. Fresh independent baseline fixtures reproduced
+all seven findings; permanent regressions require refusal or fail-closed reads
+and preserve original history. See [verification](../reports/README.md) for the
+current executed checks and [authority storage](authority-store.md) for boundaries.
+The original report remains byte-identical. Its private probe sources were not
+used. The table and acceptance analysis below record the **historical handoff**;
+their “pending” entries describe that checkpoint, not current implementation.
+
 Paths beginning `store/` below are under `crates/fw_authority/src/`.
 Line numbers describe the fixed baseline and will move during implementation.
 
@@ -19,7 +25,7 @@ Line numbers describe the fixed baseline and will move during implementation.
 | N6 unexpected reserved-name schema objects | Claude binary reproduction; subagent effect probe | Source inspected; reproduction pending |
 | N7 job/history disappearance with FK OFF | Claude migration subagent only | Source inspected; reproduction pending |
 
-First reproduce the reported cases using real guarded fixtures and keep opposite
+The original implementation instructions were: reproduce the reported cases using real guarded fixtures and keep opposite
 regressions. Implement coherent new schema/runtime protections, preserving old
 migration001–010 bytes. Do not mark a finding fixed from documentation or a source
 inspection alone. Missing original evidence must be rejected rather than invented.
@@ -129,7 +135,7 @@ Acceptance: reproduce with actual delivered/held fixture, FK OFF writer/recursiv
 
 ## Reported flaky test and CLI diagnostic wording
 
-External observations only: first full check exited101 in `fw_control::cli_auth::tests::delegated_cli_access_ends_on_logout_expiry_or_credential_revocation`, isolated test passed5/5, full rerun passed800+1+32 Rust and180 UI. Do not label the initial failure fixed or claim its cause has been proved.
+Historical external observations: first full check exited101 in `fw_control::cli_auth::tests::delegated_cli_access_ends_on_logout_expiry_or_credential_revocation`, isolated test passed5/5, full rerun passed800+1+32 Rust and180 UI. The new deterministic regression separately proves the credential/session timestamp mismatch described below. It does not reconstruct the external reviewer's private execution.
 
 Source gives another concrete timing hypothesis besides the report's 300-second freshness window: the test registers/authenticates `second-key` with `credential(..., now())`, then later issues its browser session using a new `now()` (`cli_auth.rs` around585–590). The store requires `authenticated_at <= credential.last_used_at` (`fw_store/src/passkeys.rs` around735–738). Crossing a one-second boundary can therefore make the fabricated test session inconsistent with the retained authentication time. Investigate a deterministic test clock or use the exact completed-authentication timestamp; do not weaken the production five-minute freshness or retained-proof checks. Reproduce the boundary deliberately, retain actual failure response code, then run isolated and full appropriate tests.
 
@@ -138,4 +144,28 @@ Source gives another concrete timing hypothesis besides the report's 300-second 
 
 ## Integration order and qualification
 
-Reproduce N1/N7 fully and preserve N2's public-API test first; implement the new guarded schema plus current/legacy integrity checks with the other PR20 findings. Keep old migration hashes unchanged. Then rebase the prepared rootless project-quota design onto the resulting schema: the next version may be security schema11 with rootless schema12, so no new session should assume rootless must use11. All existing issued/UNKNOWN/unqualified-delivery effective capacity remains held. Public signing/dispatch remain closed; this is local persistence hardening, not protection from a hostile OS administrator or full-file replacement.
+The implemented batch uses schema11 for history/audit hardening and schema12 for
+project-only quota. All existing issued/UNKNOWN/unqualified-delivery effective
+capacity stays held. Public signing/dispatch remain closed; local persistence
+hardening does not protect against a hostile OS administrator or whole-file rollback.
+
+## Implemented follow-up
+
+Schema11 rejects rowid, logical-key and alternate-key replacement, validates exact
+SQLite objects including autoindexes, and links each work revision to one retained
+audit identity. Event insertion projects its head in the same SQL statement.
+Canonical worker UUID and retained dispatch/delivery/preceding-claim timestamps
+agree between SQL and Rust. Complete quota histories retain genesis and witnesses;
+current open/maintenance rejects broken reference graphs. Sensitive accounting
+checks the indexed obligations it uses rather than imposing a lifetime job limit.
+Unrelated old graph damage is detected by full open/maintenance validation.
+
+Legacy work audits are linked only when the retained match is unique. Missing or
+ambiguous history causes migration failure with the source and private backup
+preserved. No audit, job, completion proof or quota refund is synthesized. The
+schema12 rebuild preserves these protections and old rowids/canonical bytes.
+
+The CLI authentication fixture now uses the credential's persisted authentication
+time. A deliberate one-second mismatch produces 403 with
+`PASSKEY_REAUTHENTICATION_REQUIRED`; the exact retained time permits the same
+revocation. Production freshness and proof conditions are unchanged.

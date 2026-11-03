@@ -145,3 +145,150 @@ fn backward_time_rolls_back_a_genuine_zero_counter_activation_and_all_mutations(
         Some(NOW + 100)
     );
 }
+
+#[test]
+fn public_principal_audit_tail_cannot_be_replaced_or_rewound() {
+    let (directory, mut store, tenant) = fixture();
+    provision(&mut store, &tenant, FIRST, NOW);
+    provision(&mut store, &tenant, SECOND, NOW + 1);
+    let path = directory.path().join("authority.sqlite3");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
+        .unwrap();
+    let before = snapshot(&connection);
+    let first: (Vec<u8>, Vec<u8>) = connection
+        .query_row(
+            "SELECT sequence,event_hash FROM authority_audit ORDER BY sequence LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    // This public-API reproduction previously erased the second genuine audit
+    // event without changing any guard or principal, then rewound its head.
+    let replace = connection.execute("INSERT OR REPLACE INTO authority_audit
+        (rowid,org_id,project_id,sequence,event_hash,previous_hash,kind,resource_id,recorded_at,canonical_bytes)
+        SELECT (SELECT MAX(rowid) FROM authority_audit),org_id,project_id,sequence,event_hash,
+        previous_hash,kind,resource_id,recorded_at,canonical_bytes FROM authority_audit ORDER BY sequence LIMIT 1", []);
+    assert!(replace.is_err());
+    let rewind = connection.execute(
+        "UPDATE authority_audit_heads SET sequence=?,event_hash=?",
+        params![first.0, first.1],
+    );
+    assert!(rewind.is_err());
+    assert_eq!(snapshot(&connection), before);
+    assert_eq!(
+        store
+            .verify_audit_chain(&tenant)
+            .unwrap()
+            .unwrap()
+            .event_count,
+        2
+    );
+    drop(store);
+    let mut reopened = AuthorityStore::open(&path).unwrap();
+    assert_eq!(
+        reopened
+            .verify_audit_chain(&tenant)
+            .unwrap()
+            .unwrap()
+            .event_count,
+        2
+    );
+}
+
+#[test]
+fn audit_head_identity_genesis_and_exact_next_event_are_guarded() {
+    let (directory, mut store, tenant) = fixture();
+    provision(&mut store, &tenant, FIRST, NOW);
+    let connection = Connection::open(directory.path().join("authority.sqlite3")).unwrap();
+    connection
+        .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
+        .unwrap();
+    let before = snapshot(&connection);
+    for mutation in [
+        "DELETE FROM authority_audit_heads",
+        "INSERT OR REPLACE INTO authority_audit_heads SELECT * FROM authority_audit_heads",
+        "INSERT OR REPLACE INTO authority_audit_heads(rowid,org_id,project_id,sequence,event_hash) SELECT rowid,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',project_id,zeroblob(8),zeroblob(32) FROM authority_audit_heads",
+        "UPDATE OR REPLACE authority_audit_heads SET rowid=rowid+1",
+        "UPDATE authority_audit_heads SET org_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'",
+        "UPDATE authority_audit_heads SET sequence=x'0000000000000000',event_hash=zeroblob(32)",
+        "UPDATE authority_audit_heads SET sequence=x'0000000000000002',event_hash=zeroblob(32)",
+        "UPDATE authority_audit_heads SET sequence=x'0000000000000003',event_hash=zeroblob(32)",
+    ] {
+        assert!(connection.execute_batch(mutation).is_err(), "{mutation}");
+        assert_eq!(snapshot(&connection), before);
+    }
+    // A normal same-time application append advances one exact linked event.
+    provision(&mut store, &tenant, SECOND, NOW);
+    assert_eq!(
+        store
+            .verify_audit_chain(&tenant)
+            .unwrap()
+            .unwrap()
+            .event_count,
+        2
+    );
+}
+
+#[test]
+fn sql_audit_head_successor_preserves_unsigned_u64_boundaries() {
+    let (directory, mut store, tenant) = fixture();
+    provision(&mut store, &tenant, FIRST, NOW);
+    let connection = Connection::open(directory.path().join("authority.sqlite3")).unwrap();
+    let advance: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_audit_heads_advance'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    // A focused SQL arithmetic fixture cannot contain 2^63 genuine events.
+    // It isolates the exact BLOB successor predicate while Rust chain checking
+    // continues to require a complete canonical history in production reads.
+    for previous in [
+        0u64,
+        15,
+        255,
+        u32::MAX as u64,
+        i64::MAX as u64,
+        u64::MAX - 1,
+        u64::MAX,
+    ] {
+        connection
+            .execute_batch("DROP TRIGGER authority_audit_heads_advance")
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE authority_audit_heads SET sequence=?,event_hash=zeroblob(32)",
+                [previous.to_be_bytes().as_slice()],
+            )
+            .unwrap();
+        connection.execute_batch(&advance).unwrap();
+        for next in [previous, previous.wrapping_add(2), previous.wrapping_add(1)] {
+            let tx = connection.unchecked_transaction().unwrap();
+            // The genuine sequence1 collision is intentionally retained.
+            let insert=tx.execute("INSERT INTO authority_audit(org_id,project_id,sequence,event_hash,previous_hash,kind,resource_id,recorded_at,canonical_bytes) VALUES(?,?,?, ?,zeroblob(32),'probe','probe',?,x'7b7d')",params![ORG,PROJECT,next.to_be_bytes().as_slice(),[7u8;32].as_slice(),NOW]);
+            if next == 1 {
+                assert!(insert.is_err());
+            } else {
+                insert.unwrap();
+            }
+            let result = tx.execute(
+                "UPDATE authority_audit_heads SET sequence=?,event_hash=?",
+                params![next.to_be_bytes().as_slice(), [7u8; 32].as_slice()],
+            );
+            // Sequence1 is the genuine first event and has a different hash.
+            if previous == 0 && next == 1 {
+                assert!(result.is_err());
+            } else {
+                assert_eq!(
+                    result.is_ok(),
+                    previous.checked_add(1) == Some(next),
+                    "previous={previous} next={next}"
+                );
+            }
+            tx.rollback().unwrap();
+        }
+    }
+}

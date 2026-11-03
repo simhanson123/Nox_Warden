@@ -15,6 +15,8 @@ mod provision;
 mod records;
 mod review;
 mod review_evidence;
+#[cfg(test)]
+mod schema_integrity_tests;
 mod sets;
 mod signing_intents;
 mod signing_jobs;
@@ -133,11 +135,8 @@ impl AuthorityStore {
             let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-            let tables: i64 = tx.query_row(
-                "SELECT count(*) FROM sqlite_schema WHERE lower(substr(name,1,7)) <> 'sqlite_'",
-                [],
-                |r| r.get(0),
-            )?;
+            let tables: i64 =
+                tx.query_row("SELECT count(*) FROM sqlite_schema", [], |r| r.get(0))?;
             if tables == 0 && application == 0 && version == 0 {
                 migrations::initialize_v1(&tx)?;
                 migrations::apply_v2(&tx)?;
@@ -149,9 +148,11 @@ impl AuthorityStore {
                 migrations::apply_v8(&tx)?;
                 migrations::apply_v9(&tx)?;
                 migrations::apply_v10(&tx)?;
+                migrations::apply_v11(&tx)?;
+                migrations::apply_v12(&tx)?;
             } else {
                 if application != APPLICATION_ID
-                    || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].contains(&version)
+                    || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].contains(&version)
                 {
                     return Err(invalid("foreign or unsupported authority database"));
                 }
@@ -165,13 +166,13 @@ impl AuthorityStore {
                 if identity.as_deref() != Some(SCHEMA) {
                     return Err(invalid("authority database identity"));
                 }
-                if version < 10 {
+                if version < 12 {
                     return Err(AuthorityError::MigrationRequired {
                         found: version,
-                        required: 10,
+                        required: 12,
                     });
                 }
-                migrations::validate_v10(&tx)?;
+                migrations::validate_v12(&tx)?;
             }
             tx.commit()?;
         }
@@ -365,6 +366,20 @@ fn bump_security(tx: &Transaction<'_>, tenant: &AuthorityTenant) -> Result<()> {
         params![tenant.org_id,tenant.project_id])? != 1 { return Err(invalid("authority security revision exhausted")); }
     Ok(())
 }
+// The write transaction owns serialization. UPDATE first preserves protected
+// row identity; INSERT is reached only for a genuinely absent projection.
+fn retained_projection<P: rusqlite::Params + Clone>(
+    tx: &Transaction<'_>,
+    update: &str,
+    insert: &str,
+    values: P,
+) -> Result<()> {
+    if tx.execute(update, values.clone())? == 0 {
+        tx.execute(insert, values)?;
+    }
+    Ok(())
+}
+
 fn audit(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -372,6 +387,7 @@ fn audit(
     resource: &str,
     now: i64,
 ) -> Result<()> {
+    migrations::validate_live_schema(tx)?;
     let (sequence, previous, recorded_at) = audit_log::append_head(tx, tenant)?;
     if recorded_at.is_some_and(|previous_time| now < previous_time) {
         return Err(AuthorityError::Time);

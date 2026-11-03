@@ -2499,6 +2499,31 @@ async fn signing_readiness_requires_live_review_proof_and_never_creates_signing_
     .await;
     assert_eq!(again.status, 200);
     assert_eq!(again.body, response.body);
+    let versioned = request(
+        addr,
+        "GET",
+        &path.replace("/v1/", "/v2/"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(versioned.status, 200, "{}", versioned.raw);
+    assert_eq!(versioned.body["schema_version"], "fw.signing-readiness/v2");
+    assert_eq!(versioned.body["quota_scope"], Value::Null);
+    assert_eq!(versioned.body["quota_root_id"], Value::Null);
+    assert_eq!(versioned.body["latest_dispatch_unknown_seen"], Value::Null);
+    let mut legacy_projection = versioned.body;
+    for key in [
+        "quota_scope",
+        "quota_root_id",
+        "latest_dispatch_unknown_seen",
+    ] {
+        legacy_projection.as_object_mut().unwrap().remove(key);
+    }
+    legacy_projection["schema_version"] = json!("fw.signing-readiness/v1");
+    assert_eq!(legacy_projection, response.body);
     assert_no_signing_work(&f);
     assert_eq!(
         request(
@@ -2592,6 +2617,157 @@ async fn signing_readiness_cannot_read_another_tenant_or_use_a_revoked_review_ke
 }
 
 #[tokio::test]
+async fn versioned_project_only_readiness_requires_live_review_and_has_no_v1_downgrade() {
+    let f = Fixture::prepared(false, true);
+    let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    store
+        .pin_signing_project_quota(
+            &tenant,
+            &fw_authority::SigningProjectQuotaPin {
+                root_id: None,
+                limits: fw_authority::SigningQuotaLimits {
+                    active_leases: 1,
+                    new_leases_per_day: 1,
+                    unique_destinations_per_day: 1,
+                    cumulative_seconds_per_day: 60,
+                    concurrent_deployments: 2,
+                },
+                not_before: NOW,
+                not_after: NOW + 30,
+            },
+            None,
+            NOW,
+        )
+        .unwrap();
+    drop(store);
+    let (addr, task) = f.start(NOW + 1).await;
+    let path = format!("/authority/v2/plans/{PLAN}/signing-readiness");
+    assert_eq!(
+        request(addr, "GET", &path, None, None, None, ORIGIN)
+            .await
+            .status,
+        401
+    );
+    let auth = login(&f, addr, 1).await;
+    for (csrf, origin) in [
+        (None, ORIGIN),
+        (auth.body["csrf_token"].as_str(), "http://localhost:8799"),
+    ] {
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &path,
+                auth.cookie.as_deref(),
+                csrf,
+                None,
+                origin
+            )
+            .await
+            .status,
+            403
+        );
+    }
+    let response = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(response.status, 200, "{}", response.raw);
+    assert_eq!(response.body.as_object().unwrap().len(), 18);
+    assert_eq!(response.body["schema_version"], "fw.signing-readiness/v2");
+    assert_eq!(response.body["quota_scope"], "project");
+    assert_eq!(response.body["quota_root_id"], Value::Null);
+    assert_eq!(response.body["quota_configured"], true);
+    assert_eq!(response.body["latest_intent"], Value::Null);
+    assert_eq!(response.body["latest_dispatch_unknown_seen"], Value::Null);
+    assert_eq!(response.body["valid_until"], time(NOW + 30));
+    assert_eq!(response.body["signing_allowed"], false);
+    assert_eq!(response.body["dispatch_allowed"], false);
+    let legacy = request(
+        addr,
+        "GET",
+        &path.replace("/v2/", "/v1/"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(legacy.status, 409);
+    assert!(legacy.body.get("schema_version").is_none());
+    assert_eq!(
+        request(
+            addr,
+            "POST",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            Some(json!({})),
+            ORIGIN
+        )
+        .await
+        .status,
+        404
+    );
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path.replace(PLAN, OTHER),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        409
+    );
+    assert_no_signing_work(&f);
+    task.abort();
+    // Scope describes only the current valid configuration, independently of
+    // retained intents. Expiry cannot renew it on either API version.
+    let (addr, task) = f.start(NOW + 31).await;
+    let auth = login(&f, addr, 2).await;
+    for version in ["v1", "v2"] {
+        let expired = request(
+            addr,
+            "GET",
+            &path.replace("/v2/", &format!("/{version}/")),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN,
+        )
+        .await;
+        assert_eq!(expired.status, 200, "{}", expired.raw);
+        assert_eq!(expired.body["quota_configured"], false);
+        assert!(
+            expired.body["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("QUOTA_CONFIGURATION_MISSING"))
+        );
+        if version == "v2" {
+            assert_eq!(expired.body["quota_scope"], Value::Null);
+            assert_eq!(expired.body["quota_root_id"], Value::Null);
+        } else {
+            assert_eq!(expired.body.as_object().unwrap().len(), 15);
+            assert_eq!(expired.body["schema_version"], "fw.signing-readiness/v1");
+        }
+    }
+    assert_no_signing_work(&f);
+    task.abort();
+}
+
+#[tokio::test]
 async fn current_human_approval_lab_baseline_and_quotas_still_cannot_authorize_signing() {
     let f = Fixture::prepared(false, true);
     provision_test_quorum(&f, 1, NOW + 7200, NOW);
@@ -2613,7 +2789,17 @@ async fn current_human_approval_lab_baseline_and_quotas_still_cannot_authorize_s
         .pin_signing_root_quota(&tenant, &pin, None, NOW)
         .unwrap();
     store
-        .pin_signing_project_quota(&tenant, &pin, None, NOW)
+        .pin_signing_project_quota(
+            &tenant,
+            &fw_authority::SigningProjectQuotaPin {
+                root_id: Some(pin.root_id.clone()),
+                limits: pin.limits.clone(),
+                not_before: pin.not_before,
+                not_after: pin.not_after,
+            },
+            None,
+            NOW,
+        )
         .unwrap();
     store
         .register_native_compilation(&tenant, PLAN, 1, NOW)
@@ -2672,6 +2858,31 @@ async fn current_human_approval_lab_baseline_and_quotas_still_cannot_authorize_s
         decision.body["aggregation"]["approval_set_hash"]
     );
     assert_eq!(status.body["quota_configured"], true);
+    let versioned = request(
+        addr,
+        "GET",
+        &path.replace("/v1/", "/v2/"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(versioned.status, 200, "{}", versioned.raw);
+    assert_eq!(versioned.body["schema_version"], "fw.signing-readiness/v2");
+    assert_eq!(versioned.body["quota_scope"], "root");
+    assert_eq!(versioned.body["quota_root_id"], IDEMPOTENCY);
+    assert_eq!(versioned.body["latest_dispatch_unknown_seen"], Value::Null);
+    let mut legacy_projection = versioned.body;
+    for key in [
+        "quota_scope",
+        "quota_root_id",
+        "latest_dispatch_unknown_seen",
+    ] {
+        legacy_projection.as_object_mut().unwrap().remove(key);
+    }
+    legacy_projection["schema_version"] = json!("fw.signing-readiness/v1");
+    assert_eq!(legacy_projection, status.body);
     assert_eq!(status.body["signing_allowed"], false);
     assert_eq!(status.body["dispatch_allowed"], false);
     assert_eq!(status.body["target_generation"], Value::Null);

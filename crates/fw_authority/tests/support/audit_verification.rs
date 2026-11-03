@@ -11,21 +11,16 @@ fn database(directory: &TempDir) -> Connection {
 // detect inconsistent retained evidence, without pretending to anchor a full
 // database against an attacker who rewrites every object consistently.
 fn tamper(connection: &Connection, change: impl FnOnce(&Connection)) {
-    let mut triggers = Vec::new();
-    for name in ["authority_audit_no_update", "authority_audit_no_delete"] {
-        triggers.push(
-            connection
-                .query_row("SELECT sql FROM sqlite_schema WHERE name=?", [name], |r| {
-                    r.get::<_, String>(0)
-                })
-                .unwrap(),
-        );
+    let triggers = connection.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name IN ('authority_audit','authority_audit_heads','authority_projects') ORDER BY name").unwrap()
+        .query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>().unwrap();
+    for (name, _) in &triggers {
         connection
             .execute_batch(&format!("DROP TRIGGER {name}"))
             .unwrap();
     }
     change(connection);
-    for trigger in triggers {
+    for (_, trigger) in triggers {
         connection.execute_batch(&trigger).unwrap();
     }
 }
@@ -94,16 +89,20 @@ fn unknown_genesis_and_corrupt_missing_head_are_distinct() {
     assert_eq!(genesis.event_count, 0);
     assert_eq!(genesis.last_recorded_at, None);
     assert_eq!(genesis.head_hash, format!("sha256:{}", "0".repeat(64)));
-    connection
-        .execute(
-            "UPDATE authority_audit_heads SET event_hash=?",
-            [[1u8; 32].as_slice()],
-        )
-        .unwrap();
+    tamper(&connection, |connection| {
+        connection
+            .execute(
+                "UPDATE authority_audit_heads SET event_hash=?",
+                [[1u8; 32].as_slice()],
+            )
+            .unwrap();
+    });
     assert!(store.verify_audit_chain(&tenant).is_err());
-    connection
-        .execute_batch("PRAGMA foreign_keys=OFF; DELETE FROM authority_projects")
-        .unwrap();
+    tamper(&connection, |connection| {
+        connection
+            .execute_batch("PRAGMA foreign_keys=OFF; DELETE FROM authority_projects")
+            .unwrap();
+    });
     assert!(store.verify_audit_chain(&tenant).is_err());
 }
 

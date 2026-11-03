@@ -62,6 +62,18 @@ pub struct SigningReadiness {
     pub target_generation: Option<String>,
     pub latest_intent: Option<SigningIntentStatus>,
 }
+#[derive(Debug, Serialize)]
+pub struct SigningReadinessV2 {
+    #[serde(flatten)]
+    pub snapshot: SigningReadiness,
+    /// A current configuration applies either to one retained root or only to
+    /// this project. Neither scope grants signing or OS execution authority.
+    pub quota_scope: Option<String>,
+    pub quota_root_id: Option<String>,
+    /// Bounded retained dispatch history for the latest intent, including an
+    /// UNKNOWN event followed by a later unsigned delivery record.
+    pub latest_dispatch_unknown_seen: Option<bool>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SigningIntentRecord {
@@ -420,7 +432,15 @@ impl AuthorityStore {
     ) -> Result<SigningIntentOutcome> {
         request_valid(request)?;
         self.observe_signing_plan_time(tenant, &request.plan_id, now)?;
-        self.observe_signing_quota_time(tenant, now)?;
+        let retained_job: Option<String> = self.connection.query_row(
+            "SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND request_id=?",
+            params![tenant.org_id, tenant.project_id, request.request_id], |row| row.get(0),
+        ).optional()?;
+        if let Some(job) = retained_job {
+            self.observe_signing_job_quota_time(tenant, &job, now)?;
+        } else {
+            self.observe_signing_quota_time(tenant, now)?;
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -439,6 +459,13 @@ impl AuthorityStore {
     ) -> Result<Option<SigningIntentStatus>> {
         identifier(intent_id)?;
         time(now)?;
+        let job: Option<String> = self.connection.query_row(
+            "SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND intent_id=?",
+            params![tenant.org_id, tenant.project_id, intent_id], |row| row.get(0),
+        ).optional()?;
+        if let Some(job) = &job {
+            self.observe_signing_job_quota_time(tenant, job, now)?;
+        }
         let tx = self.connection.transaction()?;
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents WHERE org_id=? AND project_id=? AND intent_id=?)",params![tenant.org_id,tenant.project_id,intent_id],|r|r.get(0))?;
         let result = if exists {
@@ -459,8 +486,47 @@ impl AuthorityStore {
         verifier: &WebAuthn,
         now: i64,
     ) -> Result<SigningReadiness> {
+        let result = self.signing_readiness_snapshot(tenant, plan_id, verifier, now)?;
+        // An old reader cannot silently reinterpret a project-only pin using
+        // the mandatory-root configuration contract of the original endpoint.
+        if result.quota_scope.as_deref() == Some("project") {
+            return Err(invalid("project-only quota requires readiness v2"));
+        }
+        Ok(result.snapshot)
+    }
+    /// Explicit versioned diagnostics for project-only quota and retained
+    /// uncertainty. The v1 route does not downgrade this response.
+    pub fn signing_readiness_v2(
+        &mut self,
+        tenant: &AuthorityTenant,
+        plan_id: &str,
+        verifier: &WebAuthn,
+        now: i64,
+    ) -> Result<SigningReadinessV2> {
+        let mut result = self.signing_readiness_snapshot(tenant, plan_id, verifier, now)?;
+        result.snapshot.schema_version = "fw.signing-readiness/v2".into();
+        Ok(result)
+    }
+    fn signing_readiness_snapshot(
+        &mut self,
+        tenant: &AuthorityTenant,
+        plan_id: &str,
+        verifier: &WebAuthn,
+        now: i64,
+    ) -> Result<SigningReadinessV2> {
         let target = self.observe_signing_plan_time(tenant, plan_id, now)?;
+        // Readiness reports current pin configuration as well as historical
+        // work, so observe both scopes even when they now refer to different roots.
         self.observe_signing_quota_time(tenant, now)?;
+        let observed_latest: Option<(String, String)> = self.connection.query_row(
+            "SELECT intent_id,job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY created_at DESC,intent_id DESC LIMIT 1",
+            params![tenant.org_id,tenant.project_id,plan_id], |row| Ok((row.get(0)?,row.get(1)?)),
+        ).optional()?;
+        if let Some((_, job)) = &observed_latest {
+            // Cutover does not stop an old rooted obligation's clock. Persist
+            // that observation before any later diagnostic refusal rolls back.
+            self.observe_signing_job_quota_time(tenant, job, now)?;
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -520,16 +586,17 @@ impl AuthorityStore {
         if !native_good {
             reasons.push("NATIVE_BASELINE_UNAVAILABLE".into());
         }
+        let quota_configuration = signing_quota::quota_configuration_summary(&tx, tenant, now)?;
         let quota_configured = match &core_provenance {
             Some(provenance) => {
                 signing_quota::core_configuration_available(&tx, tenant, provenance, now)?
             }
-            None => signing_quota::configuration_available(&tx, tenant, now)?,
+            None => !core && quota_configuration.is_some(),
         };
         if !quota_configured {
             reasons.push("QUOTA_CONFIGURATION_MISSING".into());
         }
-        let quota_valid_until = signing_quota::configuration_valid_until(&tx, tenant, now)?;
+        let quota_valid_until = quota_configuration.as_ref().map(|(_, deadline)| *deadline);
         let head = target_head(&tx, tenant, &target)?;
         if head.is_none() {
             reasons.push("TARGET_GENERATION_UNINITIALIZED".into());
@@ -553,10 +620,21 @@ impl AuthorityStore {
         if let Some(o) = native.observation.as_ref().filter(|o| o.current) {
             valid_until = valid_until.min(crate::timestamp(&o.valid_until)?);
         }
-        let last:Option<String>=tx.query_row("SELECT intent_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY created_at DESC,intent_id DESC LIMIT 1",params![tenant.org_id,tenant.project_id,plan_id],|r|r.get(0)).optional()?;
+        let last:Option<(String,String)>=tx.query_row("SELECT intent_id,job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY created_at DESC,intent_id DESC LIMIT 1",params![tenant.org_id,tenant.project_id,plan_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        if last != observed_latest {
+            return Err(AuthorityError::Conflict);
+        }
         let latest_intent = last
-            .map(|id| status_in_tx(&tx, tenant, &id, now))
+            .map(|(id, _)| status_in_tx(&tx, tenant, &id, now))
             .transpose()?;
+        let latest_dispatch_unknown_seen = latest_intent
+            .as_ref()
+            .map(|intent| signing_jobs::dispatch_unknown_seen(&tx, tenant, &intent.job_id))
+            .transpose()?;
+        let quota_scope = quota_configuration
+            .as_ref()
+            .map(|(root, _)| if root.is_some() { "root" } else { "project" }.to_owned());
+        let quota_root_id = quota_configuration.and_then(|(root, _)| root);
         let result = SigningReadiness {
             schema_version: "fw.signing-readiness/v1".into(),
             org_id: tenant.org_id.clone(),
@@ -575,7 +653,12 @@ impl AuthorityStore {
             latest_intent,
         };
         tx.commit()?;
-        Ok(result)
+        Ok(SigningReadinessV2 {
+            snapshot: result,
+            quota_scope,
+            quota_root_id,
+            latest_dispatch_unknown_seen,
+        })
     }
 }
 
@@ -824,14 +907,14 @@ impl AuthorityStore {
     ) -> Result<SigningIntentOutcome> {
         identifier(&result.intent_id)?;
         time(now)?;
-        let plan_id = {
+        let (plan_id, job_id) = {
             let tx = self.connection.transaction()?;
             let intent = intent_at(&tx, tenant, &result.intent_id)?;
             tx.commit()?;
-            intent.plan_id
+            (intent.plan_id, intent.job_id)
         };
         self.observe_signing_plan_time(tenant, &plan_id, now)?;
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, &job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -988,7 +1071,7 @@ pub(super) fn test_initialize(f: &mut signing_test_support::Fixture, now: i64) {
             .pin_signing_project_quota(
                 &f.tenant,
                 &SigningProjectQuotaPin {
-                    root_id: root,
+                    root_id: Some(root),
                     limits,
                     not_before: f.now,
                     not_after: f.now + 7200,
@@ -1003,7 +1086,7 @@ pub(super) fn test_initialize(f: &mut signing_test_support::Fixture, now: i64) {
     f.store
         .connection
         .execute(
-            "INSERT OR IGNORE INTO authority_signing_target_heads VALUES(?,?,?,?,?,NULL,?)",
+            "INSERT INTO authority_signing_target_heads SELECT ?1,?2,?3,?4,?5,NULL,?6 WHERE NOT EXISTS(SELECT 1 FROM authority_signing_target_heads WHERE org_id=?1 AND project_id=?2 AND target_id=?3)",
             params![
                 f.tenant.org_id,
                 f.tenant.project_id,
@@ -1522,10 +1605,25 @@ mod tests {
             );
             let prepared = test_prepare(&mut f, NOW);
             if delete {
+                assert!(
+                    f.store
+                        .connection
+                        .execute("DELETE FROM authority_signing_target_heads", [])
+                        .is_err()
+                );
+                let guard: String = f.store.connection.query_row(
+                    "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='authority_signing_target_heads_no_delete'",
+                    [], |row| row.get(0),
+                ).unwrap();
+                f.store
+                    .connection
+                    .execute_batch("DROP TRIGGER authority_signing_target_heads_no_delete")
+                    .unwrap();
                 f.store
                     .connection
                     .execute("DELETE FROM authority_signing_target_heads", [])
                     .unwrap();
+                f.store.connection.execute_batch(&guard).unwrap();
             } else {
                 f.store.connection.execute("UPDATE authority_signing_target_heads SET generation=?,last_intent_id=NULL",[0u64.to_be_bytes().as_slice()]).unwrap();
             }

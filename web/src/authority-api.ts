@@ -65,14 +65,14 @@ export function parseAuthorityPlan(value: unknown): AuthorityPlan {
 export class AuthorityClient {
   private csrf: string | undefined;
   clearSession() { this.csrf = undefined; }
-  async request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  async request<T>(path: string, body?: unknown, signal?: AbortSignal, version: 'v1' | 'v2' = 'v1'): Promise<T> {
     if (window.location.origin !== authorityOrigin) throw new ApiError(0, 'AUTHORITY_ORIGIN_REQUIRED', '');
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.csrf) headers['X-Authority-CSRF'] = this.csrf;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     let response: Response;
     try {
-      response = await fetch('/authority/v1' + path, { method: body === undefined ? 'GET' : 'POST', headers,
+      response = await fetch('/authority/' + version + path, { method: body === undefined ? 'GET' : 'POST', headers,
         body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin', cache: 'no-store', signal });
     } catch (error) {
       if (signal?.aborted) throw error;

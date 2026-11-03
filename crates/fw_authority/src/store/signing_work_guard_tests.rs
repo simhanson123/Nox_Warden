@@ -104,6 +104,7 @@ fn replacement_cannot_delete_work_history_or_heads_through_hidden_rowid() {
 #[test]
 fn restored_guards_do_not_hide_a_legacy_skipped_state_history() {
     let (mut f, job) = ready();
+    migrations::legacy::restore_v10(&f.path);
     let mut guards = Vec::new();
     for name in [
         "authority_signing_work_events_sequence",
