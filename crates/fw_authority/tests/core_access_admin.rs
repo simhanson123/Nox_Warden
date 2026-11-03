@@ -594,7 +594,7 @@ fn actual_schema8_migration_preserves_plan_and_audit_without_invented_provenance
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 10), (&backup, 8)] {
+    for (path, version) in [(&fixture.db, 12), (&backup, 8)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -656,7 +656,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 10), (&backup, 9)] {
+    for (path, version) in [(&fixture.db, 12), (&backup, 9)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -680,12 +680,20 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
     );
     assert_eq!(database_rows(&backup), before);
     let after = database_rows(&fixture.db);
-    assert_eq!(after.len(), before.len());
+    assert_eq!(after.len(), before.len() + 1);
+    assert!(
+        after
+            .iter()
+            .find(|(name, _)| name == "authority_signing_work_audits")
+            .unwrap()
+            .1
+            .is_empty()
+    );
     for (name, rows) in &before {
         let migrated = &after.iter().find(|(table, _)| table == name).unwrap().1;
         if name == "authority_schema_migrations" {
             assert!(migrated.starts_with(rows));
-            assert_eq!(migrated.len(), rows.len() + 1);
+            assert_eq!(migrated.len(), 12);
         } else {
             assert_eq!(migrated, rows, "{name}");
         }

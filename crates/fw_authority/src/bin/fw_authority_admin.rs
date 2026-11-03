@@ -20,7 +20,7 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Signing requests remain blocked until independent production qualification is implemented.";
+const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -62,7 +62,7 @@ impl Arguments {
             | "cancel-signing-job"
             | "register-core-access-provenance"
             | "read-core-access-provenance" => &["--database", "--org-id", "--project-id"],
-            "read-signing-readiness" | "request-signing" => &[
+            "read-signing-readiness" | "read-signing-readiness-v2" | "request-signing" => &[
                 "--database",
                 "--org-id",
                 "--project-id",
@@ -181,8 +181,59 @@ struct SigningRootQuotaRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SigningProjectQuotaRequest {
-    pin: SigningProjectQuotaPin,
+    pin: SigningRootQuotaPin,
     expected_revision: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectOnlyQuotaPin {
+    limits: fw_authority::SigningQuotaLimits,
+    not_before: i64,
+    not_after: i64,
+}
+#[derive(Deserialize)]
+#[serde(tag = "schema_version", deny_unknown_fields)]
+enum SigningProjectQuotaVersionedRequest {
+    #[serde(rename = "fw.signing-project-quota-pin/v2")]
+    V2 {
+        pin: ProjectOnlyQuotaPin,
+        expected_revision: Option<String>,
+    },
+}
+
+fn project_quota_request() -> Result<(SigningProjectQuotaPin, Option<String>, bool)> {
+    let value: Value = request()?;
+    // Select a codec before decoding it. Unknown versions never retry the old
+    // codec, and the legacy codec still requires a non-null root identifier.
+    if value.get("schema_version").is_some() {
+        let SigningProjectQuotaVersionedRequest::V2 {
+            pin,
+            expected_revision,
+        } = serde_json::from_value(value).map_err(|_| "INPUT_REJECTED")?;
+        Ok((
+            SigningProjectQuotaPin {
+                root_id: None,
+                limits: pin.limits,
+                not_before: pin.not_before,
+                not_after: pin.not_after,
+            },
+            expected_revision,
+            true,
+        ))
+    } else {
+        let input: SigningProjectQuotaRequest =
+            serde_json::from_value(value).map_err(|_| "INPUT_REJECTED")?;
+        Ok((
+            SigningProjectQuotaPin {
+                root_id: Some(input.pin.root_id),
+                limits: input.pin.limits,
+                not_before: input.pin.not_before,
+                not_after: input.pin.not_after,
+            },
+            input.expected_revision,
+            false,
+        ))
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -500,22 +551,24 @@ fn run() -> Result<Value> {
             )
         }
         "pin-signing-project-quota" => {
-            let input: SigningProjectQuotaRequest = request()?;
+            let (pin, expected_revision, versioned) = project_quota_request()?;
             let revision = store
                 .pin_signing_project_quota(
                     &tenant,
-                    &input.pin,
-                    input
-                        .expected_revision
-                        .as_deref()
-                        .map(revision)
-                        .transpose()?,
+                    &pin,
+                    expected_revision.as_deref().map(revision).transpose()?,
                     chrono::Utc::now().timestamp(),
                 )
                 .map_err(|_| "SIGNING_QUOTA_REJECTED")?;
-            Ok(
-                json!({"root_id":input.pin.root_id,"revision":revision.to_string(),"signing_allowed":false,"dispatch_allowed":false}),
-            )
+            if versioned {
+                Ok(
+                    json!({"schema_version":"fw.signing-project-quota-pin/v2","quota_scope":"project","revision":revision.to_string(),"signing_allowed":false,"dispatch_allowed":false}),
+                )
+            } else {
+                Ok(
+                    json!({"root_id":pin.root_id,"revision":revision.to_string(),"signing_allowed":false,"dispatch_allowed":false}),
+                )
+            }
         }
         "revoke-signing-root-quota" => {
             let input: SigningRootQuotaRevocation = request()?;
@@ -546,6 +599,20 @@ fn run() -> Result<Value> {
                 .map_err(|_| "APPROVAL_ORIGIN_REJECTED")?;
             let status = store
                 .signing_readiness(
+                    &tenant,
+                    &input.plan_id,
+                    &verifier,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(|_| "SIGNING_READINESS_REJECTED")?;
+            serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "read-signing-readiness-v2" => {
+            let input: NativeReadRequest = request()?;
+            let verifier = WebAuthn::new(args.value("--approval-origin"))
+                .map_err(|_| "APPROVAL_ORIGIN_REJECTED")?;
+            let status = store
+                .signing_readiness_v2(
                     &tenant,
                     &input.plan_id,
                     &verifier,

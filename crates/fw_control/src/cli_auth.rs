@@ -367,7 +367,7 @@ mod tests {
                     authorizer.map_or(PasskeyAuthority::Bootstrap, |credential_id| {
                         PasskeyAuthority::Passkey {
                             credential_id: credential_id.into(),
-                            authenticated_at: at,
+                            authenticated_at: authentication_time(s, credential_id),
                         }
                     }),
                 )
@@ -410,7 +410,23 @@ mod tests {
                 .unwrap();
         }
     }
+    fn authentication_time(s: &AppState, id: &str) -> i64 {
+        s.store
+            .active_passkey(&s.tenant, PRINCIPAL, id)
+            .unwrap()
+            .last_used_at
+            .unwrap()
+    }
+    fn browser_session(s: &AppState, id: &str) -> (String, Session) {
+        // Session authority must retain the store fixture's actual authentication
+        // time, even when setup and the HTTP operation cross a clock second.
+        s.issue_passkey_session(id, None, authentication_time(s, id))
+            .unwrap()
+    }
     fn setup() -> Arc<AppState> {
+        setup_at(now())
+    }
+    fn setup_at(at: i64) -> Arc<AppState> {
         let s = Arc::new(
             AppState::new(
                 Store::in_memory().unwrap(),
@@ -419,7 +435,7 @@ mod tests {
             )
             .unwrap(),
         );
-        credential(&s, "first-key", None, now());
+        credential(&s, "first-key", None, at);
         s
     }
     fn headers(s: &AppState, session: Option<(&str, &Session)>) -> HeaderMap {
@@ -479,7 +495,7 @@ mod tests {
         .await
     }
     async fn delegated_session(s: &Arc<AppState>) -> (String, Session) {
-        let (browser_token, browser) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (browser_token, browser) = browser_session(s, "first-key");
         let request = flow(s).await;
         approve(s, &request, &browser_token, &browser)
             .await
@@ -585,8 +601,7 @@ mod tests {
             let s = setup();
             credential(&s, "second-key", Some("first-key"), now());
             let (token, session) = delegated_session(&s).await;
-            let (browser_token, browser) =
-                s.issue_passkey_session("second-key", None, now()).unwrap();
+            let (browser_token, browser) = browser_session(&s, "second-key");
             let h = headers(&s, Some((&token, &session)));
             assert!(s.auth(&h, false).is_ok());
             assert!(s.auth(&h, true).is_ok());
@@ -630,10 +645,52 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn revocation_fixture_retains_authentication_time_across_clock_seconds() {
+        // Both values are recent and in the past; only the timestamp matching
+        // the persisted authentication may authorize this owner mutation.
+        let at = now() - 2;
+        let s = setup_at(at);
+        credential(&s, "second-key", Some("first-key"), at);
+        let (cli_token, cli_session) = delegated_session(&s).await;
+        let (token, session) = s.issue_passkey_session("second-key", None, at + 1).unwrap();
+        let denied = route_post(
+            &s,
+            &token,
+            &session,
+            "/api/v1/auth/passkeys/first-key/revocations",
+            json!({}),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let problem: Value =
+            serde_json::from_slice(&to_bytes(denied.into_body(), 65536).await.unwrap()).unwrap();
+        assert_eq!(problem["detail"], "PASSKEY_REAUTHENTICATION_REQUIRED");
+        assert!(
+            s.auth(&headers(&s, Some((&cli_token, &cli_session))), false)
+                .is_ok()
+        );
+
+        let (token, session) = browser_session(&s, "second-key");
+        assert_eq!(session.authenticated_at, at);
+        let accepted = route_post(
+            &s,
+            &token,
+            &session,
+            "/api/v1/auth/passkeys/first-key/revocations",
+            json!({}),
+        )
+        .await;
+        assert_eq!(accepted.status(), StatusCode::OK);
+        assert!(matches!(
+            s.auth(&headers(&s, Some((&cli_token, &cli_session))), false),
+            Err(Problem(StatusCode::UNAUTHORIZED, _))
+        ));
+    }
+    #[tokio::test]
     async fn browser_request_view_never_discloses_the_terminal_confirmation_code() {
         let s = setup();
         let f = flow(&s).await;
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let viewed = data(
             view(
                 State(s.clone()),
@@ -681,7 +738,7 @@ mod tests {
             Err(Problem(StatusCode::UNAUTHORIZED, "AUTHENTICATION_REQUIRED"))
         ));
         assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::ACCEPTED);
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let missing = authorize(
             State(s.clone()),
             headers(&s, Some((&token, &session))),
@@ -725,7 +782,7 @@ mod tests {
         let s = setup();
         let at = now();
         credential(&s, "second-key", Some("first-key"), at);
-        let (token, session) = s.issue_passkey_session("first-key", None, at).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let f = flow(&s).await;
         approve(&s, &f, &token, &session).await.unwrap();
         s.login.lock().unwrap().sessions.remove(&hash(&token));
@@ -736,7 +793,7 @@ mod tests {
                 "CLI_AUTHORIZER_SESSION_ENDED"
             ))
         ));
-        let (token, session) = s.issue_passkey_session("first-key", None, at).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let f = flow(&s).await;
         approve(&s, &f, &token, &session).await.unwrap();
         s.store
@@ -836,7 +893,7 @@ mod tests {
         assert_eq!(s.store.count_audit(&s.tenant, 0).unwrap(), before);
         assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::ACCEPTED);
         assert!(s.cli_login.lock().unwrap().requests.is_empty());
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         approve(&s, &f, &token, &session).await.unwrap();
         assert_eq!(poll(&s, &f).await.unwrap().status(), StatusCode::OK);
         assert_eq!(s.store.count_audit(&s.tenant, 0).unwrap(), before + 2);
@@ -881,7 +938,7 @@ mod tests {
         let s = setup();
         let first = flow(&s).await;
         let second = flow(&s).await;
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let viewed = data(
             view(
                 State(s.clone()),
@@ -937,7 +994,7 @@ mod tests {
     async fn protected_wrong_code_attempts_remain_bounded_and_cannot_be_reset_by_public_creation() {
         let s = setup();
         let f = flow(&s).await;
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let mut wrong = f.clone();
         wrong["user_code"] = "WRONG".into();
         for _ in 0..5 {
@@ -960,7 +1017,7 @@ mod tests {
     #[tokio::test]
     async fn protected_capacity_cannot_be_filled_or_evicted_without_fresh_browser_authority() {
         let s = setup();
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         let mut approved = Vec::new();
         for _ in 0..MAX_REQUESTS {
             let f = flow(&s).await;
@@ -996,7 +1053,7 @@ mod tests {
         for stage in ["approval", "exchange"] {
             let s = setup();
             let f = flow(&s).await;
-            let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+            let (token, session) = browser_session(&s, "first-key");
             if stage == "exchange" {
                 approve(&s, &f, &token, &session).await.unwrap();
             }
@@ -1034,7 +1091,7 @@ mod tests {
         for consumed in [false, true] {
             let s = setup();
             let f = flow(&s).await;
-            let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+            let (token, session) = browser_session(&s, "first-key");
             if consumed {
                 approve(&s, &f, &token, &session).await.unwrap();
                 poll(&s, &f).await.unwrap();
@@ -1082,7 +1139,7 @@ mod tests {
     async fn concurrent_logout_cannot_complete_between_authorizer_check_and_session_insertion() {
         let s = setup();
         let f = flow(&s).await;
-        let (token, session) = s.issue_passkey_session("first-key", None, now()).unwrap();
+        let (token, session) = browser_session(&s, "first-key");
         approve(&s, &f, &token, &session).await.unwrap();
         let probe = Arc::new(ExchangeProbe {
             validated: std::sync::Barrier::new(2),

@@ -1,10 +1,13 @@
 # Durable signing coordination
 
-Authority schema 10 retains the two-phase signing mechanics introduced in schema
-7 and original core-access cost provenance added in schema 9. It strengthens
-work-history validation and keeps issued dispatch capacity occupied until an
-authenticated delivery receipt can establish release. It also exposes a read-only
-readiness summary and trusted local quota and provenance administration. The
+Authority schema 12 retains the two-phase signing mechanics introduced in schema
+7, original core-access cost provenance added in schema 9 and the history/audit
+protections added in schema 11. It supports general-policy quota without a
+delegation root while keeping issued dispatch capacity occupied until an
+authenticated completion receipt can establish release. Here project-only quota
+changes accounting scope; native OS privilege requirements remain unchanged.
+The store also exposes a read-only readiness summary and trusted local quota and
+provenance administration. The
 public preparation and worker paths remain
 closed: protected bootstrap, independently verified build identity, qualified
 native evidence and a protected signer are not implemented. No configuration
@@ -23,8 +26,8 @@ below share the independent authority SQLite database; the older standalone
 
 1. Preparation rechecks the retained plan, semantic review, current distinct-human
    approval set, authority basis, target metadata and exact baseline observation.
-   It derives cost from retained evidence and checks independently pinned root
-   and project limits. Generation advancement, reservation, immutable intent,
+   It derives cost from retained evidence and checks independently pinned project
+   limits, plus root limits for rooted obligations. Generation advancement, reservation, immutable intent,
    signer job and audit commit together under `BEGIN IMMEDIATE`.
 2. A separately deployed signer would process the immutable job outside the
    database transaction. The job binds the exact canonical grant payload,
@@ -55,21 +58,36 @@ normal builds currently have no trusted bootstrap path to initialize.
 ## Quota and supported cost profile
 
 Root and project limits are independently pinned with revision checks, validity
-and revocation. A project's root binding cannot be switched to reset history.
+and revocation. A project can retain rooted obligations and new project-only
+obligations in one accounting graph. An explicit local administrator may use a
+project-pin CAS revision to change root A to project-only scope and later restore
+A. The first pin permanently anchors A: root B is always refused. A project whose
+first pin is project-only cannot acquire a root later. Migration makes no cutover
+and revisions preserve every previous pin, clock and obligation.
 The root belongs to its organization and may be administered from another project
 in that same organization at the trusted local administrator boundary; it is not
 owned exclusively by the project that first pinned it. Organization identity
-still scopes every root lookup and revision change. Both buckets must admit a
-reservation within the same transaction. Costs and totals are derived internally;
+still scopes every root lookup and revision change. Rooted reservations must
+pass both buckets in one transaction; project-only reservations must pass the
+project bucket. Project accounting includes both scopes with shared scan bounds.
+A root scan includes only obligations belonging to that exact root. Costs and totals are derived internally;
 requests cannot supply a cheaper cost or a larger
 limit. Administrative pinning is a trusted local operation, not an approval from
 a controller session.
 
 The implemented preparation profile is a reviewed, non-expanding
 `policy_change`: zero new leases, destinations and lease seconds, and one
-concurrent deployment. It currently requires both quota pins even for the
-general-policy case in which F_03 permits a null root. Rootless preparation is
-not implemented and requires a separate quota profile and storage upgrade.
+concurrent deployment. An explicit project-only pin permits this accounting
+profile without a root pin. Its reservation has no lease, zero lease seconds, no
+destinations and zero active-lease slots. Its initial dispatch slot is one. The
+public production preparation resolver remains closed for both scopes.
+
+Retained rooted pin records and `fw.signing-budget-reservation/v1` snapshots keep
+their exact canonical bytes and root metadata. New project-only pin records use
+`fw.signing-project-quota-pin/v2`; project-only budget snapshots use
+`fw.signing-budget-reservation/v2` and omit all root metadata. Readers select the
+version explicitly, reject partial root metadata, unknown versions and rootless
+lease costs, and never retry a failed new codec as v1.
 
 Core access cost can now be derived from retained original provenance. The
 trusted local importer binds a registered `add_access_lease` plan to the complete
@@ -144,9 +162,9 @@ Accounting queries use separate indexes for held obligations and released
 issuance history on guarded heads derived from immutable quota transitions.
 The held indexes include every `active` row, including policy changes with no
 lease ID. Live accounting compares the full defined set of quota/work guards
-against cached canonical SQL, including transition evidence and retained
-reservation, issuance and usage protections. A missing or changed guard rejects
-the operation. Changing only a reservation projection therefore cannot hide the
+against independently compiled expected schema metadata, including transition
+evidence, audit bindings and retained reservation, issuance and usage
+protections. A missing, changed or unexpected object rejects the operation. Changing only a reservation projection therefore cannot hide the
 obligation from the accounting query. Exceeding 10,000 relevant rows or 200,000 destination visits
 fails the transaction with a quota error; the implementation does not truncate
 the history and undercount it. Retention and archival maintenance remain future
@@ -185,27 +203,60 @@ does not renew their validity or authorize a new dispatch.
 
 The authority's durable time fences continue to apply. A failed operation may
 record a later observed time without committing an intent, reservation or job.
+Historical job reads and retries advance the project clock and only their saved
+root clock, when present. An old rooted job keeps its root-A fence after a
+project-only cutover; an old project-only job does not acquire root-A clock
+dependencies when the administrator restores A. Readiness additionally observes
+the current configuration's root because its summary evaluates current pins.
+Readiness refuses a concurrent latest-intent change between clock observation
+and its final database snapshot, rather than return an unfenced summary.
 Do not lower those clocks or overwrite the database from an old backup to
 recover capacity. See the [clock recovery limitations](target-metadata.md).
 
 ## Readiness and migration
 
-`GET /authority/v1/plans/{plan_id}/signing-readiness` uses the existing live
-reviewer, origin, proof and tenant checks. Its bounded, non-cacheable response
+`GET /authority/v2/plans/{plan_id}/signing-readiness` uses the existing live
+reviewer, origin, CSRF proof and tenant checks. Its bounded, non-cacheable response
 reports current blockers, approval hash, quota configuration, target generation
 and an optional retained intent status. It does not reserve quota or start work.
-`quota_configured` means current pins exist, not that capacity was reserved.
 `signing_allowed` and `dispatch_allowed` remain false.
-For core plans, request-binding availability is reported separately from the
-unfinished core signing profile; importing original objects removes no production
-bootstrap, build, native-qualification or signer requirement.
 
-The eight-locale **Signing readiness** panel separates these blockers from
-historical work and reservation state. It accounts for request latency and clock
-rollback when expiring a view, and discards responses from an older plan. Refresh
-does not approve, sign or dispatch. UNKNOWN and recorded delivery continue to
-show held quota after a view expires. The delivery labels describe a retained
-record, not authenticated native activation.
+V2 retains the original readiness fields and adds three fields:
+
+| Field | Meaning |
+| --- | --- |
+| `quota_scope` | `root`, `project` or null for the current valid pin configuration |
+| `quota_root_id` | The root UUID only when current scope is `root`; otherwise null |
+| `latest_dispatch_unknown_seen` | Whether the latest intent's bounded dispatch history contains UNKNOWN; null only when no latest intent exists |
+
+`quota_configured` means that current pins apply to this plan, without reserving
+capacity. Core plans additionally require current retained original provenance,
+the matching root and delegation ceilings. A core plan can therefore truthfully
+report project scope with `quota_configured: false`. Missing core provenance
+produces `CORE_REQUEST_BINDING_UNAVAILABLE` and `QUOTA_CONFIGURATION_MISSING` on
+both readiness versions. The core signing profile remains separately unavailable.
+
+The scope fields describe current configuration, not the latest intent's
+historical reservation scope. After A→project-only→A, a project-only retained
+intent can coexist with current root-A configuration. Expired or revoked pins
+produce null scope/root and a missing-configuration blocker. The history flag
+remains true after UNKNOWN→claimed→recorded delivery; it establishes no verified
+enforcement or release authority.
+
+`GET /authority/v1/plans/{plan_id}/signing-readiness` retains its original 15-field
+shape for rooted and unavailable configuration. Current project-only
+configuration requires explicit v2 and v1 returns the existing generic conflict.
+No response is downgraded to v1. The core-without-provenance diagnostic above is
+an intentional conservative correction; stored v1 evidence bytes are unchanged.
+
+The eight-locale **Signing readiness** panel explicitly requests v2, validates
+its closed shape and never falls back to v1. It separates current configuration
+and blockers from historical work, held reservations and past UNKNOWN. English
+remains the default and saved supported language preferences remain intact. The
+panel accounts for request latency and clock rollback when expiring a view and
+discards responses from an older plan. Refresh does not approve, sign or dispatch.
+UNKNOWN and recorded delivery continue to show held quota after a view expires.
+The delivery labels describe a retained record, not authenticated activation.
 
 The [local CLI guide](signing-coordination-cli.md) covers quota pinning,
 revocation, readiness, preparation requests, intent inspection and explicit
@@ -219,7 +270,7 @@ original-object registration and historical lookup. Its summaries include hashes
 IDs and full cost inputs, without exposing request purpose, workflow or scope.
 `current` describes the binding lifetime only; both permission fields stay false.
 
-Existing schema 1–9 databases require the validated private-backup migration
+Existing schema 1–11 databases require the validated private-backup migration
 described in [authority storage](authority-store.md). The schema 7 step creates
 empty signing tables. The schema 8 step checks existing reservations against
 retained immutable evidence before recording their proven transitions; it rejects
@@ -245,15 +296,25 @@ Invalid history is rejected; a legacy
 uncertainty had never occurred. Valid evidence, canonical bytes and physical
 slot projections remain unchanged. Every issued row receives conservative
 effective accounting without inventing a delivery receipt or rewriting history.
-The exact schema filter excludes only SQLite's reserved literal `sqlite_`
-prefix, so user-created lookalike names such as `sqliteX_hidden` remain part of
-open and migration validation. Migrations 001–009 are unchanged.
+Schema 11 adds retained identity collision guards, contiguous quota history,
+audit/head protection, exact work-to-audit bindings, canonical worker IDs,
+retained time correlation and graph integrity checks. Schema inventory compares
+actual objects with an independently initialized reference; internal-name
+prefixes do not exempt injected objects from validation. Local audit consistency
+is not protection against whole-database replacement; external anchors remain
+a deployment dependency.
+
+Schema 12 makes roots nullable only where project-only pins and non-lease policy
+reservations require them. Maintenance preserves explicit rowids and original
+BLOBs, validates the source and retained history, rebuilds the affected accounting
+objects, verifies the complete schema and foreign-key graph, then commits one
+upgrade. It restores and reads back foreign-key enforcement on every exit. It
+creates no pins, clocks, refunds, approvals or cutover on the operator's behalf.
+The released migration SQL through 010 remains unchanged.
 
 Remaining dependencies are protected authority bootstrap and OS identities,
 trusted target generation initialization, qualified compiler/baseline/observer
-evidence, the complete core signing and rootless policy profiles, independently
+evidence, the complete production core and policy signing profiles, independently
 authenticated workload/delegation authority, a separately deployed signer,
 authenticated dispatch and delivery evidence, backup/restore epochs and
 PostgreSQL transactions.
-Rootless policy quotas remain the next separate implementation batch after this
-security follow-up; the foreign-key design review has not implemented that profile.

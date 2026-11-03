@@ -6,35 +6,92 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## Current handoff and new external findings
+## Integrated history integrity and project quota follow-up
 
-The [session handoff](../docs/session-handoff.md) and
-[startup prompt](../docs/session-start-prompt.txt) recover work without the old chat.
-The latest implemented baseline is PR20 head `9e021b3`, merged as `6eb68a9`.
-Its [final PR CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41425943304)
-and [main CI](https://github.com/simhanson123/Nox_Warden/actions/runs/41429434650)
-passed. The final PR run's twelve reports and 164 recorded source-file hashes were
-checked against the final source tree before merge. Its runtime counts were
-HTTP24,CLI13,enrollment23,metadata41,catalogue11,passkey76,login14,audit21,
-authority40,Linux66/40 packets,signed Linux98/43 packets,native33/5 captures.
+The implementation starts at merged handoff PR21,
+`2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3`, on
+`fix/authority-history-and-project-quota`. PR21's original CI41446221692 and
+[merged-main CI41556555849](https://github.com/simhanson123/Nox_Warden/actions/runs/41556555849)
+succeeded. Those documentation checks are not product follow-up validation.
 
-The subsequently supplied [Claude PR20 review](../docs/reviews/pr20-claude-review.md)
-confirms F1–F4 and reports seven Low findings N1–N7. **All seven are still open.**
-The handoff source assessment is not a fix or a new full-suite pass. One new
-public-API probe independently reproduced N2 audit-tail removal with unchanged
-guards and passing current/reopened audit verification; its
-[portable source and commands](../docs/reviews/pr20-local-audit-repro.md) are retained.
-Other reported cases require fresh independent reproductions in the next batch.
-The reviewer's private probes and omitted Docker runs are not claimed as ours.
+Schema11 implements N1–N7 retained history/audit/object/reference corrections;
+schema12 adds shared rooted/project-only quota, strict versioned administration
+and readiness/UI. Every old migration001–010 and the original PR20 review remain
+byte-identical. Production signing/dispatch remain closed. Current source and
+next work are in the [handoff](../docs/session-handoff.md) and [ledger](task-ledger.json).
 
-This handoff changes documentation/review evidence only. Baseline test counts
-below remain historical and are not executions after N1–N7 fixes. The next
-implementation and acceptance matrix are in [the follow-up](../docs/pr20-follow-up.md).
-Handoff checks passed: 27 specification checks, diff whitespace, ledger JSON,
-original-review byte/hash preservation and 102 local Markdown links. A separate
-reviewer found no blocking inconsistency and reran the exact portable N2 commands
-in a fresh directory; this reproduced the same unfixed defect, not an additional
-passing security regression. Full product suites were not rerun for doc-only edits.
+Fresh independent fixtures reproduced N1–N7 against the old code. They are new
+local probes, not the external reviewer's private sources. Opposite regressions
+cover genuine retained signing/UNKNOWN/delivery/cancellation states. An exact
+old6eb68a9 binary created both public-API principal/audit data and a two-job signed
+development fixture. Upgrading the signed DB10→12 preserved all64 original product
+tables' rowids, typed values and BLOBs (migration registry prefix retained), all45
+audit events and an exact private backup;10 new work-audit links reference the
+original events. Public lifecycle reads still hold both issued obligations at
+fixture time and24h later. Other legacy fixtures reconstruct historical schema;
+not every fixture was created with an old binary.
+
+Internal independent review found and prompted corrections to imported genesis
+continuation, an accidental lifetime job cap, ineffective failure injection,
+initial job creation ordering and saved-scope clock handling. Migration tests
+exercise real COMMIT BUSY, abrupt exit after table DROP, competing processes,
+eight rollback checkpoints, exact backups and FK restoration. Missing/ambiguous
+historical audit mappings are refused rather than manufactured. An internal
+10,108-case SQL probe independently checked unsigned audit-head successors.
+The external Claude review for this new batch has not been run.
+
+Fresh local validation completed on 2026-11-03. Rust workspace components pass
+**851 tests** (169 authority library +233 authority integrations +449 remaining
+workspace; nested subprocess summaries excluded), with 2 intentionally ignored
+helpers. The cancellation CLI process passes separately: 1, reduced-feature
+verification: 32, shared-umask authority/service: 456 and UI: 190 across 10 files.
+Current formatting and workspace all-target Clippy with warnings denied pass.
+Both controller and authority UI production builds pass. Eight controller
+catalogues retain 229 keys each and eight authority catalogues 157; human
+translation acceptance remains outstanding.
+
+The local `bash scripts/check.sh` invocation initially stopped at stale integration
+schema10 expectations. Those test fixtures were corrected for schema12 while
+preserving historical source versions. **That failed invocation is not labeled
+PASS.** Its already-passing 169 library tests were retained; all authority
+integrations (`cargo test --locked -p fw_authority --test '*'`), remaining workspace
+(`cargo test --workspace --locked --exclude fw_authority`), authority bins/doc-tests,
+explicit CLI, reduced features and frontend tail passed afterward. The required
+full `(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)`
+then passed on the final test tree. CI runs the canonical entry point on the
+pushed commit; the branch's PR records exact CI and merge status.
+
+Static checks pass 27 specification checks, 52 core and 28 extended contract fixtures,
+vendored-source verification and Python diagnostic suites 9/6/14/3
+(Linux runner/catalogue/authority/native evidence). The authority smoke's stale
+v1 wait was updated to strict v2; its final 40 checks passed. A bounded primary
+failure diagnostic is retained when an early failure prevents a planned restart.
+
+| Fresh runtime suite | Passing checks | Actual boundary |
+| --- | ---: | --- |
+| Controller HTTP | 24 | Actual loopback endpoints |
+| CLI / separate protocol fixture | 13 / 5 | Current binary and hostile-response fixture |
+| Passkey browser | 76 | Virtual CTAP2 with real services |
+| Login admission browser | 14 | Availability and replay |
+| Audit HTTP/MCP/browser | 21 | Stable pagination and denial evidence |
+| Catalogue browser | 11 | Navigation and eligible choices |
+| TLS enrollment/browser | 25 | Certificates, report and service lifecycle |
+| Independent metadata | 41 | Includes18 signed metadata checks |
+| Authority browser | 40 | Decisions, restart and explicit v2 readiness |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux execution | 98 | 43 actual packet probes and recovery |
+| Retained native evidence | 33 | 5 actual kernel captures |
+
+Reports' 189 source-hash entries (93 unique paths), 3 additional binary hashes and
+264 frozen source/test files matched the executed tree; no containers remain.
+Raw reports/logs stay ignored. The pinned environment used Rust 1.99.1,
+Node 24.19.0/npm 11.9.0, Python 3.12.14, jsonschema 4.26.0, Playwright 1.62.0,
+Chromium 154.0.8037.57 and Docker 28.4.0. Read-only home buildx state initially
+prevented the Linux lab from running; using a writable `BUILDX_CONFIG` fixed that
+without changing `DOCKER_CONFIG`, credentials, proxy or CA/TLS settings. Only the
+successful reruns above count as native passes. Windows/macOS kernel qualification,
+installed-host protection, production authority and external audit anchoring remain
+unimplemented/unqualified; Linux lab success does not satisfy those gates.
 
 ## Reproduce
 
@@ -67,7 +124,7 @@ authenticators. Native suites require Docker and run only in disposable network
 namespaces with NET_ADMIN; they do not change the host firewall. A missing native
 or browser prerequisite is not a passing check.
 
-## Verified scope
+## Historical PR20 verified scope
 
 The integrated repository check passes **800 workspace Rust tests, 32 authority
 tests without default features, and 180 UI tests**. It also passes formatting,
@@ -314,7 +371,7 @@ Production prepare/worker paths still refuse: protected bootstrap, trusted targe
 generation initialization, build identity, native qualification and deployed
 signer/delivery verification are absent. Successful mechanics use private
 `cfg(test)` witnesses, actual P-256 approvals and Ed25519 evidence/results.
-Core access cost binding and rootless policy preparation remain unsupported.
+At that schema7 checkpoint, core access cost binding and rootless policy preparation remain unsupported.
 See [coordination boundaries](../docs/signing-coordination.md) and the
 [administration guide](../docs/signing-coordination-cli.md). The original 53 design
 files remain unchanged; all 52 manifest entries were rechecked by size and hash.

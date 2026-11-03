@@ -19,6 +19,8 @@ const MIGRATION_7: &str = include_str!("migration_007.sql");
 const MIGRATION_8: &str = include_str!("migration_008.sql");
 const MIGRATION_9: &str = include_str!("migration_009.sql");
 const MIGRATION_10: &str = include_str!("migration_010.sql");
+const MIGRATION_11: &str = include_str!("migration_011.sql");
+const MIGRATION_12: &str = include_str!("migration_012.sql");
 
 fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
     let parent = path
@@ -137,10 +139,69 @@ pub(super) fn initialize_v1(tx: &Transaction<'_>) -> Result<()> {
     Ok(())
 }
 
+// Include every SQLite object, including autoindexes. Reserved-looking names
+// confer no trust. The two optional ANALYZE tables have exact engine-owned
+// metadata; injected objects with another type/table/SQL are rejected.
 fn schema_digest(connection: &Connection) -> Result<Vec<u8>> {
-    // SQLite reserves the literal sqlite_ prefix (case-insensitively). LIKE's
-    // underscore wildcard would also hide user-created names such as sqliteX.
-    let mut stmt=connection.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE lower(substr(name,1,7)) <> 'sqlite_' ORDER BY type,name")?;
+    let mut stmt = connection.prepare(
+        "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name LIMIT 4097",
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut inventory = Vec::new();
+    let mut objects_seen = 0;
+    let mut metadata_bytes = 0usize;
+    while let Some(row) = rows.next()? {
+        objects_seen += 1;
+        if objects_seen > 4096 {
+            return Err(invalid("authority schema object bound"));
+        }
+        for column in 0..4 {
+            let value = row.get_ref(column)?;
+            if let Ok(bytes) = value.as_bytes() {
+                if bytes.len() > if column == 3 { 262144 } else { 256 } {
+                    return Err(invalid("authority schema metadata bound"));
+                }
+                metadata_bytes = metadata_bytes
+                    .checked_add(bytes.len())
+                    .ok_or(invalid("authority schema metadata bound"))?;
+                if metadata_bytes > 4 * 1024 * 1024 {
+                    return Err(invalid("authority schema metadata bound"));
+                }
+            }
+        }
+        let object = (
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        );
+        if object.1 == "sqlite_stat1" || object.1 == "sqlite_stat4" {
+            let sql = if object.1 == "sqlite_stat1" {
+                "CREATE TABLE sqlite_stat1(tbl,idx,stat)"
+            } else {
+                "CREATE TABLE sqlite_stat4(tbl,idx,neq,nlt,ndlt,sample)"
+            };
+            if object.0 != "table" || object.2 != object.1 || object.3.as_deref() != Some(sql) {
+                return Err(invalid("unexpected SQLite statistics object"));
+            }
+            continue;
+        }
+        inventory.push(object);
+    }
+    hash(&canonical_hash(&inventory).map_err(|_| invalid("authority schema manifest"))?)
+}
+
+// Migration 1's published checksum predates complete SQLite object inventories.
+// Keep its historical value, independently of the stricter current comparison.
+fn historical_v1_checksum() -> Result<Vec<u8>> {
+    static DIGEST: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    if let Some(digest) = DIGEST.get() {
+        return Ok(digest.clone());
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    let mut stmt=tx.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE lower(substr(name,1,7)) <> 'sqlite_' ORDER BY type,name")?;
     let rows = stmt
         .query_map([], |r| {
             Ok((
@@ -151,7 +212,10 @@ fn schema_digest(connection: &Connection) -> Result<Vec<u8>> {
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    hash(&canonical_hash(&rows).map_err(|_| invalid("authority schema manifest"))?)
+    let digest =
+        hash(&canonical_hash(&rows).map_err(|_| invalid("historical authority manifest"))?)?;
+    let _ = DIGEST.set(digest.clone());
+    Ok(digest)
 }
 
 fn known_v1_digest() -> Result<Vec<u8>> {
@@ -307,8 +371,322 @@ fn known_v10_digest() -> Result<Vec<u8>> {
     Ok(known_v10()?.digest.clone())
 }
 
+#[cfg(test)]
 pub(super) fn signing_guard_definitions() -> Result<&'static [(String, String)]> {
-    Ok(&known_v10()?.guards)
+    Ok(&known_v12()?.guards)
+}
+
+fn migration_11_checksum() -> Result<Vec<u8>> {
+    let sql = [
+        MIGRATION_11,
+        signing_jobs::MIGRATION_WORK_BINDINGS,
+        signing_jobs::MIGRATION_WORK,
+    ]
+    .concat();
+    hash(&hash_bytes(sql.as_bytes()))
+}
+
+fn known_v11() -> Result<&'static SigningSchema> {
+    static SCHEMA: std::sync::OnceLock<SigningSchema> = std::sync::OnceLock::new();
+    if let Some(schema) = SCHEMA.get() {
+        return Ok(schema);
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    apply_v2(&tx)?;
+    apply_v3(&tx)?;
+    apply_v4(&tx)?;
+    apply_v5(&tx)?;
+    apply_v6(&tx)?;
+    apply_v7(&tx)?;
+    tx.execute_batch(MIGRATION_8)?;
+    tx.execute_batch(MIGRATION_9)?;
+    tx.execute_batch(MIGRATION_10)?;
+    tx.execute_batch(MIGRATION_11)?;
+    signing_jobs::backfill_work_audits(&tx)?;
+    tx.execute_batch(signing_jobs::MIGRATION_WORK)?;
+    let digest = schema_digest(&tx)?;
+    let mut stmt =
+        tx.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")?;
+    let guards = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let _ = SCHEMA.set(SigningSchema { digest, guards });
+    SCHEMA.get().ok_or(invalid("known authority schema"))
+}
+
+/// Bounded metadata-only validation for already-open sensitive transactions.
+/// Expected bytes are built once from released SQL, never from the live store.
+pub(super) fn validate_live_schema(connection: &Connection) -> Result<()> {
+    if schema_digest(connection)? != known_v12()?.digest {
+        return Err(invalid("authority integrity guard missing or changed"));
+    }
+    Ok(())
+}
+
+pub(super) fn validate_reference_graph(connection: &Connection) -> Result<()> {
+    let broken: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+        [],
+        |r| r.get(0),
+    )?;
+    if broken {
+        return Err(invalid("authority retained foreign key graph"));
+    }
+    let broken: bool = connection.query_row("SELECT EXISTS(
+        SELECT 1 FROM authority_signing_intents i LEFT JOIN authority_signing_jobs j
+        ON j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id
+        WHERE j.job_id IS NULL UNION ALL
+        SELECT 1 FROM authority_signing_jobs j LEFT JOIN authority_signing_intents i
+        ON i.org_id=j.org_id AND i.project_id=j.project_id AND i.intent_id=j.intent_id AND i.job_id=j.job_id
+        WHERE i.intent_id IS NULL UNION ALL
+        SELECT 1 FROM authority_signing_jobs j WHERE NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h
+        WHERE h.org_id=j.org_id AND h.project_id=j.project_id AND h.job_id=j.job_id AND h.phase='signer')
+        )", [], |r| r.get(0))?;
+    if broken {
+        return Err(invalid("authority signing retained reference graph"));
+    }
+    // FKs retain binding→event, while the inverse must also hold after an
+    // out-of-band writer restores guards around a missing or changed binding.
+    // Pre11 histories acquire bindings only during validated migration.
+    let bound:bool=connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')",[],|r|r.get(0))?;
+    if bound {
+        let broken:bool=connection.query_row("SELECT EXISTS(
+            SELECT 1 FROM authority_signing_work_events e WHERE NOT EXISTS(
+             SELECT 1 FROM authority_signing_work_audits b JOIN authority_audit a
+              ON a.org_id=b.org_id AND a.project_id=b.project_id AND a.sequence=b.audit_sequence AND a.event_hash=b.audit_hash
+             WHERE b.org_id=e.org_id AND b.project_id=e.project_id AND b.job_id=e.job_id AND b.phase=e.phase AND b.revision=e.revision
+              AND b.kind=e.kind AND b.updated_at=e.updated_at AND a.resource_id=e.job_id
+              AND a.kind='signing_'||e.phase||'_'||e.kind AND a.recorded_at=e.updated_at))",[],|r|r.get(0))?;
+        if broken {
+            return Err(invalid("authority signing retained audit binding"));
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn apply_v11(tx: &Transaction<'_>) -> Result<()> {
+    validate_v10(tx)?;
+    validate_reference_graph(tx)?;
+    validate_retained_integrity(tx)?;
+    tx.execute_batch(MIGRATION_11)?;
+    signing_jobs::backfill_work_audits(tx)?;
+    tx.execute_batch(signing_jobs::MIGRATION_WORK)?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(11,?,11,11,?)",
+        params![migration_11_checksum()?, now()?],
+    )?;
+    tx.pragma_update(None, "user_version", 11)?;
+    validate_v11(tx)
+}
+
+fn validate_retained_integrity(tx: &Transaction<'_>) -> Result<()> {
+    validate_reference_graph(tx)?;
+    signing_quota::validate_retained_transitions(tx)?;
+    signing_jobs::validate_work_histories(tx)?;
+    validate_retained_signing_lifecycles(tx)?;
+    audit_log::validate_retained_chains(tx)
+}
+
+fn validate_v11_schema(connection: &Connection) -> Result<()> {
+    validate_migrations(connection, 11)?;
+    if schema_digest(connection)? != known_v11()?.digest {
+        return Err(invalid("unexpected authority v11 schema"));
+    }
+    Ok(())
+}
+pub(super) fn validate_v11(connection: &Connection) -> Result<()> {
+    validate_v11_schema(connection)?;
+    validate_reference_graph(connection)
+}
+
+const REBUILT_QUOTA_TABLES: [&str; 3] = [
+    "authority_signing_quota_pins",
+    "authority_signing_quota_reservations",
+    "authority_signing_quota_transition_heads",
+];
+
+fn table_fingerprint(tx: &Transaction<'_>, table: &str) -> Result<([u8; 32], u64)> {
+    let mut stmt = tx.prepare(&format!("SELECT rowid,* FROM {table} ORDER BY rowid"))?;
+    let columns = stmt.column_count();
+    let mut rows = stmt.query([])?;
+    let mut digest = Sha256::new();
+    let mut count = 0u64;
+    while let Some(row) = rows.next()? {
+        count = count.checked_add(1).ok_or(invalid("migration row bound"))?;
+        digest.update([255]);
+        for column in 0..columns {
+            use rusqlite::types::ValueRef;
+            match row.get_ref(column)? {
+                ValueRef::Null => digest.update([0]),
+                ValueRef::Integer(value) => {
+                    digest.update([1]);
+                    digest.update(value.to_be_bytes());
+                }
+                ValueRef::Real(value) => {
+                    digest.update([2]);
+                    digest.update(value.to_bits().to_be_bytes());
+                }
+                ValueRef::Text(value) => {
+                    digest.update([3]);
+                    digest.update((value.len() as u64).to_be_bytes());
+                    digest.update(value);
+                }
+                ValueRef::Blob(value) => {
+                    digest.update([4]);
+                    digest.update((value.len() as u64).to_be_bytes());
+                    digest.update(value);
+                }
+            }
+        }
+    }
+    digest.update(count.to_be_bytes());
+    Ok((digest.finalize().into(), count))
+}
+
+fn nullable_guard(name: &str, sql: &str) -> String {
+    match name {
+        "authority_signing_quota_transition_heads_insert" => {
+            sql.replace("r.root_id=NEW.root_id", "r.root_id IS NEW.root_id")
+        }
+        "authority_signing_quota_transition_heads_update" => {
+            sql.replace("NEW.root_id!=OLD.root_id", "NEW.root_id IS NOT OLD.root_id")
+        }
+        _ => sql.to_owned(),
+    }
+}
+
+fn rebuild_v12_schema(tx: &Transaction<'_>) -> Result<()> {
+    // Every definition comes from the separately constructed version11 schema.
+    // Removing all guards also covers references from incoming work/audit FKs;
+    // no definitions are copied from the possibly attacked maintenance source.
+    let before = REBUILT_QUOTA_TABLES
+        .map(|table| table_fingerprint(tx, table))
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+    for (name, _) in &known_v11()?.guards {
+        tx.execute_batch(&format!("DROP TRIGGER {name}"))?;
+    }
+    migration_failpoint("guards-dropped")?;
+    // Execute one statement at a time so crash/error fixtures cover the actual
+    // copy/drop/recreate/copy-back boundaries, not a simulation of the rebuild.
+    for statement in MIGRATION_12.split(';').filter(|sql| !sql.trim().is_empty()) {
+        tx.execute_batch(&format!("{statement};"))?;
+        let sql = statement.trim();
+        if sql.starts_with("CREATE TABLE") && sql.contains("_retained_v12 AS") {
+            migration_failpoint("rows-copied")?;
+        }
+        if sql.starts_with("DROP TABLE authority_signing_quota_") && !sql.contains("_retained_v12")
+        {
+            migration_failpoint("parent-dropped")?;
+        }
+        if sql.starts_with("INSERT INTO authority_signing_quota_") {
+            migration_failpoint("rows-restored")?;
+        }
+    }
+    for (name, sql) in &known_v11()?.guards {
+        tx.execute_batch(&nullable_guard(name, sql))?;
+    }
+    migration_failpoint("guards-restored")?;
+    for (table, before) in REBUILT_QUOTA_TABLES.into_iter().zip(before) {
+        if table_fingerprint(tx, table)? != before {
+            return Err(invalid(
+                "authority migration changed retained quota bytes or rowids",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn known_v12() -> Result<&'static SigningSchema> {
+    static SCHEMA: std::sync::OnceLock<SigningSchema> = std::sync::OnceLock::new();
+    if let Some(schema) = SCHEMA.get() {
+        return Ok(schema);
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    apply_v2(&tx)?;
+    apply_v3(&tx)?;
+    apply_v4(&tx)?;
+    apply_v5(&tx)?;
+    apply_v6(&tx)?;
+    apply_v7(&tx)?;
+    tx.execute_batch(MIGRATION_8)?;
+    tx.execute_batch(MIGRATION_9)?;
+    tx.execute_batch(MIGRATION_10)?;
+    tx.execute_batch(MIGRATION_11)?;
+    signing_jobs::backfill_work_audits(&tx)?;
+    tx.execute_batch(signing_jobs::MIGRATION_WORK)?;
+    // Reference construction has no application state or active FK enforcement.
+    rebuild_v12_schema(&tx)?;
+    let digest = schema_digest(&tx)?;
+    let mut stmt =
+        tx.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")?;
+    let guards = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let _ = SCHEMA.set(SigningSchema { digest, guards });
+    SCHEMA.get().ok_or(invalid("known authority schema12"))
+}
+
+pub(super) fn apply_v12(tx: &Transaction<'_>) -> Result<()> {
+    validate_v11(tx)?;
+    validate_retained_integrity(tx)?;
+    let enforced: i64 = tx.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
+    let populated:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_reservations) OR EXISTS(SELECT 1 FROM authority_signing_quota_pins)",[],|r|r.get(0))?;
+    if enforced != 0 && populated {
+        return Err(invalid(
+            "populated quota rebuild requires dedicated FK-disabled maintenance",
+        ));
+    }
+    rebuild_v12_schema(tx)?;
+    validate_retained_integrity(tx)?;
+    let integrity: String = tx.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+    if integrity != "ok" {
+        return Err(invalid("authority migration integrity check"));
+    }
+    migration_failpoint("references-verified")?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(12,?,12,12,?)",
+        params![hash(&hash_bytes(MIGRATION_12.as_bytes()))?, now()?],
+    )?;
+    tx.pragma_update(None, "user_version", 12)?;
+    migration_failpoint("version-recorded")?;
+    validate_v12(tx)
+}
+
+pub(super) fn validate_v12(connection: &Connection) -> Result<()> {
+    validate_migrations(connection, 12)?;
+    validate_live_schema(connection)?;
+    validate_reference_graph(connection)
+}
+
+#[cfg(not(test))]
+fn migration_failpoint(_stage: &str) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static MIGRATION_FAILURE: std::cell::RefCell<Option<&'static str>> = const {std::cell::RefCell::new(None)};
+    static MIGRATION_CRASH: std::cell::Cell<bool> = const {std::cell::Cell::new(false)};
+    static MIGRATION_FK_RESTORED: std::cell::Cell<bool> = const {std::cell::Cell::new(false)};
+}
+#[cfg(test)]
+fn migration_failpoint(stage: &str) -> Result<()> {
+    if MIGRATION_FAILURE.with(|requested| {
+        requested
+            .borrow()
+            .is_some_and(|requested| requested == stage)
+    }) {
+        if MIGRATION_CRASH.with(|crash| crash.get()) {
+            std::process::exit(89);
+        }
+        return Err(invalid("injected authority migration failure"));
+    }
+    Ok(())
 }
 
 fn validate_retained_signing_lifecycles(tx: &Transaction<'_>) -> Result<()> {
@@ -574,7 +952,7 @@ pub(super) fn validate_v3(connection: &Connection) -> Result<()> {
 }
 
 fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
-    let mut query=connection.prepare("SELECT version,checksum,minimum_app_schema,maximum_app_schema FROM authority_schema_migrations ORDER BY version")?;
+    let mut query=connection.prepare("SELECT version,checksum,minimum_app_schema,maximum_app_schema FROM authority_schema_migrations ORDER BY version LIMIT 14")?;
     let rows = query
         .query_map([], |r| {
             Ok((
@@ -586,7 +964,7 @@ fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let mut expected = vec![
-        (1, known_v1_digest()?, 1, 1),
+        (1, historical_v1_checksum()?, 1, 1),
         (2, hash(&hash_bytes(MIGRATION_2.as_bytes()))?, 2, 2),
         (3, hash(&hash_bytes(MIGRATION_3.as_bytes()))?, 3, 3),
     ];
@@ -610,6 +988,12 @@ fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
     }
     if version >= 10 {
         expected.push((10, hash(&hash_bytes(MIGRATION_10.as_bytes()))?, 10, 10));
+    }
+    if version >= 11 {
+        expected.push((11, migration_11_checksum()?, 11, 11));
+    }
+    if version >= 12 {
+        expected.push((12, hash(&hash_bytes(MIGRATION_12.as_bytes()))?, 12, 12));
     }
     if rows != expected {
         return Err(invalid("authority migration checksum or compatibility"));
@@ -679,7 +1063,7 @@ pub(super) fn apply_v2(tx: &Transaction<'_>) -> Result<()> {
     let completed = now()?;
     tx.execute(
         "INSERT INTO authority_schema_migrations VALUES(1,?,1,1,?)",
-        params![original_schema, completed],
+        params![historical_v1_checksum()?, completed],
     )?;
     tx.execute(
         "INSERT INTO authority_schema_migrations VALUES(2,?,2,2,?)",
@@ -703,7 +1087,7 @@ pub(super) fn validate_v2(connection: &Connection) -> Result<()> {
         (SELECT minimum_app_schema FROM authority_schema_migrations WHERE version=2),
         (SELECT maximum_app_schema FROM authority_schema_migrations WHERE version=2)",[],
         |r|Ok((r.get::<_,Vec<u8>>(0)?,r.get::<_,Vec<u8>>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?,r.get::<_,i64>(4)?)))?;
-    if migrations.0 != known_v1_digest()?
+    if migrations.0 != historical_v1_checksum()?
         || migrations.1 != hash(&hash_bytes(MIGRATION_2.as_bytes()))?
         || migrations.2 != 2
         || migrations.3 != 2
@@ -856,87 +1240,122 @@ impl AuthorityStore {
         private_path(path)?;
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(Duration::from_millis(5000))?;
-        connection.pragma_update(None, "foreign_keys", "ON")?;
         connection.pragma_update(None, "synchronous", "FULL")?;
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
-        let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if application == APPLICATION_ID && version == 10 {
-            validate_v10(&tx)?;
+        connection.pragma_update(None, "foreign_keys", "OFF")?;
+        let migrated = (|| -> Result<()> {
+            let disabled: i64 = connection.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
+            if disabled != 0 {
+                return Err(invalid("authority maintenance foreign key configuration"));
+            }
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
+            let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+            if application == APPLICATION_ID && version == 12 {
+                validate_v12(&tx)?;
+                validate_retained_integrity(&tx)?;
+                tx.commit()?;
+                return Ok(());
+            }
+            if application != APPLICATION_ID
+                || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&version)
+            {
+                return Err(invalid("authority migration requires known prior database"));
+            }
+            if version == 2 {
+                validate_v2(&tx)?;
+            }
+            if version == 3 {
+                validate_v3(&tx)?;
+            }
+            if version == 4 {
+                validate_v4(&tx)?;
+            }
+            if version == 5 {
+                validate_v5(&tx)?;
+            }
+            if version == 6 {
+                validate_v6(&tx)?;
+            }
+            if version == 7 {
+                validate_v7(&tx)?;
+            }
+            if version == 8 {
+                validate_v8(&tx)?;
+            }
+            if version == 9 {
+                validate_v9(&tx)?;
+            }
+            if version == 10 {
+                validate_v10(&tx)?;
+            }
+            if version == 11 {
+                validate_v11_schema(&tx)?;
+            }
+            let original_schema = match version {
+                1 => known_v1_digest()?,
+                2 => known_v2_digest()?,
+                3 => known_v3_digest()?,
+                4 => known_v4_digest()?,
+                5 => known_v5_digest()?,
+                6 => known_v6_digest()?,
+                7 => known_v7_digest()?,
+                8 => known_v8_digest()?,
+                9 => known_v9_digest()?,
+                10 => known_v10_digest()?,
+                _ => known_v11()?.digest.clone(),
+            };
+            if schema_digest(&tx)? != original_schema {
+                return Err(invalid("unexpected authority source schema"));
+            }
+            // A second read-only connection sees a consistent pre-migration DB;
+            // this IMMEDIATE transaction prevents other writers while it is copied.
+            create_backup(path, backup_path.as_ref(), &original_schema, version)?;
+            if version == 1 {
+                apply_v2(&tx)?;
+            }
+            if version < 3 {
+                apply_v3(&tx)?;
+            }
+            if version < 4 {
+                apply_v4(&tx)?;
+            }
+            if version < 5 {
+                apply_v5(&tx)?;
+            }
+            if version < 6 {
+                apply_v6(&tx)?;
+            }
+            if version < 7 {
+                apply_v7(&tx)?;
+            }
+            if version < 8 {
+                apply_v8(&tx)?;
+            }
+            if version < 9 {
+                apply_v9(&tx)?;
+            }
+            if version < 10 {
+                apply_v10(&tx)?;
+            }
+            if version < 11 {
+                apply_v11(&tx)?;
+            }
+            apply_v12(&tx)?;
+            migration_failpoint("before-commit")?;
             tx.commit()?;
-            return Ok(());
+            Ok(())
+        })();
+        // The transaction has committed or dropped and rolled back here.
+        connection.pragma_update(None, "foreign_keys", "ON")?;
+        let enforced: i64 = connection.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
+        if enforced != 1 {
+            return Err(invalid(
+                "authority maintenance failed to restore foreign keys",
+            ));
         }
-        if application != APPLICATION_ID || ![1, 2, 3, 4, 5, 6, 7, 8, 9].contains(&version) {
-            return Err(invalid("authority migration requires known prior database"));
-        }
-        if version == 2 {
-            validate_v2(&tx)?;
-        }
-        if version == 3 {
-            validate_v3(&tx)?;
-        }
-        if version == 4 {
-            validate_v4(&tx)?;
-        }
-        if version == 5 {
-            validate_v5(&tx)?;
-        }
-        if version == 6 {
-            validate_v6(&tx)?;
-        }
-        if version == 7 {
-            validate_v7(&tx)?;
-        }
-        if version == 8 {
-            validate_v8(&tx)?;
-        }
-        if version == 9 {
-            validate_v9(&tx)?;
-        }
-        let original_schema = match version {
-            1 => known_v1_digest()?,
-            2 => known_v2_digest()?,
-            3 => known_v3_digest()?,
-            4 => known_v4_digest()?,
-            5 => known_v5_digest()?,
-            6 => known_v6_digest()?,
-            7 => known_v7_digest()?,
-            8 => known_v8_digest()?,
-            _ => known_v9_digest()?,
-        };
-        if schema_digest(&tx)? != original_schema {
-            return Err(invalid("unexpected authority source schema"));
-        }
-        // A second read-only connection sees a consistent pre-migration DB;
-        // this IMMEDIATE transaction prevents other writers while it is copied.
-        create_backup(path, backup_path.as_ref(), &original_schema, version)?;
-        if version == 1 {
-            apply_v2(&tx)?;
-        }
-        if version < 3 {
-            apply_v3(&tx)?;
-        }
-        if version < 4 {
-            apply_v4(&tx)?;
-        }
-        if version < 5 {
-            apply_v5(&tx)?;
-        }
-        if version < 6 {
-            apply_v6(&tx)?;
-        }
-        if version < 7 {
-            apply_v7(&tx)?;
-        }
-        if version < 8 {
-            apply_v8(&tx)?;
-        }
-        if version < 9 {
-            apply_v9(&tx)?;
-        }
-        apply_v10(&tx)?;
-        tx.commit()?;
-        Ok(())
+        #[cfg(test)]
+        MIGRATION_FK_RESTORED.with(|restored| restored.set(true));
+        migrated
     }
 }
 
@@ -1085,13 +1504,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 7,
-                    required: 10
+                    required: 12
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v8.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 10);
+            assert_eq!(version(&f.path), 12);
             assert_eq!(version(&backup), 7);
             assert_eq!(snapshot(&backup), before);
             let after = snapshot(&f.path);
@@ -1099,7 +1518,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), rows.len() + 3);
+                    assert_eq!(upgraded.len(), 12);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1130,13 +1549,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 8,
-                    required: 10
+                    required: 12
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v9.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 10);
+            assert_eq!(version(&f.path), 12);
             assert_eq!(version(&backup), 8);
             assert_eq!(snapshot(&backup), before);
             let after = snapshot(&f.path);
@@ -1144,7 +1563,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), rows.len() + 2);
+                    assert_eq!(upgraded.len(), 12);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1176,13 +1595,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 9,
-                    required: 10
+                    required: 12
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v10.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 10);
+            assert_eq!(version(&f.path), 12);
             assert_eq!(snapshot(&backup), before);
             assert_private_backup(&backup, 9);
             let after = snapshot(&f.path);
@@ -1190,7 +1609,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), rows.len() + 1);
+                    assert_eq!(upgraded.len(), 12);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1237,7 +1656,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), rows.len() + 1);
+                    assert_eq!(upgraded.len(), 12);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {state}");
                 }
@@ -1458,7 +1877,7 @@ mod tests {
             let backup = f.directory.path().join("should-not-exist.sqlite3");
             assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
             assert!(!backup.exists());
-            assert_eq!(version(&f.path), 10);
+            assert_eq!(version(&f.path), 12);
         }
     }
 
@@ -1493,7 +1912,7 @@ mod tests {
                 assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
                 assert!(!backup.exists());
                 assert!(!backup.with_extension("manifest.json").exists());
-                assert_eq!(version(&f.path), 10);
+                assert_eq!(version(&f.path), 12);
                 assert_eq!(snapshot(&f.path), before);
             }
         }
@@ -1524,7 +1943,7 @@ mod tests {
         assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
         assert!(!backup.exists());
         assert!(!backup.with_extension("manifest.json").exists());
-        assert_eq!(version(&f.path), 10);
+        assert_eq!(version(&f.path), 12);
         assert_eq!(snapshot(&f.path), before);
     }
 
@@ -1666,5 +2085,8 @@ mod tests {
             assert_eq!(snapshot(&backup), original);
             assert!(!Connection::open(&f.path).unwrap().query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='authority_signing_quota_transitions')", [], |r| r.get::<_,bool>(0)).unwrap());
         }
+    }
+    mod rebuild_tests {
+        include!("migration_rebuild_tests.rs");
     }
 }

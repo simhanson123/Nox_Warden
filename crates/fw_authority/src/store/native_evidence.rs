@@ -429,7 +429,7 @@ impl AuthorityStore {
                     let old_fp = fw_native_evidence::fingerprint(&previous.public_key)
                         .map_err(|_| invalid("observer key"))?;
                     tx.execute(
-                        "INSERT OR IGNORE INTO authority_native_observer_revocations VALUES(?,?,?)",
+                        "INSERT INTO authority_native_observer_revocations SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM authority_native_observer_revocations WHERE org_id=?1 AND key_fingerprint=?2)",
                         params![tenant.org_id, hash(&old_fp)?, now],
                     )?;
                 }
@@ -450,7 +450,18 @@ impl AuthorityStore {
                 bytes(&record)?
             ],
         )?;
-        tx.execute("INSERT INTO authority_native_pin_heads VALUES(?,?,?,?,?) ON CONFLICT(org_id,project_id,target_id,kind) DO UPDATE SET revision=excluded.revision",params![tenant.org_id,tenant.project_id,target,kind,version.to_be_bytes().as_slice()])?;
+        retained_projection(
+            &tx,
+            "UPDATE authority_native_pin_heads SET revision=?5 WHERE org_id=?1 AND project_id=?2 AND target_id=?3 AND kind=?4",
+            "INSERT INTO authority_native_pin_heads VALUES(?1,?2,?3,?4,?5)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                target,
+                kind,
+                version.to_be_bytes().as_slice()
+            ],
+        )?;
         bump_security(&tx, tenant)?;
         audit(
             &tx,
@@ -507,7 +518,7 @@ impl AuthorityStore {
             return Err(AuthorityError::Time);
         }
         let changed = tx.execute(
-            "INSERT OR IGNORE INTO authority_native_pin_revocations VALUES(?,?,?,?,?,?)",
+            "INSERT INTO authority_native_pin_revocations SELECT ?1,?2,?3,?4,?5,?6 WHERE NOT EXISTS(SELECT 1 FROM authority_native_pin_revocations WHERE org_id=?1 AND project_id=?2 AND target_id=?3 AND kind=?4 AND revision=?5)",
             params![
                 tenant.org_id,
                 tenant.project_id,
@@ -522,7 +533,7 @@ impl AuthorityStore {
                 let p: NativeObserverPin =
                     serde_json::from_value(pin.record.pin).map_err(|_| invalid("observer pin"))?;
                 tx.execute(
-                    "INSERT OR IGNORE INTO authority_native_observer_revocations VALUES(?,?,?)",
+                    "INSERT INTO authority_native_observer_revocations SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM authority_native_observer_revocations WHERE org_id=?1 AND key_fingerprint=?2)",
                     params![
                         tenant.org_id,
                         hash(
@@ -823,7 +834,17 @@ impl AuthorityStore {
                 bytes(&receipt)?
             ],
         )?;
-        tx.execute("INSERT INTO authority_native_compilation_heads VALUES(?,?,?,?) ON CONFLICT(org_id,project_id,plan_id) DO UPDATE SET compilation_id=excluded.compilation_id",params![tenant.org_id,tenant.project_id,plan_id,receipt.compilation_id])?;
+        retained_projection(
+            &tx,
+            "UPDATE authority_native_compilation_heads SET compilation_id=?4 WHERE org_id=?1 AND project_id=?2 AND plan_id=?3",
+            "INSERT INTO authority_native_compilation_heads VALUES(?1,?2,?3,?4)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                plan_id,
+                receipt.compilation_id
+            ],
+        )?;
         audit(
             &tx,
             tenant,
@@ -1261,7 +1282,17 @@ impl AuthorityStore {
                 receipt_bytes
             ],
         )?;
-        tx.execute("INSERT INTO authority_native_observation_heads VALUES(?,?,?,?) ON CONFLICT(org_id,project_id,target_id) DO UPDATE SET receipt_id=excluded.receipt_id",params![tenant.org_id,tenant.project_id,receipt.target_id,receipt.receipt_id])?;
+        retained_projection(
+            &tx,
+            "UPDATE authority_native_observation_heads SET receipt_id=?4 WHERE org_id=?1 AND project_id=?2 AND target_id=?3",
+            "INSERT INTO authority_native_observation_heads VALUES(?1,?2,?3,?4)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                receipt.target_id,
+                receipt.receipt_id
+            ],
+        )?;
         audit(
             &tx,
             tenant,

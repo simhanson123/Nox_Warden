@@ -206,6 +206,19 @@ class DiagnosticsTests(unittest.TestCase):
                 self.assertEqual(report['failure'], 'AUTHORITY_SMOKE_SERVICE_DIAGNOSTIC_UNAVAILABLE')
                 self.assertTrue(stdout.startswith('FAIL:'))
 
+    def test_early_browser_timeout_category_survives_incomplete_planned_restart(self):
+        def fail(_args, report):
+            report['stage'] = 'browser_checks'
+            report.update(self.retain(READY))
+            raise TimeoutError(PRIVATE)
+
+        code, report, _ = self.invoke(fail)
+        self.assertEqual(code, 1)
+        self.assertFalse(report['passed'])
+        self.assertEqual(report['service_ready_count'], 1)
+        self.assertEqual(report['failure'], 'AUTHORITY_SMOKE_SERVICE_DIAGNOSTIC_UNAVAILABLE')
+        self.assertEqual(report['primary_failure'], 'AUTHORITY_SMOKE_BROWSER_TIMEOUT')
+
     def test_report_write_failure_has_no_pass_or_private_path(self):
         stdout = io.StringIO()
         with patch.object(smoke, 'run', self.complete), patch.object(sys, 'argv', [

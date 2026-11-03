@@ -10,9 +10,24 @@ const MAX_CLAIM_SECONDS: i64 = 900;
 // A renewal must strictly extend a claim, and each generation has a durable cap.
 const MAX_CLAIM_RENEWALS: i64 = 32;
 
+pub(super) const MIGRATION_WORK_BINDINGS: &str = include_str!("migration_011_work_bindings.sql");
+pub(super) const MIGRATION_WORK: &str = include_str!("migration_011_work.sql");
+
 #[cfg(test)]
 #[path = "signing_work_guard_tests.rs"]
 mod work_guard_tests;
+
+#[cfg(test)]
+#[path = "signing_work_audit_tests.rs"]
+mod work_audit_tests;
+
+#[cfg(test)]
+#[path = "signing_work_time_tests.rs"]
+mod work_time_tests;
+
+#[cfg(test)]
+#[path = "signing_retention_victim_tests.rs"]
+mod retention_victim_tests;
 
 /// Opaque worker capability. Debug/serialization deliberately omit the token.
 #[derive(Clone)]
@@ -96,7 +111,7 @@ fn read_head(row: &rusqlite::Row<'_>) -> rusqlite::Result<Head> {
 // A phase has at most five claims, 32 renewals per claim and bounded terminal
 // events. Keep complete history verification bounded rather than trusting only
 // the mutable head and latest event to agree.
-const MAX_WORK_EVENTS: usize = 192;
+pub(super) const MAX_WORK_EVENTS: usize = 192;
 
 struct WorkHistory {
     current: Option<Head>,
@@ -145,6 +160,15 @@ fn work_history(
     job: &str,
     phase: &str,
 ) -> Result<WorkHistory> {
+    let bound_audits: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')", [], |r| r.get(0))?;
+    if !bound_audits && tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? >= 11 {
+        return Err(invalid("missing signing work audit bindings"));
+    }
+    let dispatch_times: (Option<i64>, Option<i64>) = if phase == "dispatch" {
+        tx.query_row("SELECT (SELECT created_at FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND job_id=?3),(SELECT recorded_at FROM authority_signing_deliveries WHERE org_id=?1 AND project_id=?2 AND job_id=?3)", params![tenant.org_id,tenant.project_id,job], |r| Ok((r.get(0)?,r.get(1)?)))?
+    } else {
+        (None, None)
+    };
     let current = tx.query_row(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase=?"),
         params![tenant.org_id, tenant.project_id, job, phase], read_head).optional()?;
     let mut statement = tx.prepare(&format!("SELECT {HEAD_COLUMNS},CASE WHEN length(kind)<=16 THEN kind END FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT {}", MAX_WORK_EVENTS + 1))?;
@@ -154,6 +178,7 @@ fn work_history(
     let mut had_unknown = false;
     let mut count = 0;
     let mut bounds = None;
+    let mut previous_audit = None;
     while let Some(row) = rows.next()? {
         count += 1;
         if count > MAX_WORK_EVENTS {
@@ -162,6 +187,13 @@ fn work_history(
         let next = read_head(row)?;
         let kind: String = row.get(9)?;
         valid_head(&next, phase)?;
+        if bound_audits {
+            let sequence = verify_work_audit(tx, tenant, job, phase, &next, &kind)?;
+            if previous_audit.is_some_and(|previous| previous >= sequence) {
+                return Err(invalid("signing work audit order"));
+            }
+            previous_audit = Some(sequence);
+        }
         let (created, deadline) = if let Some(value) = bounds {
             value
         } else {
@@ -257,6 +289,7 @@ fn work_history(
                         && same_counter
                         && same_available
                         && old.until.is_some_and(|until| next.updated < until)
+                        && dispatch_times.1 == Some(next.updated)
                 }
                 _ => false,
             }
@@ -272,7 +305,11 @@ fn work_history(
                 && next.attempts == 0
                 && next.available == next.updated
                 && next.updated < deadline
-                && (phase != "signer" || next.updated == created)
+                && if phase == "signer" {
+                    next.updated == created
+                } else {
+                    dispatch_times.0 == Some(next.updated)
+                }
         };
         if !legal {
             return Err(invalid("signing work history"));
@@ -283,10 +320,104 @@ fn work_history(
     if current != previous {
         return Err(invalid("signing work head mismatch"));
     }
+    if bound_audits {
+        let bindings: usize = tx.query_row("SELECT count(*) FROM (SELECT 1 FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? LIMIT 193)", params![tenant.org_id,tenant.project_id,job,phase], |r| r.get(0))?;
+        if bindings != count {
+            return Err(invalid("signing work audit binding count"));
+        }
+    }
     Ok(WorkHistory {
         current,
         had_unknown,
     })
+}
+
+fn verify_work_audit(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job: &str,
+    phase: &str,
+    next: &Head,
+    kind: &str,
+) -> Result<u64> {
+    type Binding = (Vec<u8>, Vec<u8>, String, i64);
+    let binding: Binding = tx.query_row("SELECT CASE WHEN length(audit_sequence)=8 THEN audit_sequence END,CASE WHEN length(audit_hash)=32 THEN audit_hash END,CASE WHEN length(kind)<=16 THEN kind END,updated_at FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? AND revision=?", params![tenant.org_id,tenant.project_id,job,phase,next.revision.to_be_bytes().as_slice()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+    if binding.2 != kind || binding.3 != next.updated {
+        return Err(invalid("signing work audit projection"));
+    }
+    audit_log::verify_bound_event(
+        tx,
+        tenant,
+        &binding.0,
+        &binding.1,
+        &format!("signing_{phase}_{kind}"),
+        job,
+        next.updated,
+    )?;
+    let sequence: [u8; 8] = binding
+        .0
+        .as_slice()
+        .try_into()
+        .map_err(|_| invalid("signing audit sequence"))?;
+    Ok(u64::from_be_bytes(sequence))
+}
+
+/// Legacy audit bytes have no work revision. Only one exact historical match
+/// is sufficient evidence: absent or ambiguous candidates abort the upgrade.
+/// New events instead retain an explicit, immutable one-use audit identity.
+pub(super) fn backfill_work_audits(tx: &Transaction<'_>) -> Result<()> {
+    tx.execute_batch(MIGRATION_WORK_BINDINGS)?;
+    let mut statement = tx.prepare("SELECT org_id,project_id,job_id,phase,revision,kind,updated_at FROM authority_signing_work_events ORDER BY org_id,project_id,job_id,phase,revision")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
+        let job: String = row.get(2)?;
+        identifier(&job)?;
+        let phase: String = row.get(3)?;
+        let revision: [u8; 8] = row.get(4)?;
+        let kind: String = row.get(5)?;
+        let updated: i64 = row.get(6)?;
+        let audit_kind = format!("signing_{phase}_{kind}");
+        let mut candidates = tx.prepare("SELECT CASE WHEN length(sequence)=8 THEN sequence END,CASE WHEN length(event_hash)=32 THEN event_hash END FROM authority_audit WHERE org_id=? AND project_id=? AND resource_id=? AND kind=? AND recorded_at=? ORDER BY sequence LIMIT 2")?;
+        let candidates = candidates
+            .query_map(
+                params![tenant.org_id, tenant.project_id, job, audit_kind, updated],
+                |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?)),
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        if candidates.len() != 1 {
+            return Err(invalid("missing or ambiguous legacy signing work audit"));
+        }
+        let (sequence, digest) = &candidates[0];
+        audit_log::verify_bound_event(tx, &tenant, sequence, digest, &audit_kind, &job, updated)?;
+        let previous: Option<Vec<u8>> = tx.query_row("SELECT audit_sequence FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision DESC LIMIT 1", params![tenant.org_id,tenant.project_id,job,phase], |r| r.get(0)).optional()?;
+        if previous.as_ref().is_some_and(|old| old >= sequence) {
+            return Err(invalid("legacy signing work audit order"));
+        }
+        tx.execute(
+            "INSERT INTO authority_signing_work_audits VALUES(?,?,?,?,?,?,?,?,?)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                job,
+                phase,
+                revision.as_slice(),
+                kind,
+                updated,
+                sequence,
+                digest
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn dispatch_unknown_seen(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job: &str,
+) -> Result<bool> {
+    Ok(work_history(tx, tenant, job, "dispatch")?.had_unknown)
 }
 
 fn head(
@@ -347,23 +478,8 @@ fn write_head(
     next.revision = old
         .map_or(Some(1), |h| h.revision.checked_add(1))
         .ok_or(AuthorityError::Quota)?;
-    let revision = next.revision.to_be_bytes();
-    let generation = next.generation.to_be_bytes();
-    let fields = params![
-        tenant.org_id,
-        tenant.project_id,
-        job,
-        phase,
-        next.state,
-        revision.as_slice(),
-        generation.as_slice(),
-        next.claim_hash,
-        next.worker,
-        next.until,
-        next.attempts,
-        next.available,
-        next.updated
-    ];
+    audit(tx, tenant, &format!("signing_{phase}_{kind}"), job, now)?;
+    tx.execute("INSERT INTO authority_signing_work_audits SELECT ?1,?2,?3,?4,?5,?6,?7,sequence,event_hash FROM authority_audit_heads WHERE org_id=?1 AND project_id=?2", params![tenant.org_id,tenant.project_id,job,phase,next.revision.to_be_bytes().as_slice(),kind,now])?;
     tx.execute(
         "INSERT INTO authority_signing_work_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
@@ -383,15 +499,9 @@ fn write_head(
             kind
         ],
     )?;
-    if let Some(old) = old {
-        let changed=tx.execute("UPDATE authority_signing_work_heads SET state=?5,revision=?6,claim_generation=?7,claim_hash=?8,worker_id=?9,claim_until=?10,attempts=?11,available_at=?12,updated_at=?13 WHERE org_id=?1 AND project_id=?2 AND job_id=?3 AND phase=?4",fields)?;
-        if changed != 1 || next.revision != old.revision + 1 {
-            return Err(AuthorityError::Conflict);
-        }
-    } else {
-        tx.execute("INSERT INTO authority_signing_work_heads VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",fields)?;
-    }
-    audit(tx, tenant, &format!("signing_{phase}_{kind}"), job, now)
+    // The AFTER INSERT trigger projects the head in this same SQL statement.
+    // A committed event-only transaction therefore cannot strand an old head.
+    Ok(())
 }
 
 fn initial(state: &str, now: i64) -> Head {
@@ -430,11 +540,25 @@ fn bound_job(
     job_id: &str,
     now: i64,
 ) -> Result<(PreparedSigningJob, signing_intents::SigningIntentRecord)> {
+    bound_job_in_state(tx, tenant, job_id, now, false)
+}
+
+fn bound_job_in_state(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job_id: &str,
+    now: i64,
+    initializing: bool,
+) -> Result<(PreparedSigningJob, signing_intents::SigningIntentRecord)> {
     identifier(job_id)?;
     time(now)?;
     let job = signing_intents::job_at(tx, tenant, job_id)?;
     let intent = signing_intents::intent_at(tx, tenant, &job.job().intent_id)?;
-    let reservation = signing_quota::read(tx, tenant, &intent.reservation_id)?;
+    let reservation = if initializing {
+        signing_quota::read_initializing_job(tx, tenant, &intent.reservation_id)?
+    } else {
+        signing_quota::read(tx, tenant, &intent.reservation_id)?
+    };
     if reservation.plan_id != intent.plan_id
         || reservation.plan_hash != intent.plan_hash
         || reservation.reserved_at != intent.created_at
@@ -454,7 +578,8 @@ pub(super) fn initialize_job(
     job_id: &str,
     now: i64,
 ) -> Result<()> {
-    bound_job(tx, tenant, job_id, now)?;
+    // Only this in-transaction step precedes the first signer event/head.
+    bound_job_in_state(tx, tenant, job_id, now, true)?;
     if head(tx, tenant, job_id, "signer")?.is_some() {
         return Err(AuthorityError::Conflict);
     }
@@ -943,6 +1068,16 @@ fn unknown_in_tx(
     Ok(())
 }
 
+#[cfg(test)]
+pub(super) fn fixture_unknown(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    claim: &SigningClaim,
+    now: i64,
+) -> Result<()> {
+    unknown_in_tx(tx, tenant, claim, now)
+}
+
 // An unsigned delivery record is diagnostic history, not authenticated target
 // evidence. It never releases issued quota. A future authenticated receipt must
 // use a separate verified type and independent trust. No public completion
@@ -1062,6 +1197,28 @@ fn cancel_in_tx(
     Ok(())
 }
 
+#[cfg(test)]
+pub(super) fn fixture_cancel_work(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job: &str,
+    now: i64,
+) -> Result<()> {
+    let old = head(tx, tenant, job, "signer")?.ok_or(AuthorityError::Binding)?;
+    let mut next = old.clone();
+    clear_claim(&mut next, "cancelled");
+    write_head(
+        tx,
+        tenant,
+        job,
+        "signer",
+        Some(&old),
+        next,
+        "cancelled",
+        now,
+    )
+}
+
 impl AuthorityStore {
     pub fn claim_signing_job(
         &mut self,
@@ -1072,7 +1229,7 @@ impl AuthorityStore {
         lease_seconds: i64,
         now: i64,
     ) -> Result<SigningClaim> {
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1098,7 +1255,7 @@ impl AuthorityStore {
         lease_seconds: i64,
         now: i64,
     ) -> Result<SigningClaim> {
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, &claim.job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1114,7 +1271,7 @@ impl AuthorityStore {
         claim: &SigningClaim,
         now: i64,
     ) -> Result<()> {
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, &claim.job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1130,7 +1287,7 @@ impl AuthorityStore {
         job_id: &str,
         now: i64,
     ) -> Result<()> {
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1147,7 +1304,7 @@ impl AuthorityStore {
         lease_seconds: i64,
         now: i64,
     ) -> Result<SigningDispatchClaim> {
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1177,7 +1334,7 @@ impl AuthorityStore {
         claim: &SigningClaim,
         now: i64,
     ) -> Result<()> {
-        self.observe_signing_quota_time(tenant, now)?;
+        self.observe_signing_job_quota_time(tenant, &claim.job_id, now)?;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;

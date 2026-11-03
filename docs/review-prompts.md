@@ -1,15 +1,15 @@
 # Independent review prompts
 
-> Current status: the user has supplied Claude Opus 5.5's complete
-> [PR20 review](reviews/pr20-claude-review.md), target
-> `9e021b31171ae19ff8c9e7eba400d8dd4630a001` against
-> `09ef6a866632a9a6e12e2af799cb18b8b55daca9`. N1–N7 are open follow-up work.
-> Start a new development session with [this prompt](session-start-prompt.txt).
-> Do not request the same PR20 review again. Prepare the next Claude-only external
-> prompt after the next coherent implementation batch, using its actual fixed
-> base/head and fresh evidence. The prompts below are historical records.
+> Current status: PR20's supplied Claude Opus5.5 report is retained unchanged.
+> The integrated follow-up corrects N1–N7 and adds schema12 project-only quota.
+> Use **Claude Opus5.5 only** for one consolidated external review. The follow-up
+> PR description and user handoff contain the complete prompt with actual fixed
+> base/head; resolve that PR instead of reusing a historical target below.
+> Comparison base: `2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3`.
+> Preparing a prompt and internal agent review are not external model execution.
+> Start a development session with [this prompt](session-start-prompt.txt).
 
-> Historical PR #16 prompts below. Current reservation-integrity review prompts,
+> Historical PR #16 prompts below. Historical reservation-integrity review prompts,
 > exact base and target are in [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).
 > Do not reuse the historical SHA for the current follow-up.
 

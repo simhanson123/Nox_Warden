@@ -43,9 +43,27 @@ pub struct SigningRootQuotaPin {
     pub not_before: i64,
     pub not_after: i64,
 }
-/// A separate privileged operation pins the project limits and its permanent
-/// root binding. Reusing this input shape does not combine the two operations.
-pub type SigningProjectQuotaPin = SigningRootQuotaPin;
+/// Explicit local-administrator project configuration. A missing root selects
+/// general-policy accounting and never supplies core-access authority.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SigningProjectQuotaPin {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_id: Option<String>,
+    pub limits: SigningQuotaLimits,
+    pub not_before: i64,
+    pub not_after: i64,
+}
+impl From<SigningRootQuotaPin> for SigningProjectQuotaPin {
+    fn from(pin: SigningRootQuotaPin) -> Self {
+        Self {
+            root_id: Some(pin.root_id),
+            limits: pin.limits,
+            not_before: pin.not_before,
+            not_after: pin.not_after,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -114,12 +132,14 @@ impl SigningQuotaCost {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PinRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema_version: Option<String>,
     org_id: String,
     bucket_kind: String,
     bucket_id: String,
     revision: String,
     pinned_at: String,
-    pin: SigningRootQuotaPin,
+    pin: SigningProjectQuotaPin,
 }
 struct Pin {
     record: PinRecord,
@@ -133,18 +153,22 @@ struct Snapshot {
     org_id: String,
     project_id: String,
     reservation_id: String,
-    root_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_id: Option<String>,
     plan_id: String,
     plan_hash: String,
-    root_revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_revision: Option<String>,
     project_revision: String,
-    root_pin_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_pin_hash: Option<String>,
     project_pin_hash: String,
     reserved_at: String,
     reserved_until: String,
     window_start: String,
     window_end: String,
-    root_projected: SigningQuotaUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_projected: Option<SigningQuotaUsage>,
     project_projected: SigningQuotaUsage,
 }
 
@@ -154,18 +178,22 @@ pub struct SigningBudgetReservation {
     pub org_id: String,
     pub project_id: String,
     pub reservation_id: String,
-    pub root_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_id: Option<String>,
     pub plan_id: String,
     pub plan_hash: String,
-    pub root_revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_revision: Option<String>,
     pub project_revision: String,
-    pub root_pin_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_pin_hash: Option<String>,
     pub project_pin_hash: String,
     pub reserved_at: String,
     pub reserved_until: String,
     pub window_start: String,
     pub window_end: String,
-    pub root_projected: SigningQuotaUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_projected: Option<SigningQuotaUsage>,
     pub project_projected: SigningQuotaUsage,
     pub cost: SigningQuotaCost,
     pub state: String,
@@ -199,8 +227,10 @@ fn revision(value: &str) -> Result<u64> {
     }
     Ok(n)
 }
-fn validate_pin(pin: &SigningRootQuotaPin, now: i64) -> Result<()> {
-    identifier(&pin.root_id)?;
+fn validate_pin(pin: &SigningProjectQuotaPin, now: i64) -> Result<()> {
+    if let Some(root) = &pin.root_id {
+        identifier(root)?;
+    }
     pin.limits.validate()?;
     interval(pin.not_before, pin.not_after, now)?;
     if now < pin.not_before {
@@ -209,7 +239,7 @@ fn validate_pin(pin: &SigningRootQuotaPin, now: i64) -> Result<()> {
     Ok(())
 }
 fn pin_at(tx: &Transaction<'_>, org: &str, kind: &str, id: &str, version: u64) -> Result<Pin> {
-    let row: (String, i64, Vec<u8>, Vec<u8>) = tx.query_row(
+    let row: (Option<String>, i64, Vec<u8>, Vec<u8>) = tx.query_row(
         "SELECT root_id,pinned_at,pin_hash,CASE WHEN length(canonical_bytes)<=32768 THEN canonical_bytes END FROM authority_signing_quota_pins WHERE org_id=? AND bucket_kind=? AND bucket_id=? AND revision=?",
         params![org,kind,id,version], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
     let record: PinRecord = decode(&row.3)?;
@@ -221,11 +251,24 @@ fn pin_at(tx: &Transaction<'_>, org: &str, kind: &str, id: &str, version: u64) -
         || record.pin.root_id != row.0
         || record.pinned_at != at(row.1)?
         || hash(&digest)? != row.2
-        || (kind == "root" && record.pin.root_id != id)
+        || (kind == "root" && record.pin.root_id.as_deref() != Some(id))
+        || match record.schema_version.as_deref() {
+            None => record.pin.root_id.is_none(),
+            Some("fw.signing-project-quota-pin/v2") => {
+                kind != "project" || record.pin.root_id.is_some()
+            }
+            Some(_) => true,
+        }
     {
         return Err(invalid("signing quota pin projection"));
     }
     validate_pin(&record.pin, row.1)?;
+    if kind == "project" && version > 1 {
+        let anchor = pin_at(tx, org, kind, id, 1)?;
+        if record.pin.root_id.is_some() && record.pin.root_id != anchor.record.pin.root_id {
+            return Err(invalid("signing project quota root anchor"));
+        }
+    }
     Ok(Pin {
         record,
         revision: version,
@@ -267,21 +310,30 @@ fn configuration(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     now: i64,
-) -> Result<Option<(Pin, Pin)>> {
+) -> Result<Option<(Option<Pin>, Pin)>> {
     time(now)?;
     let Some(project) = pin_head(tx, &tenant.org_id, "project", &tenant.project_id)? else {
         return Ok(None);
     };
     clock(tx, &tenant.org_id, "project", &tenant.project_id, now)?;
-    let Some(root) = pin_head(tx, &tenant.org_id, "root", &project.record.pin.root_id)? else {
-        return Ok(None);
-    };
-    clock(tx, &tenant.org_id, "root", &root.record.pin.root_id, now)?;
-    if !current(tx, &project, now)? || !current(tx, &root, now)? {
+    if !current(tx, &project, now)? {
         return Ok(None);
     }
+    let root = if let Some(root_id) = &project.record.pin.root_id {
+        let Some(root) = pin_head(tx, &tenant.org_id, "root", root_id)? else {
+            return Ok(None);
+        };
+        clock(tx, &tenant.org_id, "root", root_id, now)?;
+        if !current(tx, &root, now)? {
+            return Ok(None);
+        }
+        Some(root)
+    } else {
+        None
+    };
     Ok(Some((root, project)))
 }
+#[cfg(test)]
 pub(super) fn configuration_available(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -298,28 +350,37 @@ pub(super) fn core_configuration_available(
     provenance: &crate::VerifiedCoreAccessProvenance,
     now: i64,
 ) -> Result<bool> {
-    let Some((root, project)) = configuration(tx, tenant, now)? else {
+    let Some((Some(root), project)) = configuration(tx, tenant, now)? else {
         return Ok(false);
     };
     let original = provenance.delegation();
     let limits = &root.record.pin.limits;
-    Ok(root.record.pin.root_id == provenance.root_id()
-        && project.record.pin.root_id == provenance.root_id()
-        && limits.active_leases as u64 <= original.max_active_leases
-        && limits.new_leases_per_day as u64 <= original.max_new_leases_per_day
-        && limits.unique_destinations_per_day as u64 <= original.max_unique_destinations_per_day
-        && limits.cumulative_seconds_per_day as u64
-            <= original.max_cumulative_lease_seconds_per_day
-        && limits.concurrent_deployments as u64 <= original.max_concurrent_deployments)
+    Ok(
+        root.record.pin.root_id.as_deref() == Some(provenance.root_id())
+            && project.record.pin.root_id.as_deref() == Some(provenance.root_id())
+            && limits.active_leases as u64 <= original.max_active_leases
+            && limits.new_leases_per_day as u64 <= original.max_new_leases_per_day
+            && limits.unique_destinations_per_day as u64
+                <= original.max_unique_destinations_per_day
+            && limits.cumulative_seconds_per_day as u64
+                <= original.max_cumulative_lease_seconds_per_day
+            && limits.concurrent_deployments as u64 <= original.max_concurrent_deployments,
+    )
 }
 
-pub(super) fn configuration_valid_until(
+pub(super) fn quota_configuration_summary(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     now: i64,
-) -> Result<Option<i64>> {
-    Ok(configuration(tx, tenant, now)?
-        .map(|(root, project)| root.record.pin.not_after.min(project.record.pin.not_after)))
+) -> Result<Option<(Option<String>, i64)>> {
+    Ok(configuration(tx, tenant, now)?.map(|(root, project)| {
+        (
+            project.record.pin.root_id,
+            root.map_or(project.record.pin.not_after, |root| {
+                root.record.pin.not_after.min(project.record.pin.not_after)
+            }),
+        )
+    }))
 }
 
 impl AuthorityStore {
@@ -349,13 +410,29 @@ impl AuthorityStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(project) = pin_head(&tx, &tenant.org_id, "project", &tenant.project_id)? {
             advance(&tx, &tenant.org_id, "project", &tenant.project_id, now)?;
-            advance(
-                &tx,
-                &tenant.org_id,
-                "root",
-                &project.record.pin.root_id,
-                now,
-            )?;
+            if let Some(root) = project.record.pin.root_id {
+                advance(&tx, &tenant.org_id, "root", &root, now)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    /// Observe the retained obligation's own scope after project cutover.
+    /// This commits before the requested work can be refused or rolled back.
+    pub(super) fn observe_signing_job_quota_time(
+        &mut self,
+        tenant: &AuthorityTenant,
+        job: &str,
+        now: i64,
+    ) -> Result<()> {
+        identifier(job)?;
+        self.observe_quota_bucket(tenant, "project", &tenant.project_id, now)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let root:Option<Option<String>>=tx.query_row("SELECT r.root_id FROM authority_signing_intents i JOIN authority_signing_jobs j ON j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id JOIN authority_signing_quota_reservations r ON r.org_id=i.org_id AND r.project_id=i.project_id AND r.reservation_id=i.reservation_id WHERE i.org_id=? AND i.project_id=? AND i.job_id=?",params![tenant.org_id,tenant.project_id,job],|r|r.get(0)).optional()?;
+        if let Some(Some(root)) = root {
+            advance(&tx, &tenant.org_id, "root", &root, now)?;
         }
         tx.commit()?;
         Ok(())
@@ -367,12 +444,19 @@ impl AuthorityStore {
         expected_revision: Option<u64>,
         now: i64,
     ) -> Result<u64> {
-        self.pin_quota(tenant, "root", &pin.root_id, pin, expected_revision, now)
+        self.pin_quota(
+            tenant,
+            "root",
+            &pin.root_id,
+            &pin.clone().into(),
+            expected_revision,
+            now,
+        )
     }
-    pub fn pin_signing_project_quota(
+    pub fn pin_signing_project_quota<P: Clone + Into<SigningProjectQuotaPin>>(
         &mut self,
         tenant: &AuthorityTenant,
-        pin: &SigningProjectQuotaPin,
+        pin: &P,
         expected_revision: Option<u64>,
         now: i64,
     ) -> Result<u64> {
@@ -380,7 +464,7 @@ impl AuthorityStore {
             tenant,
             "project",
             &tenant.project_id,
-            pin,
+            &pin.clone().into(),
             expected_revision,
             now,
         )
@@ -390,7 +474,7 @@ impl AuthorityStore {
         tenant: &AuthorityTenant,
         kind: &str,
         id: &str,
-        pin: &SigningRootQuotaPin,
+        pin: &SigningProjectQuotaPin,
         expected_revision: Option<u64>,
         now: i64,
     ) -> Result<u64> {
@@ -401,18 +485,24 @@ impl AuthorityStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         security_revision(&tx, tenant)?;
-        if kind == "project" {
-            let root = pin_head(&tx, &tenant.org_id, "root", &pin.root_id)?
-                .ok_or(AuthorityError::Binding)?;
-            clock(&tx, &tenant.org_id, "root", &pin.root_id, now)?;
+        if let ("project", Some(root_id)) = (kind, &pin.root_id) {
+            let root =
+                pin_head(&tx, &tenant.org_id, "root", root_id)?.ok_or(AuthorityError::Binding)?;
+            clock(&tx, &tenant.org_id, "root", root_id, now)?;
             if !current(&tx, &root, now)? {
                 return Err(AuthorityError::Time);
             }
         }
         let old = pin_head(&tx, &tenant.org_id, kind, id)?;
         if let Some(old) = &old {
-            if kind == "project" && old.record.pin.root_id != pin.root_id {
-                return Err(AuthorityError::Binding);
+            if kind == "project" {
+                // The first retained pin permanently anchors the project. An
+                // explicit CAS can cut A to None and restore A, never attach B;
+                // a project created without a root cannot later acquire one.
+                let anchor = pin_at(&tx, &tenant.org_id, kind, id, 1)?;
+                if pin.root_id.is_some() && pin.root_id != anchor.record.pin.root_id {
+                    return Err(AuthorityError::Binding);
+                }
             }
             if old.record.pin == *pin
                 && !revoked(&tx, old)?
@@ -431,6 +521,10 @@ impl AuthorityStore {
             .filter(|v| *v <= i32::MAX as u64)
             .ok_or(AuthorityError::Quota)?;
         let record = PinRecord {
+            schema_version: pin
+                .root_id
+                .is_none()
+                .then(|| "fw.signing-project-quota-pin/v2".into()),
             org_id: tenant.org_id.clone(),
             bucket_kind: kind.into(),
             bucket_id: id.into(),
@@ -452,8 +546,10 @@ impl AuthorityStore {
                 canonical
             ],
         )?;
-        tx.execute("INSERT INTO authority_signing_quota_heads VALUES(?,?,?,?) ON CONFLICT(org_id,bucket_kind,bucket_id) DO UPDATE SET revision=excluded.revision",params![tenant.org_id,kind,id,next])?;
-        tx.execute("INSERT INTO authority_signing_quota_clocks VALUES(?,?,?,?) ON CONFLICT(org_id,bucket_kind,bucket_id) DO UPDATE SET observed_at=excluded.observed_at",params![tenant.org_id,kind,id,now])?;
+        tx.execute("UPDATE authority_signing_quota_heads SET revision=?4 WHERE org_id=?1 AND bucket_kind=?2 AND bucket_id=?3",params![tenant.org_id,kind,id,next])?;
+        tx.execute("INSERT INTO authority_signing_quota_heads SELECT ?1,?2,?3,?4 WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_heads WHERE org_id=?1 AND bucket_kind=?2 AND bucket_id=?3)",params![tenant.org_id,kind,id,next])?;
+        tx.execute("UPDATE authority_signing_quota_clocks SET observed_at=?4 WHERE org_id=?1 AND bucket_kind=?2 AND bucket_id=?3",params![tenant.org_id,kind,id,now])?;
+        tx.execute("INSERT INTO authority_signing_quota_clocks SELECT ?1,?2,?3,?4 WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_clocks WHERE org_id=?1 AND bucket_kind=?2 AND bucket_id=?3)",params![tenant.org_id,kind,id,now])?;
         bump_security(&tx, tenant)?;
         audit(&tx, tenant, "signing_quota_pinned", id, now)?;
         tx.commit()?;
@@ -563,7 +659,7 @@ pub(super) fn cost_for_plan(
 }
 
 struct Stored {
-    root: String,
+    root: Option<String>,
     plan: String,
     plan_hash: Vec<u8>,
     lease: Option<String>,
@@ -583,7 +679,22 @@ pub(super) fn read(
     tenant: &AuthorityTenant,
     id: &str,
 ) -> Result<SigningBudgetReservation> {
-    read_record(tx, tenant, id, true, false)
+    read_record(tx, tenant, id, true, false, false)
+}
+pub(super) fn read_initializing_job(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    id: &str,
+) -> Result<SigningBudgetReservation> {
+    // The job and intent have just been inserted, but signer-created must still
+    // be appended in this transaction. This is the only caller allowed to read
+    // that state; a committed job without genesis fails ordinary reads.
+    let saved = read_record(tx, tenant, id, true, false, true)?;
+    let advanced:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_audits a WHERE a.org_id=i.org_id AND a.project_id=i.project_id AND a.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND o.job_id=i.job_id)))",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
+    if saved.state != "reserved" || saved.issued_at.is_some() || advanced {
+        return Err(AuthorityError::Conflict);
+    }
+    Ok(saved)
 }
 fn read_record(
     tx: &Transaction<'_>,
@@ -591,8 +702,10 @@ fn read_record(
     id: &str,
     check_transition: bool,
     pending_unknown_transition: bool,
+    initializing_job: bool,
 ) -> Result<SigningBudgetReservation> {
     identifier(id)?;
+    validate_reservation_graph(tx, tenant, id, initializing_job)?;
     let row:Stored=tx.query_row("SELECT root_id,plan_id,plan_hash,lease_id,lease_seconds,cost_hash,CASE WHEN length(cost_bytes)<=262144 THEN cost_bytes END,CASE WHEN length(snapshot_bytes)<=32768 THEN snapshot_bytes END,reserved_at,reserved_until,state,issued_at,active_slots,dispatch_slots FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|Ok(Stored{root:r.get(0)?,plan:r.get(1)?,plan_hash:r.get(2)?,lease:r.get(3)?,seconds:r.get(4)?,cost_hash:r.get(5)?,cost:r.get(6)?,snapshot:r.get(7)?,reserved_at:r.get(8)?,reserved_until:r.get(9)?,state:r.get(10)?,issued_at:r.get(11)?,active:r.get(12)?,dispatch:r.get(13)?}))?;
     let cost: SigningQuotaCost = decode(&row.cost)?;
     let snapshot: Snapshot = decode(&row.snapshot)?;
@@ -602,7 +715,23 @@ fn read_record(
         || row.lease != cost.lease_id
         || row.seconds != cost.lease_seconds
         || row.cost_hash != hash(&hash_bytes(&row.cost))?
-        || snapshot.schema_version != "fw.signing-budget-reservation/v1"
+        || match snapshot.schema_version.as_str() {
+            "fw.signing-budget-reservation/v1" => {
+                snapshot.root_id.is_none()
+                    || snapshot.root_revision.is_none()
+                    || snapshot.root_pin_hash.is_none()
+                    || snapshot.root_projected.is_none()
+            }
+            "fw.signing-budget-reservation/v2" => {
+                snapshot.root_id.is_some()
+                    || snapshot.root_revision.is_some()
+                    || snapshot.root_pin_hash.is_some()
+                    || snapshot.root_projected.is_some()
+                    || cost.lease_id.is_some()
+                    || row.active != 0
+            }
+            _ => true,
+        }
         || snapshot.org_id != tenant.org_id
         || snapshot.project_id != tenant.project_id
         || snapshot.reservation_id != id
@@ -619,13 +748,24 @@ fn read_record(
     {
         return Err(invalid("signing quota reservation projection"));
     }
-    let root = pin_at(
-        tx,
-        &tenant.org_id,
-        "root",
-        &row.root,
-        revision(&snapshot.root_revision)?,
-    )?;
+    let root = row
+        .root
+        .as_deref()
+        .map(|id| {
+            pin_at(
+                tx,
+                &tenant.org_id,
+                "root",
+                id,
+                revision(
+                    snapshot
+                        .root_revision
+                        .as_deref()
+                        .ok_or(AuthorityError::Binding)?,
+                )?,
+            )
+        })
+        .transpose()?;
     let project = pin_at(
         tx,
         &tenant.org_id,
@@ -633,20 +773,31 @@ fn read_record(
         &tenant.project_id,
         revision(&snapshot.project_revision)?,
     )?;
-    if root.digest != snapshot.root_pin_hash
+    if root.as_ref().map(|root| &root.digest) != snapshot.root_pin_hash.as_ref()
         || project.digest != snapshot.project_pin_hash
         || project.record.pin.root_id != row.root
-        || row.reserved_at < crate::timestamp(&root.record.pinned_at)?
         || row.reserved_at < crate::timestamp(&project.record.pinned_at)?
-        || row.reserved_until > root.record.pin.not_after
         || row.reserved_until > project.record.pin.not_after
     {
         return Err(AuthorityError::Binding);
     }
-    for (usage, limits) in [
-        (&snapshot.root_projected, &root.record.pin.limits),
-        (&snapshot.project_projected, &project.record.pin.limits),
-    ] {
+    if let Some(root) = &root
+        && (row.reserved_at < crate::timestamp(&root.record.pinned_at)?
+            || row.reserved_until > root.record.pin.not_after)
+    {
+        return Err(AuthorityError::Binding);
+    }
+    for (usage, limits) in snapshot
+        .root_projected
+        .as_ref()
+        .zip(root.as_ref())
+        .map(|(usage, root)| (usage, &root.record.pin.limits))
+        .into_iter()
+        .chain(std::iter::once((
+            &snapshot.project_projected,
+            &project.record.pin.limits,
+        )))
+    {
         if usage.active_leases < cost.active()
             || usage.new_leases_per_day < cost.active()
             || usage.unique_destinations_per_day < cost.destination_asset_ids.len() as i64
@@ -692,8 +843,9 @@ fn read_record(
         return Err(invalid("signing quota uncertainty history"));
     }
     if check_transition {
+        validate_transition_history(tx, tenant, id, &row)?;
         let matches: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transitions t WHERE t.org_id=?1 AND t.project_id=?2 AND t.reservation_id=?3 AND t.revision=(SELECT MAX(revision) FROM authority_signing_quota_transitions WHERE org_id=?1 AND project_id=?2 AND reservation_id=?3) AND t.state=?4 AND t.issued_at IS ?5 AND t.active_slots=?6 AND t.dispatch_slots=?7 AND EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h WHERE h.org_id=t.org_id AND h.project_id=t.project_id AND h.reservation_id=t.reservation_id AND h.revision=t.revision AND h.state=t.state AND h.issued_at IS t.issued_at AND h.root_id=?8 AND h.lease_id IS ?9))",
+            "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transitions t WHERE t.org_id=?1 AND t.project_id=?2 AND t.reservation_id=?3 AND t.revision=(SELECT MAX(revision) FROM authority_signing_quota_transitions WHERE org_id=?1 AND project_id=?2 AND reservation_id=?3) AND t.state=?4 AND t.issued_at IS ?5 AND t.active_slots=?6 AND t.dispatch_slots=?7 AND EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h WHERE h.org_id=t.org_id AND h.project_id=t.project_id AND h.reservation_id=t.reservation_id AND h.revision=t.revision AND h.state=t.state AND h.issued_at IS t.issued_at AND h.root_id IS ?8 AND h.lease_id IS ?9))",
             params![tenant.org_id, tenant.project_id, id, row.state, row.issued_at, row.active, row.dispatch, row.root, row.lease], |r| r.get(0))?;
         if !matches {
             return Err(invalid("signing quota transition projection"));
@@ -789,7 +941,7 @@ pub(super) fn validate_legacy_reservations(tx: &Transaction<'_>) -> Result<()> {
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
         let id: String = row.get(2)?;
-        let saved = read_record(tx, &tenant, &id, false, false)?;
+        let saved = read_record(tx, &tenant, &id, false, false, false)?;
         let intent_id:String=tx.query_row("SELECT intent_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
         let intent = signing_intents::intent_at(tx, &tenant, &intent_id)?;
         signing_intents::job_at(tx, &tenant, &intent.job_id)?;
@@ -838,7 +990,7 @@ pub(super) fn backfill_legacy_transitions(tx: &Transaction<'_>) -> Result<()> {
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
         let id: String = row.get(2)?;
-        let saved = read_record(tx, &tenant, &id, false, false)?;
+        let saved = read_record(tx, &tenant, &id, false, false, false)?;
         let witness =
             transition_witness(tx, &tenant, &id, &saved.state)?.ok_or(AuthorityError::Binding)?;
         tx.execute("INSERT INTO authority_signing_quota_transitions VALUES(?,?,?,0,?,?,?,?,?,'imported',?,?,?)",params![tenant.org_id,tenant.project_id,id,saved.state,saved.issued_at.as_deref().map(crate::timestamp).transpose()?,saved.active_slots,saved.dispatch_slots,witness.3,witness.0,witness.1,witness.2])?;
@@ -857,35 +1009,29 @@ fn add(value: &mut i64, cost: i64) -> Result<()> {
     *value = value.checked_add(cost).ok_or(AuthorityError::Quota)?;
     Ok(())
 }
+#[derive(Clone, Copy)]
+enum AccountingScope<'a> {
+    Root(&'a str),
+    Project,
+}
 fn account(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
-    root: &str,
-    is_root: bool,
+    scope: AccountingScope<'_>,
     now: i64,
     prospective: Option<&SigningQuotaCost>,
 ) -> Result<SigningQuotaUsage> {
-    // Indexed exclusions rely on evidence and immutable cost/issuance history,
-    // not only membership projections. Check every expected signing guard from
-    // the bounded, cached reference schema even on an already-open connection.
-    for (name, expected) in migrations::signing_guard_definitions()? {
-        let actual: Option<Option<String>> = tx
-            .query_row(
-                "SELECT CASE WHEN length(CAST(sql AS BLOB))=? THEN sql END FROM sqlite_schema WHERE type='trigger' AND name=?",
-                params![expected.len(), name],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if actual.flatten().as_deref() != Some(expected.as_str()) {
-            return Err(invalid("quota accounting guard missing or changed"));
-        }
-    }
+    migrations::validate_live_schema(tx)
+        .map_err(|_| invalid("quota accounting guard missing or changed"))?;
+    // The complete independently constructed schema inventory also covers
+    // audit dependencies and rejects unexpected internal-named objects.
     // Two bounded indexed scans: live slots (including expired UNKNOWN), then
     // released history inside the exact rolling interval. Never truncate and
     // claim admission; excess work returns Quota for the entire transaction.
-    let key = if is_root { "root_id" } else { "project_id" };
-    let index_kind = if is_root { "root" } else { "project" };
-    let bucket = if is_root { root } else { &tenant.project_id };
+    let (key, index_kind, bucket) = match scope {
+        AccountingScope::Root(root) => ("root_id", "root", root),
+        AccountingScope::Project => ("project_id", "project", tenant.project_id.as_str()),
+    };
     let sql = format!(
         "SELECT project_id,reservation_id FROM authority_signing_quota_transition_heads INDEXED BY authority_signing_quota_transition_{index_kind}_held WHERE org_id=?1 AND {key}=?2 AND state IN ('reserved','issued','unknown','active') UNION ALL SELECT project_id,reservation_id FROM authority_signing_quota_transition_heads INDEXED BY authority_signing_quota_transition_{index_kind}_accounting WHERE org_id=?1 AND {key}=?2 AND state='released' AND lease_id IS NOT NULL AND issued_at>?3 AND issued_at<=?4 LIMIT {}",
         MAX_ACCOUNTED_ROWS + 1
@@ -905,7 +1051,7 @@ fn account(
         let id: String = row.get(1)?;
         let row_tenant = AuthorityTenant::new(&tenant.org_id, &project)?;
         let saved = read(tx, &row_tenant, &id)?;
-        if saved.root_id != root && is_root {
+        if matches!(scope,AccountingScope::Root(root) if saved.root_id.as_deref()!=Some(root)) {
             return Err(AuthorityError::Binding);
         }
         if crate::timestamp(&saved.reserved_at)? > now
@@ -958,9 +1104,19 @@ fn account(
         i64::try_from(destinations.len()).map_err(|_| AuthorityError::Quota)?;
     Ok(result)
 }
-fn observed(tx: &Transaction<'_>, tenant: &AuthorityTenant, root: &str, now: i64) -> Result<()> {
+
+include!("signing_quota_validation.rs");
+fn observed(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    root: Option<&str>,
+    now: i64,
+) -> Result<()> {
     advance(tx, &tenant.org_id, "project", &tenant.project_id, now)?;
-    advance(tx, &tenant.org_id, "root", root, now)
+    if let Some(root) = root {
+        advance(tx, &tenant.org_id, "root", root, now)?;
+    }
+    Ok(())
 }
 
 pub(super) fn reserve(
@@ -979,14 +1135,14 @@ pub(super) fn reserve(
         return Err(AuthorityError::Time);
     }
     let (root, project) = configuration(tx, tenant, now)?.ok_or(AuthorityError::Binding)?;
-    observed(tx, tenant, &root.record.pin.root_id, now)?;
+    observed(tx, tenant, project.record.pin.root_id.as_deref(), now)?;
     let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?)",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
     if exists {
         let saved = read(tx, tenant, id)?;
         if saved.cost != *cost
             || saved.state != "reserved"
-            || saved.root_id != root.record.pin.root_id
-            || saved.root_revision != root.revision.to_string()
+            || saved.root_id != project.record.pin.root_id
+            || saved.root_revision != root.as_ref().map(|root| root.revision.to_string())
             || saved.project_revision != project.revision.to_string()
             || now >= crate::timestamp(&saved.reserved_until)?
         {
@@ -994,7 +1150,11 @@ pub(super) fn reserve(
         }
         return Ok(saved);
     }
-    if reserved_until > root.record.pin.not_after || reserved_until > project.record.pin.not_after {
+    if reserved_until
+        > root.as_ref().map_or(project.record.pin.not_after, |root| {
+            root.record.pin.not_after.min(project.record.pin.not_after)
+        })
+    {
         return Err(AuthorityError::Time);
     }
     if let Some(lease) = &cost.lease_id {
@@ -1003,21 +1163,47 @@ pub(super) fn reserve(
             return Err(AuthorityError::Conflict);
         }
     }
-    let root_projected = account(tx, tenant, &root.record.pin.root_id, true, now, Some(cost))?;
-    let project_projected = account(tx, tenant, &root.record.pin.root_id, false, now, Some(cost))?;
-    root_projected.within(&root.record.pin.limits)?;
+    if root.is_none() && cost.lease_id.is_some() {
+        return Err(AuthorityError::Binding);
+    }
+    let root_projected = root
+        .as_ref()
+        .map(|root| {
+            let usage = account(
+                tx,
+                tenant,
+                AccountingScope::Root(
+                    root.record
+                        .pin
+                        .root_id
+                        .as_deref()
+                        .ok_or(AuthorityError::Binding)?,
+                ),
+                now,
+                Some(cost),
+            )?;
+            usage.within(&root.record.pin.limits)?;
+            Ok::<_, AuthorityError>(usage)
+        })
+        .transpose()?;
+    let project_projected = account(tx, tenant, AccountingScope::Project, now, Some(cost))?;
     project_projected.within(&project.record.pin.limits)?;
     let snapshot = Snapshot {
-        schema_version: "fw.signing-budget-reservation/v1".into(),
+        schema_version: if root.is_some() {
+            "fw.signing-budget-reservation/v1"
+        } else {
+            "fw.signing-budget-reservation/v2"
+        }
+        .into(),
         org_id: tenant.org_id.clone(),
         project_id: tenant.project_id.clone(),
         reservation_id: id.into(),
-        root_id: root.record.pin.root_id.clone(),
+        root_id: project.record.pin.root_id.clone(),
         plan_id: cost.plan_id.clone(),
         plan_hash: cost.plan_hash.clone(),
-        root_revision: root.revision.to_string(),
+        root_revision: root.as_ref().map(|root| root.revision.to_string()),
         project_revision: project.revision.to_string(),
-        root_pin_hash: root.digest,
+        root_pin_hash: root.as_ref().map(|root| root.digest.clone()),
         project_pin_hash: project.digest,
         reserved_at: at(now)?,
         reserved_until: at(reserved_until)?,
@@ -1054,7 +1240,7 @@ fn finalize_admission(
     now: i64,
 ) -> Result<SigningBudgetReservation> {
     let saved = read(tx, tenant, id)?;
-    observed(tx, tenant, &saved.root_id, now)?;
+    observed(tx, tenant, saved.root_id.as_deref(), now)?;
     if saved.issued_at.is_some() {
         return Ok(saved);
     }
@@ -1065,18 +1251,27 @@ fn finalize_admission(
         return Err(AuthorityError::Time);
     }
     let (root, project) = configuration(tx, tenant, now)?.ok_or(AuthorityError::Binding)?;
-    if root.record.pin.root_id != saved.root_id
-        || root.revision.to_string() != saved.root_revision
+    if project.record.pin.root_id != saved.root_id
+        || root.as_ref().map(|root| root.revision.to_string()) != saved.root_revision
         || project.revision.to_string() != saved.project_revision
-        || root.digest != saved.root_pin_hash
+        || root.as_ref().map(|root| &root.digest) != saved.root_pin_hash.as_ref()
         || project.digest != saved.project_pin_hash
     {
         return Err(AuthorityError::Binding);
     }
     // The reservation is already included once; changing it into issued usage
     // must not add its prospective cost a second time.
-    account(tx, tenant, &saved.root_id, true, now, None)?.within(&root.record.pin.limits)?;
-    account(tx, tenant, &saved.root_id, false, now, None)?.within(&project.record.pin.limits)?;
+    if let Some(root) = root {
+        account(
+            tx,
+            tenant,
+            AccountingScope::Root(saved.root_id.as_deref().ok_or(AuthorityError::Binding)?),
+            now,
+            None,
+        )?
+        .within(&root.record.pin.limits)?;
+    }
+    account(tx, tenant, AccountingScope::Project, now, None)?.within(&project.record.pin.limits)?;
     Ok(saved)
 }
 
@@ -1113,7 +1308,7 @@ pub(super) fn cancel_unissued(
     now: i64,
 ) -> Result<()> {
     let saved = read(tx, tenant, id)?;
-    observed(tx, tenant, &saved.root_id, now)?;
+    observed(tx, tenant, saved.root_id.as_deref(), now)?;
     if saved.state == "released" && saved.issued_at.is_none() {
         return Ok(());
     }
@@ -1134,8 +1329,8 @@ pub(super) fn mark_unknown(
     // Its quota projection has not advanced yet. Only this transition may read
     // that intermediate issued state; the SQL evidence guard below must still
     // bind the exact latest UNKNOWN witness and timestamp before committing.
-    let saved = read_record(tx, tenant, id, true, true)?;
-    observed(tx, tenant, &saved.root_id, now)?;
+    let saved = read_record(tx, tenant, id, true, true, false)?;
+    observed(tx, tenant, saved.root_id.as_deref(), now)?;
     if saved.state == "unknown" {
         return Ok(());
     }
@@ -1164,7 +1359,7 @@ pub(super) fn mark_active(
     now: i64,
 ) -> Result<()> {
     let saved = read(tx, tenant, id)?;
-    observed(tx, tenant, &saved.root_id, now)?;
+    observed(tx, tenant, saved.root_id.as_deref(), now)?;
     if saved.state == "active" {
         return Ok(());
     }
@@ -1190,11 +1385,31 @@ pub(super) fn mark_active(
 #[cfg(test)]
 mod tests {
     use super::*;
+    thread_local! {
+        // Only arithmetic fixtures omit cryptographic jobs. Real guarded
+        // lifecycle and attack fixtures always run the production witness path.
+        pub(super) static PRIMITIVE_QUOTA_FIXTURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    struct PrimitiveQuotaFixture;
+    impl Drop for PrimitiveQuotaFixture {
+        fn drop(&mut self) {
+            PRIMITIVE_QUOTA_FIXTURE.set(false);
+        }
+    }
     mod history_tests {
         include!("signing_quota_history_tests.rs");
     }
     mod integrity_tests {
         include!("signing_quota_integrity_tests.rs");
+    }
+    mod rootless_lifecycle_tests {
+        include!("signing_rootless_lifecycle_tests.rs");
+    }
+    mod version_tests {
+        include!("signing_quota_version_tests.rs");
+    }
+    mod retention_tests {
+        include!("signing_quota_retention_tests.rs");
     }
     const NOW: i64 = 1_800_000_000;
     fn id(n: u128) -> String {
@@ -1264,12 +1479,15 @@ mod tests {
         primitive_transition(tx, || record_issuance(tx, tenant, id, now, saved))
     }
     struct Fixture {
+        _primitive: PrimitiveQuotaFixture,
         _directory: tempfile::TempDir,
         store: AuthorityStore,
         tenant: AuthorityTenant,
     }
     impl Fixture {
         fn new(root: SigningQuotaLimits, project: SigningQuotaLimits) -> Self {
+            assert!(!PRIMITIVE_QUOTA_FIXTURE.replace(true));
+            let primitive = PrimitiveQuotaFixture;
             let mut builder = tempfile::Builder::new();
             #[cfg(unix)]
             {
@@ -1290,6 +1508,7 @@ mod tests {
                 .pin_signing_project_quota(&tenant, &pin(project), None, NOW)
                 .unwrap();
             Self {
+                _primitive: primitive,
                 _directory: directory,
                 store,
                 tenant,
@@ -1559,10 +1778,10 @@ mod tests {
         let second = f.reserve(21, &change(2), NOW + 1).unwrap();
         assert_eq!(
             second.root_projected,
-            SigningQuotaUsage {
+            Some(SigningQuotaUsage {
                 concurrent_deployments: 2,
                 ..SigningQuotaUsage::default()
-            }
+            })
         );
         assert!(matches!(
             f.reserve(22, &change(3), NOW + 1),
@@ -1589,6 +1808,7 @@ mod tests {
             f.reserve(21, &change(2), NOW)
                 .unwrap()
                 .root_projected
+                .unwrap()
                 .concurrent_deployments,
             1
         );
@@ -1641,12 +1861,18 @@ mod tests {
             Err(AuthorityError::Quota)
         ));
         let next = f.reserve(21, &lease(2, &[2]), NOW + WINDOW + 250).unwrap();
-        assert_eq!(next.root_projected.new_leases_per_day, 1);
-        assert_eq!(next.root_projected.cumulative_seconds_per_day, 60);
-        assert_eq!(next.root_projected.active_leases, 2);
+        assert_eq!(next.root_projected.as_ref().unwrap().new_leases_per_day, 1);
+        assert_eq!(
+            next.root_projected
+                .as_ref()
+                .unwrap()
+                .cumulative_seconds_per_day,
+            60
+        );
+        assert_eq!(next.root_projected.as_ref().unwrap().active_leases, 2);
     }
     #[test]
-    fn unknown_pending_cost_and_slots_do_not_expire_or_allow_cancellation() {
+    fn impossible_unissued_unknown_cannot_admit_finalize_or_cancel() {
         let mut cap = limits();
         cap.new_leases_per_day = 1;
         let mut f = Fixture::new(cap.clone(), cap);
@@ -1658,18 +1884,9 @@ mod tests {
             .unwrap();
         primitive_transition(&tx, || mark_unknown(&tx, &f.tenant, &id(20), NOW + 1)).unwrap();
         tx.commit().unwrap();
-        assert!(matches!(
-            f.cancel(20, NOW + WINDOW + 100),
-            Err(AuthorityError::Conflict)
-        ));
-        assert!(matches!(
-            f.finalize(20, NOW + WINDOW + 100),
-            Err(AuthorityError::Conflict)
-        ));
-        assert!(matches!(
-            f.reserve(21, &lease(2, &[2]), NOW + WINDOW + 100),
-            Err(AuthorityError::Quota)
-        ));
+        assert!(f.cancel(20, NOW + WINDOW + 100).is_err());
+        assert!(f.finalize(20, NOW + WINDOW + 100).is_err());
+        assert!(f.reserve(21, &lease(2, &[2]), NOW + WINDOW + 100).is_err());
         assert_eq!(f.count("authority_signing_quota_usage"), 0);
     }
     #[test]
@@ -1681,7 +1898,13 @@ mod tests {
         f.finalize(20, NOW).unwrap();
         f.active(20, NOW);
         let next = f.reserve(21, &lease(2, &[2, 3]), NOW).unwrap();
-        assert_eq!(next.root_projected.unique_destinations_per_day, 3);
+        assert_eq!(
+            next.root_projected
+                .as_ref()
+                .unwrap()
+                .unique_destinations_per_day,
+            3
+        );
         assert_eq!(next.project_projected.unique_destinations_per_day, 3);
         assert!(matches!(
             f.reserve(22, &lease(3, &[3, 4]), NOW),
@@ -1820,6 +2043,10 @@ mod tests {
                 .is_err()
         );
         assert_eq!(f.count("authority_signing_quota_pins"), 2);
+        f.store
+            .connection
+            .execute_batch("DROP TRIGGER quota_test_no_audit")
+            .unwrap();
         {
             let tx = f
                 .store
@@ -1827,6 +2054,7 @@ mod tests {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .unwrap();
             reserve(&tx, &f.tenant, &id(20), &lease(1, &[1]), NOW + 301, NOW + 1).unwrap();
+            tx.execute_batch("CREATE TRIGGER quota_test_no_audit BEFORE INSERT ON authority_audit BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;").unwrap();
             assert!(audit(&tx, &f.tenant, "signing_intent_prepared", &id(20), NOW + 1).is_err());
         }
         assert_eq!(f.count("authority_signing_quota_reservations"), 0);
@@ -1839,6 +2067,7 @@ mod tests {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .unwrap();
             primitive_finalize(&tx, &f.tenant, &id(20), NOW + 2).unwrap();
+            tx.execute_batch("CREATE TRIGGER quota_test_no_audit BEFORE INSERT ON authority_audit BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;").unwrap();
             assert!(audit(&tx, &f.tenant, "signing_finalized", &id(20), NOW + 2).is_err());
         }
         assert_eq!(f.count("authority_signing_quota_usage"), 0);
@@ -1934,7 +2163,14 @@ mod tests {
         let result = reserve(&tx, &f.tenant, &id(999), &change(999), NOW + 300, NOW);
         tx.progress_handler(0, None::<fn() -> bool>);
         let saved = result.unwrap();
-        assert_eq!(saved.root_projected.concurrent_deployments, 1);
+        assert_eq!(
+            saved
+                .root_projected
+                .as_ref()
+                .unwrap()
+                .concurrent_deployments,
+            1
+        );
         assert_eq!(saved.project_projected.new_leases_per_day, 0);
         assert!(remaining.load(std::sync::atomic::Ordering::Relaxed) > 0);
     }

@@ -29,11 +29,11 @@ impl AuthorityStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
-            "INSERT OR IGNORE INTO authority_projects VALUES(?,?,1)",
+            "INSERT INTO authority_projects SELECT ?1,?2,1 WHERE NOT EXISTS(SELECT 1 FROM authority_projects WHERE org_id=?1 AND project_id=?2)",
             params![tenant.org_id, tenant.project_id],
         )?;
         tx.execute(
-            "INSERT OR IGNORE INTO authority_audit_heads VALUES(?,?,?,?)",
+            "INSERT INTO authority_audit_heads SELECT ?1,?2,?3,?4 WHERE NOT EXISTS(SELECT 1 FROM authority_audit_heads WHERE org_id=?1 AND project_id=?2)",
             params![
                 tenant.org_id,
                 tenant.project_id,
@@ -380,7 +380,7 @@ impl AuthorityStore {
             return Err(AuthorityError::Time);
         }
         if tx.execute(
-            "INSERT OR IGNORE INTO authority_plan_retirements VALUES(?,?,?,?)",
+            "INSERT INTO authority_plan_retirements SELECT ?1,?2,?3,?4 WHERE NOT EXISTS(SELECT 1 FROM authority_plan_retirements WHERE org_id=?1 AND project_id=?2 AND plan_id=?3)",
             params![tenant.org_id, tenant.project_id, plan_id, now],
         )? == 1
         {

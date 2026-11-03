@@ -297,11 +297,11 @@ fn restored_evidence_guard_cannot_hide_forged_active_capacity() {
             f.reopen();
         }
         let tx = f.store.connection.transaction().unwrap();
-        assert!(read(&tx, &f.tenant, &reservation).unwrap().held());
+        assert!(read(&tx, &f.tenant, &reservation).is_err());
         assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
         assert!(matches!(
             reserve(&tx, &f.tenant, &id(212), &change(212), NOW + 300, NOW),
-            Err(AuthorityError::Quota)
+            Err(AuthorityError::Invalid(_))
         ));
     }
 }
@@ -336,7 +336,7 @@ fn unsigned_active_history_remains_inside_the_accounted_row_bound() {
     );
     // account itself must refuse, independently of the later quota ceilings.
     assert!(matches!(
-        account(&tx, &f.tenant, &id(10), true, NOW, None),
+        account(&tx, &f.tenant, AccountingScope::Root(&id(10)), NOW, None),
         Err(AuthorityError::Quota)
     ));
 }

@@ -51,6 +51,25 @@ STAGES = frozenset({
 })
 
 
+def signing_readiness_matches_fixture(value, detail):
+    """The fixture has no quota pin, generation or retained signing intent."""
+    return (isinstance(value, dict)
+            and set(value) == {'schema_version', 'org_id', 'project_id', 'target_id',
+                               'plan_id', 'plan_hash', 'checked_at', 'valid_until',
+                               'signing_allowed', 'dispatch_allowed', 'reasons',
+                               'approval_set_hash', 'quota_configured', 'target_generation',
+                               'latest_intent', 'quota_scope', 'quota_root_id',
+                               'latest_dispatch_unknown_seen'}
+            and value['schema_version'] == 'fw.signing-readiness/v2'
+            and all(value[field] == detail['plan'][field]
+                    for field in ('org_id', 'project_id', 'target_id', 'plan_id'))
+            and value['plan_hash'] == detail['plan_hash']
+            and value['signing_allowed'] is False and value['dispatch_allowed'] is False
+            and value['quota_configured'] is False and value['target_generation'] is None
+            and value['latest_intent'] is None and value['latest_dispatch_unknown_seen'] is None
+            and value['quota_scope'] is None and value['quota_root_id'] is None)
+
+
 def retain_service_diagnostic(report, path):
     """Called after child shutdown and before its temporary directory is removed."""
     report.pop('startup_failure', None)
@@ -294,7 +313,7 @@ def run(args, report):
                 login()
                 check(report, 'pinned authority credential signs in through browser WebAuthn', True)
                 evidence_url = ORIGIN + '/authority/v1/plans/' + fixture['plan_id'] + '/native-evidence'
-                signing_url = ORIGIN + '/authority/v1/plans/' + fixture['plan_id'] + '/signing-readiness'
+                signing_url = ORIGIN + '/authority/v2/plans/' + fixture['plan_id'] + '/signing-readiness'
                 with page.expect_response(lambda response: response.request.method == 'GET'
                                           and response.url == evidence_url) as evidence_response:
                     with page.expect_response(lambda response: response.request.method == 'GET'
@@ -323,16 +342,7 @@ def run(args, report):
                                       'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'}
                 check(report, 'authenticated signing readiness binds the plan and refuses unqualified issuance',
                       signing_response.value.status == 200
-                      and set(readiness) == {'schema_version', 'org_id', 'project_id', 'target_id',
-                                             'plan_id', 'plan_hash', 'checked_at', 'valid_until',
-                                             'signing_allowed', 'dispatch_allowed', 'reasons',
-                                             'approval_set_hash', 'quota_configured', 'target_generation',
-                                             'latest_intent'}
-                      and readiness['schema_version'] == 'fw.signing-readiness/v1'
-                      and all(readiness[field] == detail['plan'][field]
-                              for field in ('org_id', 'project_id', 'target_id', 'plan_id'))
-                      and readiness['plan_hash'] == detail['plan_hash']
-                      and readiness['signing_allowed'] is False and readiness['dispatch_allowed'] is False
+                      and signing_readiness_matches_fixture(readiness, detail)
                       and permanent_blockers <= set(readiness['reasons'])
                       and 'APPROVAL_SET_MISSING' in readiness['reasons']
                       and readiness['approval_set_hash'] is None
@@ -347,6 +357,7 @@ def run(args, report):
                     signing_panel.get_by_role('button', name='Refresh signing readiness', exact=True).click()
                 check(report, 'signing readiness refresh neither consumes a passkey assertion nor enables consent',
                       refreshed_signing.value.status == 200
+                      and signing_readiness_matches_fixture(refreshed_signing.value.json(), detail)
                       and before_signing_refresh == cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
                       and not page.get_by_role('checkbox').is_checked())
                 before_evidence_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
@@ -403,6 +414,7 @@ def run(args, report):
                 approved_signing = approved_readiness.value.json()
                 check(report, 'current human quorum remains separate from missing production signer qualification',
                       approved_readiness.value.status == 200
+                      and signing_readiness_matches_fixture(approved_signing, current)
                       and isinstance(approved_signing['approval_set_hash'], str)
                       and 'APPROVAL_SET_MISSING' not in approved_signing['reasons']
                       and permanent_blockers <= set(approved_signing['reasons'])
@@ -502,6 +514,7 @@ def run(args, report):
                 restarted_signing = restarted_readiness.value.json()
                 check(report, 'restart and signed dissent do not create signing jobs or dispatch authority',
                       restarted_readiness.value.status == 200
+                      and signing_readiness_matches_fixture(restarted_signing, detail)
                       and restarted_signing['approval_set_hash'] is None
                       and restarted_signing['latest_intent'] is None
                       and restarted_signing['signing_allowed'] is False
@@ -541,6 +554,9 @@ def main():
         report['stage'] = report.get('stage') if report.get('stage') in STAGES else 'initialization'
         report['failure_stage'] = report['stage']
         report['failure'] = failure_category(error)
+        # Preserve the bounded original category when an early browser failure
+        # prevents the planned restart and leaves only one service-ready line.
+        report['primary_failure'] = report['failure']
         if report.get('service_log_status') == 'startup_failure':
             report['failure'] = 'AUTHORITY_SMOKE_SERVICE_FAILED'
         elif report.get('service_log_status') in ('empty', 'incomplete', 'unrecognized', 'unavailable'):

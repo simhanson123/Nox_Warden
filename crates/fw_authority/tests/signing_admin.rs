@@ -41,7 +41,10 @@ fn tenant_command(db: &Path, operation: &str, org: &str, project: &str) -> Comma
     if operation != "init" {
         command.args(["--org-id", org, "--project-id", project]);
     }
-    if matches!(operation, "read-signing-readiness" | "request-signing") {
+    if matches!(
+        operation,
+        "read-signing-readiness" | "read-signing-readiness-v2" | "request-signing"
+    ) {
         command.args(["--approval-origin", ORIGIN]);
     }
     command
@@ -49,6 +52,142 @@ fn tenant_command(db: &Path, operation: &str, org: &str, project: &str) -> Comma
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     command
+}
+
+#[test]
+fn project_only_cutover_uses_cas_and_can_restore_only_the_original_root() {
+    let fixture = Fixture::new();
+    fixture.pin_quotas();
+    let db = rusqlite::Connection::open(&fixture.db).unwrap();
+    let retained: Vec<(i64, Vec<u8>)> = db
+        .prepare("SELECT rowid,canonical_bytes FROM authority_signing_quota_pins ORDER BY rowid")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    drop(db);
+    let mut cutover = fixture.quota.clone();
+    cutover["schema_version"] = json!("fw.signing-project-quota-pin/v2");
+    cutover["pin"].as_object_mut().unwrap().remove("root_id");
+    refused(
+        run(&fixture.db, "pin-signing-project-quota", &cutover),
+        "SIGNING_QUOTA_REJECTED",
+    );
+    cutover["expected_revision"] = json!("1");
+    assert_eq!(
+        success(run(&fixture.db, "pin-signing-project-quota", &cutover))["revision"],
+        "2"
+    );
+    let mut alternative = fixture.quota.clone();
+    alternative["pin"]["root_id"] = json!(OTHER);
+    success(run(&fixture.db, "pin-signing-root-quota", &alternative));
+    alternative["expected_revision"] = json!("2");
+    refused(
+        run(&fixture.db, "pin-signing-project-quota", &alternative),
+        "SIGNING_QUOTA_REJECTED",
+    );
+    let mut restore = fixture.quota.clone();
+    restore["expected_revision"] = json!("2");
+    assert_eq!(
+        success(run(&fixture.db, "pin-signing-project-quota", &restore))["revision"],
+        "3"
+    );
+    assert_eq!(fixture.readiness()["quota_configured"], true);
+    let status = success(run(
+        &fixture.db,
+        "read-signing-readiness-v2",
+        &json!({"plan_id":PLAN}),
+    ));
+    assert_eq!(status["quota_scope"], "root");
+    assert_eq!(status["quota_root_id"], ROOT);
+    let db = rusqlite::Connection::open(&fixture.db).unwrap();
+    for (rowid, bytes) in retained {
+        assert_eq!(
+            db.query_row(
+                "SELECT canonical_bytes FROM authority_signing_quota_pins WHERE rowid=?",
+                [rowid],
+                |row| row.get::<_, Vec<u8>>(0)
+            )
+            .unwrap(),
+            bytes
+        );
+    }
+}
+
+#[test]
+fn project_only_quota_requires_an_explicit_version_and_keeps_production_closed() {
+    let fixture = Fixture::new();
+    let mut body = fixture.quota.clone();
+    body["schema_version"] = json!("fw.signing-project-quota-pin/v2");
+    body["pin"].as_object_mut().unwrap().remove("root_id");
+    let pinned = success(run(&fixture.db, "pin-signing-project-quota", &body));
+    assert_eq!(
+        pinned,
+        json!({"schema_version":"fw.signing-project-quota-pin/v2","quota_scope":"project","revision":"1","signing_allowed":false,"dispatch_allowed":false})
+    );
+    assert!(pinned.get("root_id").is_none());
+    let before = signing_resources(&fixture.db);
+    let audit_count = || {
+        rusqlite::Connection::open(&fixture.db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM authority_audit", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    let audits = audit_count();
+    let mut retry = body.clone();
+    retry["expected_revision"] = json!("1");
+    assert_eq!(
+        success(run(&fixture.db, "pin-signing-project-quota", &retry)),
+        pinned
+    );
+    assert_eq!(signing_resources(&fixture.db), before);
+    assert_eq!(audit_count(), audits);
+    let read = json!({"plan_id":PLAN});
+    refused(
+        run(&fixture.db, "read-signing-readiness", &read),
+        "SIGNING_READINESS_REJECTED",
+    );
+    let readiness = success(run(&fixture.db, "read-signing-readiness-v2", &read));
+    assert_eq!(readiness["schema_version"], "fw.signing-readiness/v2");
+    assert_eq!(readiness["quota_scope"], "project");
+    assert_eq!(readiness["quota_root_id"], Value::Null);
+    assert_eq!(readiness["quota_configured"], true);
+    assert_eq!(readiness["latest_dispatch_unknown_seen"], Value::Null);
+    assert_eq!(readiness["signing_allowed"], false);
+    assert_eq!(readiness["dispatch_allowed"], false);
+    refused(
+        run(&fixture.db, "request-signing", &fixture.request),
+        "SIGNING_REQUEST_REJECTED",
+    );
+    assert_eq!(signing_resources(&fixture.db), before);
+}
+
+#[test]
+fn project_quota_codecs_reject_partial_roots_and_unknown_versions_without_downgrade() {
+    let fixture = Fixture::new();
+    let before = signing_resources(&fixture.db);
+    let mut rootless = fixture.quota.clone();
+    rootless["pin"].as_object_mut().unwrap().remove("root_id");
+    let mut null_root = fixture.quota.clone();
+    null_root["pin"]["root_id"] = Value::Null;
+    let mut unknown = rootless.clone();
+    unknown["schema_version"] = json!("fw.signing-project-quota-pin/v3");
+    let mut legacy_tag = fixture.quota.clone();
+    legacy_tag["schema_version"] = json!("fw.signing-project-quota-pin/v1");
+    let mut v2_root = fixture.quota.clone();
+    v2_root["schema_version"] = json!("fw.signing-project-quota-pin/v2");
+    let mut v2_null = null_root.clone();
+    v2_null["schema_version"] = json!("fw.signing-project-quota-pin/v2");
+    for body in [rootless, null_root, unknown, legacy_tag, v2_root, v2_null] {
+        refused(
+            run(&fixture.db, "pin-signing-project-quota", &body),
+            "INPUT_REJECTED",
+        );
+    }
+    assert_eq!(signing_resources(&fixture.db), before);
 }
 
 fn execute(mut command: Command, bytes: &[u8]) -> Output {
@@ -673,7 +812,7 @@ fn actual_migration_requires_backup_and_preserves_native_receipts_without_author
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    assert_eq!(database_version(), 10);
+    assert_eq!(database_version(), 12);
     assert_eq!(
         fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
         0o600

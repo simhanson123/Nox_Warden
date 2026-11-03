@@ -1,8 +1,31 @@
-# Rootless project quota: implementation preparation
+# Project-only quota: implementation and retained design
 
-Status: design preparation only; no rootless implementation or authenticated lifecycle qualification is claimed. Here **rootless** means general-policy quota without a delegation root, not running a firewall without OS privileges. Production signing and dispatch remain closed.
+Authority schema12 implements project-only general-policy quota on the schema11
+history/audit protections. Here **rootless** means no delegation root; the native
+firewall still requires the OS authority defined in the product specifications.
+Production signing and dispatch remain closed.
 
-The inspected baseline is PR20 head `9e021b31171ae19ff8c9e7eba400d8dd4630a001`, schema10. The later user-supplied review reports Low findings N1–N7; this preparation does not claim to have independently reproduced or fixed them. Address that hardening before relying on its guards for rootless changes. It may consume the next migration and expand the guard set: assign the rootless migration number from the actual implementation baseline, and recalculate its complete schema/guard reference and dependency graph. Do not freeze future code to schema11 or 45 guards.
+Project pins and reservations may omit a root. A project created without a root
+remains project-only. An administrator can use revision CAS to change an existing
+root A to project-only scope and restore A; retained history permanently forbids
+switching to B. Migration performs no cutover. Old rooted v1 records and new
+project-only v2 records share the project scan and its limits. Root accounting
+continues to include only that exact root. Issued, UNKNOWN and unsigned-delivered
+obligations remain held after expiry, reopening and rolling-window advancement.
+
+The maintenance implementation derives affected guards from the complete known
+schema, replaces the three nullable-root tables with FKs disabled only on its
+dedicated connection, preserves explicit rowids and typed values, and verifies the
+restored graph/schema before commit and FK enforcement after the transaction.
+Old canonical v1 bytes are retained. Version2 pin/snapshot codecs reject partial
+root data and rootless lease costs; core access still requires its original root
+and retained provenance. See [operator commands](signing-coordination-cli.md),
+[coordination](signing-coordination.md) and [verification](../reports/README.md).
+
+The preparation below is retained as design rationale and acceptance requirements.
+Its schema10 counts and exploratory probes are historical, not current guard
+counts or new validation results. The implementation uses schema11 for hardening
+and schema12 for nullable roots; neither depends on a fixed trigger count.
 
 ## Recommended storage and migration approach
 
@@ -36,13 +59,13 @@ Disposable probes started from a product-initialized schema10 database. On the p
 
 Empty-schema bootstrap worked with FKs enabled in the probe; explicitly test that path against the final implementation. Reject populated replacement under FKs enabled. Legacy test reconstruction needs a reverse table rebuild, not just dropping additive objects: preserve genuine historical SQL and rowids, and refuse to downgrade fixtures containing null-root/v2 records to a schema that cannot represent them.
 
-## API scope and unresolved cutover choice
+## Historical API design and cutover analysis
 
 Keep root quota pins mandatory-root; split project quota input from the current root-pin alias. Preserve old unversioned `PinRecord` and reservation/v1 codecs and bytes. Introduce explicit versioned records for project-only pins/snapshots, with strict version selection and all root metadata present together or absent together. Reject unknown versions/fields, v1 null roots, partial root references and rootless lease costs. Project-only policy cost is no lease, zero seconds, no destinations, zero active slots and one initial dispatch slot.
 
 Project-only configuration, readiness, deadlines and lifecycle checks use the project pin and clock. Retained rooted records continue to use their stored root and project clocks. Core requests still require retained provenance, the matching root, both pins, original delegation ceilings and every existing signing/profile gate. A missing root must never select a generic core fallback.
 
-**Resolve cutover semantics before implementation.** Current project root binding is permanent; merely making the input optional while forbidding `Some↔None` only supports new unrooted projects. It cannot produce legitimate mixed rooted/rootless obligations in one project. Recommended option: an explicit administrator-authorized, CAS-controlled project-pin revision can change `Some(A)→None`, while retaining A as a permanent historical anchor and preserving every pin, clock and obligation. Decide whether restoration is initially forbidden or allowed only to A; never permit a later B by looking only at the current null head. Alternative: new policy reservations select project-only scope independently of an existing rooted pin, which changes that pin's previous semantics and needs explicit design. Migration itself performs no cutover.
+**Historical cutover analysis (resolved above).** Current project root binding is permanent; merely making the input optional while forbidding `Some↔None` only supports new unrooted projects. It cannot produce legitimate mixed rooted/rootless obligations in one project. Recommended option: an explicit administrator-authorized, CAS-controlled project-pin revision can change `Some(A)→None`, while retaining A as a permanent historical anchor and preserving every pin, clock and obligation. Decide whether restoration is initially forbidden or allowed only to A; never permit a later B by looking only at the current null head. Alternative: new policy reservations select project-only scope independently of an existing rooted pin, which changes that pin's previous semantics and needs explicit design. Migration itself performs no cutover.
 
 ## Capacity and history invariants
 

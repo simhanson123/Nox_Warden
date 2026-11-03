@@ -1,9 +1,12 @@
 # Nox Warden
 
 An Apache-2.0 host firewall project with a Rust policy core, local control API,
-SQLite storage, CLI and React interface. **The current application is a development
-build in observe mode. It does not protect host traffic or provide a qualified
-firewall release.**
+SQLite storage, CLI and React interface. **The management application currently
+observes and records requests; it does not apply them to protect host traffic.**
+The separate Linux lab executor applies real nftables rules and tests actual
+packets in disposable namespaces. Connecting that executor to protected production
+approval, signing, installation and recovery remains unfinished; Windows WFP and
+macOS Network Extension implementations are also required before product completion.
 
 English is the default interface language. Users can select Korean, Japanese,
 Spanish, German, French, Simplified Chinese or Traditional Chinese; their explicit
@@ -38,6 +41,10 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
 - Policy and security libraries for deny precedence, current allow union, bounded
   leases, policy comparison, approval requirements, Ed25519 DSSE, atomic quotas,
   durable executor journals, audit verification and opt-in telemetry state.
+- Project-only general-policy quotas and retained rooted quotas share project
+  limits. Versioned administration/readiness preserves issued capacity and past
+  uncertainty; [history protections](docs/pr20-follow-up.md) reject audit and work
+  record replacement. These mechanisms do not open production signing or dispatch.
 - Typed plan/bootstrap challenges and real WebAuthn verification of assertions
   bound to their immutable context. A separate [authority store](docs/authority-store.md)
   atomically records decisions, current credential/role checks, original proofs

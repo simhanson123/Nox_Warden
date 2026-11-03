@@ -4,11 +4,12 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
-The [new PR20 external review](reviews/pr20-claude-review.md) reports seven open
-Low findings N1–N7 in retained history/audit, SQL guards and migration validation.
-Follow the [session handoff](session-handoff.md) and [correction matrix](pr20-follow-up.md)
-before building the next quota profile on those mechanisms. PR20 CI success
-predates this follow-up and does not mark these findings fixed.
+The [PR20 external review](reviews/pr20-claude-review.md) led to schema11
+history/audit corrections and schema12 project-only quota. The follow-up preserves
+all published migrations through010 and original review bytes; fresh baseline
+reproductions and opposite regressions are recorded in the
+[correction matrix](pr20-follow-up.md) and [verification](../reports/README.md).
+These are persistence and quota changes, not production firewall authorization.
 
 This is a Linux-first development implementation with verified isolated native
 execution, not an installable production release. The task ledger records one
@@ -19,7 +20,7 @@ meaningful completion percentage.
 | Area | Implemented boundary | Remaining acceptance |
 | --- | --- | --- |
 | Local control and authentication | Real passkeys, browser-authorized CLI, catalogues, audit pagination, device registration and eight locales | Recovery/renewal, remote production identity, complete workflows and accessibility/translation review |
-| Independent approval and evidence | Current distinct-human quorum, immutable review, signed metadata/native observations, durable signing/quota mechanics and retained original core-access cost binding | Production bootstrap, qualified evidence/build identity, complete core signing and rootless policy profiles, protected signer and authenticated dispatch |
+| Independent approval and evidence | Current distinct-human quorum, immutable review, signed metadata/native observations, durable signing/quota mechanics and retained original core-access cost binding | Production bootstrap, qualified evidence/build identity, complete core signing profile, protected signer and authenticated dispatch |
 | Linux enforcement | Actual nftables, packet probes, signed lab execution and conservative recovery in disposable namespaces | Installed-host lifecycle, management connectivity, watchdog, reboot/physical NIC/coexistence and full common-host qualification |
 | Windows and macOS | Preserved design and explicit unsupported boundaries | WFP/callout and Network Extension implementations, supported OS runners, signing and real kernel tests |
 | Distribution and operations | Source, pinned builds and CI | Signed installers, upgrade/uninstall, restore epochs, provider/channel acceptance and production operations |
@@ -46,10 +47,25 @@ remain historical diagnostics and do not prove native activation or resolve
 UNKNOWN. The follow-up's verification is tracked separately from the earlier
 schema 9 checkpoint.
 The public production resolver remains closed. The next dependencies are the
-complete core semantic-review/native/signing profile, rootless general-policy
-quotas, protected authority bootstrap and generation initialization, qualified
+complete core semantic-review/native/signing profile, protected authority bootstrap and generation initialization, qualified
 production evidence and protected signer/dispatch deployment. Passing a lab or
 returning a current evidence summary cannot open policy dispatch.
+
+Schema11 binds each work mutation to a unique retained audit event, projects the
+work head atomically, rejects retained identity replacement, validates exact
+SQLite objects and rejects broken graphs or retained time correlations. Missing
+or ambiguous old audit links stop maintenance with the private backup intact.
+The local chain still needs an external anchor to resist whole-file rollback.
+
+Schema12 adds project-only general-policy quota while keeping old rooted v1
+records byte-identical. Current project configuration can move between its
+original root and project-only scope through administrator revision CAS; it
+cannot select a new root to reset usage. Both scopes share project capacity.
+Retained work observes its original root clock even after a project cutover.
+Explicit v2 CLI/readiness and eight-locale UI show current quota scope and retained
+UNKNOWN history. Core access without original provenance is not quota-configured
+in either readiness version; this corrects the earlier descriptive v1 indicator.
+Signing/dispatch remain unavailable until the production requirements below exist.
 
 ## Trust and process boundaries
 

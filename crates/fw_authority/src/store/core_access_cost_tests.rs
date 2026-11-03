@@ -94,8 +94,7 @@ fn core_cost_keeps_full_original_duration_and_destination_membership() {
     let usage = account(
         &tx,
         &f.tenant,
-        &f.provenance.delegation.root_id,
-        true,
+        AccountingScope::Root(&f.provenance.delegation.root_id),
         fixture::NOW + 299,
         Some(&cost),
     )
@@ -157,6 +156,28 @@ fn core_cost_requires_current_matching_independent_root() {
         .unwrap();
     assert!(f.cost(fixture::NOW + 1).is_err());
     assert!(f.cost(fixture::NOW).is_err());
+}
+
+#[test]
+fn project_only_quota_never_supplies_core_access_root_authority() {
+    let mut f = CoreFixture::new();
+    let root = f.pin();
+    f.configure(&root);
+    let mut project: SigningProjectQuotaPin = root.into();
+    project.root_id = None;
+    f.store
+        .pin_signing_project_quota(&f.tenant, &project, Some(1), fixture::NOW)
+        .unwrap();
+    assert!(f.cost(fixture::NOW).is_err());
+    let now = fixture::NOW;
+    let tx = f.store.connection.transaction().unwrap();
+    assert_eq!(
+        quota_configuration_summary(&tx, &f.tenant, now)
+            .unwrap()
+            .unwrap()
+            .0,
+        None
+    );
 }
 
 #[test]

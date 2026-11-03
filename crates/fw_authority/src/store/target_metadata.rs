@@ -359,7 +359,7 @@ impl AuthorityStore {
             && old.fingerprint != fingerprint
         {
             tx.execute(
-                "INSERT OR IGNORE INTO authority_target_key_revocations VALUES(?,?,?,'rotated')",
+                "INSERT INTO authority_target_key_revocations SELECT ?1,?2,?3,'rotated' WHERE NOT EXISTS(SELECT 1 FROM authority_target_key_revocations WHERE org_id=?1 AND key_fingerprint=?2)",
                 params![tenant.org_id, hash(&old.fingerprint)?, now],
             )?;
         }
@@ -389,8 +389,23 @@ impl AuthorityStore {
                 canonical
             ],
         )?;
-        tx.execute("INSERT INTO authority_target_pin_heads VALUES(?,?,?,?) ON CONFLICT(org_id,project_id,target_id) DO UPDATE SET revision=excluded.revision",params![tenant.org_id,tenant.project_id,pin.target_id,next.to_be_bytes().as_slice()])?;
-        tx.execute("INSERT INTO authority_target_clocks VALUES(?,?,?,?) ON CONFLICT(org_id,project_id,target_id) DO UPDATE SET observed_at=excluded.observed_at",params![tenant.org_id,tenant.project_id,pin.target_id,now])?;
+        retained_projection(
+            &tx,
+            "UPDATE authority_target_pin_heads SET revision=?4 WHERE org_id=?1 AND project_id=?2 AND target_id=?3",
+            "INSERT INTO authority_target_pin_heads VALUES(?1,?2,?3,?4)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                pin.target_id,
+                next.to_be_bytes().as_slice()
+            ],
+        )?;
+        retained_projection(
+            &tx,
+            "UPDATE authority_target_clocks SET observed_at=?4 WHERE org_id=?1 AND project_id=?2 AND target_id=?3",
+            "INSERT INTO authority_target_clocks VALUES(?1,?2,?3,?4)",
+            params![tenant.org_id, tenant.project_id, pin.target_id, now],
+        )?;
         bump_security(&tx, tenant)?;
         audit(&tx, tenant, "target_transport_pinned", &pin.target_id, now)?;
         tx.commit()?;
@@ -591,7 +606,12 @@ impl AuthorityStore {
                 receipt_bytes
             ],
         )?;
-        tx.execute("INSERT INTO authority_target_metadata_heads VALUES(?,?,?,?) ON CONFLICT(org_id,project_id,target_id) DO UPDATE SET receipt_id=excluded.receipt_id",params![tenant.org_id,tenant.project_id,target,receipt.receipt_id])?;
+        retained_projection(
+            &tx,
+            "UPDATE authority_target_metadata_heads SET receipt_id=?4 WHERE org_id=?1 AND project_id=?2 AND target_id=?3",
+            "INSERT INTO authority_target_metadata_heads VALUES(?1,?2,?3,?4)",
+            params![tenant.org_id, tenant.project_id, target, receipt.receipt_id],
+        )?;
         audit(
             &tx,
             tenant,

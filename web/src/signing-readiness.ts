@@ -18,11 +18,13 @@ export interface SigningIntentStatus {
   reservation_held: boolean; current_eligible: false; grant_hash: string | null; dispatch_allowed: false;
 }
 export interface SigningReadiness {
-  schema_version: 'fw.signing-readiness/v1'; org_id: string; project_id: string; target_id: string;
+  schema_version: 'fw.signing-readiness/v2'; org_id: string; project_id: string; target_id: string;
   plan_id: string; plan_hash: string; checked_at: string; valid_until: string;
   signing_allowed: false; dispatch_allowed: false; reasons: typeof signingReasons[number][];
   approval_set_hash: string | null; quota_configured: boolean; target_generation: string | null;
   latest_intent: SigningIntentStatus | null;
+  quota_scope: 'root' | 'project' | null; quota_root_id: string | null;
+  latest_dispatch_unknown_seen: boolean | null;
 }
 function invalid(): never { throw new ApiError(0, 'SIGNING_READINESS_RESPONSE_INVALID', ''); }
 function exact(value: unknown, keys: string[]) {
@@ -43,9 +45,9 @@ function utc(value: unknown): value is string {
 // The browser validates a bounded summary of the authority's read. It does not
 // derive signing permission from plan gates, signatures or retained job states.
 export function parseSigningReadiness(value: unknown, detail: AuthorityPlan): SigningReadiness {
-  const data = exact(value, ['schema_version', 'org_id', 'project_id', 'target_id', 'plan_id', 'plan_hash', 'checked_at', 'valid_until', 'signing_allowed', 'dispatch_allowed', 'reasons', 'approval_set_hash', 'quota_configured', 'target_generation', 'latest_intent']);
+  const data = exact(value, ['schema_version', 'org_id', 'project_id', 'target_id', 'plan_id', 'plan_hash', 'checked_at', 'valid_until', 'signing_allowed', 'dispatch_allowed', 'reasons', 'approval_set_hash', 'quota_configured', 'target_generation', 'latest_intent', 'quota_scope', 'quota_root_id', 'latest_dispatch_unknown_seen']);
   const planEnd = Date.parse(String(detail.plan.valid_until));
-  if (data.schema_version !== 'fw.signing-readiness/v1' || data.org_id !== detail.plan.org_id || data.project_id !== detail.plan.project_id
+  if (data.schema_version !== 'fw.signing-readiness/v2' || data.org_id !== detail.plan.org_id || data.project_id !== detail.plan.project_id
     || data.target_id !== detail.plan.target_id || data.plan_id !== detail.plan.plan_id || data.plan_hash !== detail.plan_hash
     || !utc(data.checked_at) || !utc(data.valid_until) || !Number.isFinite(planEnd) || Date.parse(data.valid_until) > planEnd
     || Date.parse(data.valid_until) - Date.parse(data.checked_at) > 60000
@@ -58,7 +60,13 @@ export function parseSigningReadiness(value: unknown, detail: AuthorityPlan): Si
   if (requiredReasons.some(reason => !reasons.has(reason))
     || reasons.has('APPROVAL_SET_MISSING') !== (data.approval_set_hash === null)
     || reasons.has('QUOTA_CONFIGURATION_MISSING') !== !data.quota_configured
-    || reasons.has('TARGET_GENERATION_UNINITIALIZED') !== (data.target_generation === null)) invalid();
+    || reasons.has('TARGET_GENERATION_UNINITIALIZED') !== (data.target_generation === null)
+    || ![null, 'root', 'project'].includes(data.quota_scope as string | null)
+    || (data.quota_scope === 'root' ? !uuid(data.quota_root_id) : data.quota_root_id !== null)
+    || data.quota_configured && data.quota_scope === null
+    || detail.plan.change_kind === 'policy_change' && data.quota_configured !== (data.quota_scope !== null)
+    || detail.plan.change_kind === 'add_access_lease' && data.quota_scope === 'project' && data.quota_configured
+    || (data.latest_intent === null ? data.latest_dispatch_unknown_seen !== null : typeof data.latest_dispatch_unknown_seen !== 'boolean')) invalid();
   let intent: SigningIntentStatus | null = null;
   if (data.latest_intent !== null) {
     const item = exact(data.latest_intent, ['intent_id', 'request_id', 'plan_id', 'plan_hash', 'approval_set_hash', 'authority_epoch', 'target_generation', 'payload_hash', 'job_id', 'reservation_id', 'created_at', 'valid_until', 'state', 'dispatch_state', 'reservation_state', 'reservation_held', 'current_eligible', 'grant_hash', 'dispatch_allowed']);
@@ -82,6 +90,10 @@ export function parseSigningReadiness(value: unknown, detail: AuthorityPlan): Si
     } else if (item.dispatch_state !== null || item.grant_hash !== null
       || item.reservation_state !== (item.state === 'cancelled' ? 'released' : 'reserved')) invalid();
     if (item.reservation_held !== (item.reservation_state !== 'released')) invalid();
+    if (item.dispatch_state === 'unknown' && data.latest_dispatch_unknown_seen !== true
+      || item.reservation_state === 'unknown' && data.latest_dispatch_unknown_seen !== true
+      || data.latest_dispatch_unknown_seen && (item.state !== 'ready' || item.dispatch_state === null || item.dispatch_state === 'queued'
+        || item.reservation_state !== (item.dispatch_state === 'delivered' ? 'active' : 'unknown'))) invalid();
     // An expired/previously approved intent stays history. In particular, neither
     // expiry nor a recorded delivery releases quota after grant issuance.
     intent = item as unknown as SigningIntentStatus;
