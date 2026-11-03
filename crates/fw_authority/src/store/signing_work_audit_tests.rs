@@ -195,7 +195,7 @@ fn work_audit_binding_requires_exact_tenant_job_phase_revision_kind_time_and_one
         assert!(bind(&tx, &f.tenant, candidate_job, phase, revision, kind, now).is_err());
     }
     assert!(tx.execute("INSERT INTO authority_signing_work_audits SELECT ?1,project_id,?2,'signer',?3,'claimed',?4,sequence,event_hash FROM authority_audit_heads WHERE org_id=?5 AND project_id=?6",params!["eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",job,2u64.to_be_bytes().as_slice(),NOW,f.tenant.org_id,f.tenant.project_id]).is_err());
-    bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).unwrap();
+    assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
     raw_claim(&tx, &job, WORKER).unwrap();
     assert!(bind(&tx, &f.tenant, &job, "signer", 3, "claimed", NOW).is_err());
     tx.commit().unwrap();
@@ -234,7 +234,7 @@ fn canonical_worker_uuid_sql_matches_rust_and_event_only_statement_projects_head
     for worker in workers {
         let tx = f.store.connection.transaction().unwrap();
         audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
-        bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).unwrap();
+        assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
         assert_eq!(
             raw_claim(&tx, &job, &worker).is_ok(),
             identifier(&worker).is_ok(),
@@ -245,7 +245,7 @@ fn canonical_worker_uuid_sql_matches_rust_and_event_only_statement_projects_head
     let audits = f.count("authority_audit");
     let tx = f.store.connection.transaction().unwrap();
     audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
-    bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).unwrap();
+    assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
     raw_claim(&tx, &job, WORKER).unwrap();
     tx.commit().unwrap();
     assert_eq!(f.count("authority_audit"), audits + 1);
@@ -302,13 +302,13 @@ fn signer_renew_retry_cancel_and_exact_noops_each_retain_one_audit_per_mutation(
 }
 
 #[test]
-fn unconsumed_binding_cannot_commit_and_projection_failure_rolls_back_all_mutations() {
+fn standalone_binding_is_refused_and_projection_failure_rolls_back_all_mutations() {
     let (mut f, job) = prepared();
     let before = snapshot(&f.store.connection);
     let tx = f.store.connection.transaction().unwrap();
     audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
-    bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).unwrap();
-    assert!(tx.commit().is_err());
+    assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
+    tx.rollback().unwrap();
     assert_eq!(snapshot(&f.store.connection), before);
     for target in [
         "authority_signing_work_events",
@@ -316,7 +316,7 @@ fn unconsumed_binding_cannot_commit_and_projection_failure_rolls_back_all_mutati
     ] {
         let tx = f.store.connection.transaction().unwrap();
         audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
-        bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).unwrap();
+        assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
         let timing = if target == "authority_signing_work_events" {
             "INSERT"
         } else {
@@ -433,7 +433,7 @@ fn actual_mutations_have_one_audit_and_exact_retries_have_none_after_unknown_del
 }
 
 #[test]
-fn ambiguous_legacy_same_time_renewals_are_refused_without_rewriting_evidence() {
+fn legacy_same_time_renewals_have_unique_monotonic_matching_without_rewriting_evidence() {
     let (mut f, job) = prepared();
     let tx = f.store.connection.transaction().unwrap();
     let claim = fixture_claim(&tx, &f.tenant, &job, "signer", WORKER, 0, 10, NOW).unwrap();
@@ -441,11 +441,98 @@ fn ambiguous_legacy_same_time_renewals_are_refused_without_rewriting_evidence() 
     fixture_renew(&tx, &f.tenant, &claim, 12, NOW).unwrap();
     tx.commit().unwrap();
     migrations::legacy::restore_v10(&f.path);
+    // The former one-candidate-per-event algorithm rejects this valid legacy
+    // pair despite the unique complete monotonic assignment of two to two.
+    let candidates:i64=f.store.connection.query_row("SELECT count(*) FROM authority_audit WHERE resource_id=? AND kind='signing_signer_renewed' AND recorded_at=?",params![job,NOW],|r|r.get(0)).unwrap();
+    assert_eq!(candidates, 2);
     let before = snapshot(&f.store.connection);
-    let backup = f.directory.path().join("ambiguous-audit-backup.sqlite3");
+    let backup = f.directory.path().join("same-second-audit-backup.sqlite3");
+    AuthorityStore::migrate(&f.path, &backup).unwrap();
+    assert_eq!(snapshot(&Connection::open(backup).unwrap()), before);
+    let after = snapshot(&f.store.connection);
+    assert_eq!(&after[..before.len()], before.as_slice());
+    let links:Vec<(Vec<u8>,Vec<u8>)>=f.store.connection.prepare("SELECT revision,audit_sequence FROM authority_signing_work_audits WHERE job_id=? AND phase='signer' ORDER BY revision").unwrap().query_map([&job],|r|Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert_eq!(links.len(), 4);
+    for (index, (revision, sequence)) in links.iter().enumerate() {
+        assert_eq!(revision, &((index + 1) as u64).to_be_bytes());
+        assert!(index == 0 || links[index - 1].1 < *sequence);
+    }
+    f.reopen();
+    let tx = f.store.connection.transaction().unwrap();
+    validate_work_histories(&tx).unwrap();
+    assert_eq!(
+        head(&tx, &f.tenant, &job, "signer").unwrap().unwrap().until,
+        Some(NOW + 12)
+    );
+}
+
+#[test]
+fn legacy_extra_same_time_audit_remains_ambiguous_and_migration_preserves_source_and_backup() {
+    let (mut f, job) = prepared();
+    let tx = f.store.connection.transaction().unwrap();
+    let claim = fixture_claim(&tx, &f.tenant, &job, "signer", WORKER, 0, 10, NOW).unwrap();
+    let claim = fixture_renew(&tx, &f.tenant, &claim, 11, NOW).unwrap();
+    fixture_renew(&tx, &f.tenant, &claim, 12, NOW).unwrap();
+    // This third canonical audit has no work revision. Choosing only two out of
+    // three equal candidates would invent the omitted audit's meaning.
+    audit(&tx, &f.tenant, "signing_signer_renewed", &job, NOW).unwrap();
+    tx.commit().unwrap();
+    migrations::legacy::restore_v10(&f.path);
+    let before = snapshot(&f.store.connection);
+    let backup = f.directory.path().join("surplus-audit-backup.sqlite3");
     assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
     assert_eq!(snapshot(&f.store.connection), before);
     assert_eq!(snapshot(&Connection::open(backup).unwrap()), before);
+    assert_eq!(
+        f.store
+            .connection
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        10
+    );
+}
+
+#[test]
+fn legacy_monotonic_matcher_checks_complete_counts_kind_time_and_revision_order() {
+    for damage in ["count", "kind", "time", "revision", "reordered"] {
+        let (mut f, job) = prepared();
+        let tx = f.store.connection.transaction().unwrap();
+        let claim = fixture_claim(&tx, &f.tenant, &job, "signer", WORKER, 0, 10, NOW).unwrap();
+        let claim = fixture_renew(&tx, &f.tenant, &claim, 11, NOW).unwrap();
+        fixture_renew(&tx, &f.tenant, &claim, 12, NOW).unwrap();
+        tx.commit().unwrap();
+        migrations::legacy::restore_v10(&f.path);
+        let before = snapshot(&f.store.connection);
+        let tx = f.store.connection.transaction().unwrap();
+        // Isolate the historical matcher from the state-machine validator,
+        // which independently refuses these changes before a real migration.
+        tx.execute_batch("DROP TRIGGER authority_signing_work_events_immutable_update; DROP TRIGGER authority_signing_work_events_immutable_delete").unwrap();
+        match damage {
+            "count" => {
+                tx.execute(
+                    "DELETE FROM authority_signing_work_events WHERE job_id=? AND revision=?",
+                    params![job, 4u64.to_be_bytes().as_slice()],
+                )
+                .unwrap();
+            }
+            "kind" => {
+                tx.execute("UPDATE authority_signing_work_events SET kind='retried' WHERE job_id=? AND revision=?",params![job,4u64.to_be_bytes().as_slice()]).unwrap();
+            }
+            "time" => {
+                tx.execute("UPDATE authority_signing_work_events SET updated_at=updated_at+1 WHERE job_id=? AND revision=?",params![job,4u64.to_be_bytes().as_slice()]).unwrap();
+            }
+            "revision" => {
+                tx.execute("UPDATE authority_signing_work_events SET revision=? WHERE job_id=? AND revision=?",params![5u64.to_be_bytes().as_slice(),job,4u64.to_be_bytes().as_slice()]).unwrap();
+            }
+            "reordered" => {
+                tx.execute("UPDATE authority_signing_work_events SET kind=CASE kind WHEN 'claimed' THEN 'renewed' ELSE 'claimed' END WHERE job_id=? AND revision IN (?,?)",params![job,2u64.to_be_bytes().as_slice(),3u64.to_be_bytes().as_slice()]).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(backfill_work_audits(&tx).is_err(), "{damage}");
+        tx.rollback().unwrap();
+        assert_eq!(snapshot(&f.store.connection), before);
+    }
 }
 
 #[test]

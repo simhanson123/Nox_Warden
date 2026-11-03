@@ -126,13 +126,28 @@ fn validate_transition_history(
 }
 
 pub(super) fn validate_retained_transitions(tx: &Transaction<'_>) -> Result<()> {
+    let dangling: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=h.org_id AND r.project_id=h.project_id AND r.reservation_id=h.reservation_id) UNION ALL SELECT 1 FROM authority_signing_quota_transitions t NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=t.org_id AND r.project_id=t.project_id AND r.reservation_id=t.reservation_id))",
+        [],
+        |r| r.get(0),
+    )?;
+    if dangling {
+        return Err(invalid("signing quota retained reservation graph"));
+    }
     let mut statement = tx.prepare(
-        "SELECT org_id,project_id,reservation_id FROM authority_signing_quota_reservations",
+        "SELECT org_id,project_id,reservation_id FROM authority_signing_quota_reservations NOT INDEXED",
     )?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
-        read_record(tx, &tenant, &row.get::<_, String>(2)?, true, false, false)?;
+        read_record(
+            tx,
+            &tenant,
+            &row.get::<_, String>(2)?,
+            true,
+            false,
+            ReservationRead::Committed,
+        )?;
     }
     Ok(())
 }
@@ -144,10 +159,15 @@ fn validate_reservation_graph(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     id: &str,
-    initializing_job: bool,
+    initializing: ReservationRead,
 ) -> Result<()> {
     let intents:i64=tx.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=? LIMIT 2)",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
-    if intents > 1 {
+    #[cfg(test)]
+    let primitive_fixture = tests::PRIMITIVE_QUOTA_FIXTURE.get();
+    #[cfg(not(test))]
+    let primitive_fixture = false;
+    let expected_intents = i64::from(!matches!(initializing, ReservationRead::BeforeJob));
+    if intents > 1 || (!primitive_fixture && intents != expected_intents) {
         return Err(invalid("signing reservation intent identity"));
     }
     let events:i64=tx.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM authority_signing_work_events e JOIN authority_signing_intents i ON i.org_id=e.org_id AND i.project_id=e.project_id AND i.job_id=e.job_id WHERE i.org_id=? AND i.project_id=? AND i.reservation_id=? LIMIT ?4)",params![tenant.org_id,tenant.project_id,id,(signing_jobs::MAX_WORK_EVENTS * 2 + 1) as i64],|r|r.get(0))?;
@@ -165,7 +185,7 @@ fn validate_reservation_graph(
     } else if tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? >= 11 {
         return Err(invalid("missing signing work audit bindings"));
     }
-    let broken:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (NOT EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.intent_id=i.intent_id AND j.job_id!=i.job_id) OR (?4=0 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND h.phase='signer')) OR EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=h.org_id AND e.project_id=h.project_id AND e.job_id=h.job_id AND e.phase=h.phase AND e.revision=h.revision AND e.revision=(SELECT MAX(w.revision) FROM authority_signing_work_events w WHERE w.org_id=h.org_id AND w.project_id=h.project_id AND w.job_id=h.job_id AND w.phase=h.phase) AND e.state=h.state AND e.claim_generation=h.claim_generation AND e.claim_hash IS h.claim_hash AND e.worker_id IS h.worker_id AND e.claim_until IS h.claim_until AND e.attempts=h.attempts AND e.available_at=h.available_at AND e.updated_at=h.updated_at)) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=e.org_id AND h.project_id=e.project_id AND h.job_id=e.job_id AND h.phase=e.phase)) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND (o.job_id=i.job_id OR o.intent_id=i.intent_id) AND (o.job_id!=i.job_id OR o.intent_id!=i.intent_id OR NOT EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=o.org_id AND s.project_id=o.project_id AND s.intent_id=o.intent_id AND s.grant_hash=o.grant_hash AND s.grant_bytes=o.grant_bytes)))))",params![tenant.org_id,tenant.project_id,id,initializing_job],|r|r.get(0))?;
+    let broken:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (NOT EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.intent_id=i.intent_id AND j.job_id!=i.job_id) OR (?4=0 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND h.phase='signer')) OR EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=h.org_id AND e.project_id=h.project_id AND e.job_id=h.job_id AND e.phase=h.phase AND e.revision=h.revision AND e.revision=(SELECT MAX(w.revision) FROM authority_signing_work_events w WHERE w.org_id=h.org_id AND w.project_id=h.project_id AND w.job_id=h.job_id AND w.phase=h.phase) AND e.state=h.state AND e.claim_generation=h.claim_generation AND e.claim_hash IS h.claim_hash AND e.worker_id IS h.worker_id AND e.claim_until IS h.claim_until AND e.attempts=h.attempts AND e.available_at=h.available_at AND e.updated_at=h.updated_at)) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=e.org_id AND h.project_id=e.project_id AND h.job_id=e.job_id AND h.phase=e.phase)) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND (o.job_id=i.job_id OR o.intent_id=i.intent_id) AND (o.job_id!=i.job_id OR o.intent_id!=i.intent_id OR NOT EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=o.org_id AND s.project_id=o.project_id AND s.intent_id=o.intent_id AND s.grant_hash=o.grant_hash AND s.grant_bytes=o.grant_bytes)))))",params![tenant.org_id,tenant.project_id,id,matches!(initializing, ReservationRead::InitializingJob)],|r|r.get(0))?;
     if broken {
         return Err(invalid("signing retained reference graph"));
     }

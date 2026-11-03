@@ -1,6 +1,6 @@
 # Durable signing coordination
 
-Authority schema 12 retains the two-phase signing mechanics introduced in schema
+Authority schema 13 retains the two-phase signing mechanics introduced in schema
 7, original core-access cost provenance added in schema 9 and the history/audit
 protections added in schema 11. It supports general-policy quota without a
 delegation root while keeping issued dispatch capacity occupied until an
@@ -270,7 +270,7 @@ original-object registration and historical lookup. Its summaries include hashes
 IDs and full cost inputs, without exposing request purpose, workflow or scope.
 `current` describes the binding lifetime only; both permission fields stay false.
 
-Existing schema 1–11 databases require the validated private-backup migration
+Existing schema 1–12 databases require the validated private-backup migration
 described in [authority storage](authority-store.md). The schema 7 step creates
 empty signing tables. The schema 8 step checks existing reservations against
 retained immutable evidence before recording their proven transitions; it rejects
@@ -310,7 +310,15 @@ BLOBs, validates the source and retained history, rebuilds the affected accounti
 objects, verifies the complete schema and foreign-key graph, then commits one
 upgrade. It restores and reads back foreign-key enforcement on every exit. It
 creates no pins, clocks, refunds, approvals or cutover on the operator's behalf.
-The released migration SQL through 010 remains unchanged.
+Schema13 validates complete retained quota/work/audit state and physical SQLite
+integrity at open and same-version maintenance. Live accounting independently
+compares reservation and head membership without a lifetime job scan. Audit
+insertion atomically advances the exact successor head; work insertion atomically
+creates its unique binding to the current audit. An FK-disabled writer cannot
+pre-stage a binding for a later event. Legacy same-second renewals use a complete
+ordered event/audit bijection, refusing missing, surplus or unjustified evidence.
+The released migration SQL through012 remains unchanged. See the
+[PR22 correction matrix](pr22-follow-up.md) for the reported counterexamples.
 
 Remaining dependencies are protected authority bootstrap and OS identities,
 trusted target generation initialization, qualified compiler/baseline/observer

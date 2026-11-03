@@ -7,6 +7,15 @@ fn database(directory: &TempDir) -> Connection {
     Connection::open(directory.path().join("authority.sqlite3")).unwrap()
 }
 
+fn assert_current_open_and_maintenance_refuse(directory: &TempDir) {
+    let path = directory.path().join("authority.sqlite3");
+    assert!(AuthorityStore::open(&path).is_err());
+    let backup = directory.path().join("refused-current.sqlite3");
+    assert!(AuthorityStore::migrate(&path, &backup).is_err());
+    assert!(!backup.exists());
+    assert!(!backup.with_extension("manifest.json").exists());
+}
+
 // A database writer can bypass local immutable triggers. The verifier must
 // detect inconsistent retained evidence, without pretending to anchor a full
 // database against an attacker who rewrites every object consistently.
@@ -136,6 +145,7 @@ fn canonical_hash_projection_and_row_bounds_are_all_verified() {
             store.verify_audit_chain(&tenant).is_err(),
             "accepted {mutation}"
         );
+        assert_current_open_and_maintenance_refuse(&directory);
     }
 }
 
@@ -158,6 +168,7 @@ fn valid_hashes_cannot_hide_sequence_gaps_wrong_links_or_tenant_transplants() {
             store.verify_audit_chain(&tenant).is_err(),
             "accepted {field}"
         );
+        assert_current_open_and_maintenance_refuse(&directory);
     }
 }
 

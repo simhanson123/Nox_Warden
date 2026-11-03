@@ -21,6 +21,7 @@ const MIGRATION_9: &str = include_str!("migration_009.sql");
 const MIGRATION_10: &str = include_str!("migration_010.sql");
 const MIGRATION_11: &str = include_str!("migration_011.sql");
 const MIGRATION_12: &str = include_str!("migration_012.sql");
+const MIGRATION_13: &str = include_str!("migration_013.sql");
 
 fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
     let parent = path
@@ -373,7 +374,7 @@ fn known_v10_digest() -> Result<Vec<u8>> {
 
 #[cfg(test)]
 pub(super) fn signing_guard_definitions() -> Result<&'static [(String, String)]> {
-    Ok(&known_v12()?.guards)
+    Ok(&known_v13()?.guards)
 }
 
 fn migration_11_checksum() -> Result<Vec<u8>> {
@@ -419,7 +420,7 @@ fn known_v11() -> Result<&'static SigningSchema> {
 /// Bounded metadata-only validation for already-open sensitive transactions.
 /// Expected bytes are built once from released SQL, never from the live store.
 pub(super) fn validate_live_schema(connection: &Connection) -> Result<()> {
-    if schema_digest(connection)? != known_v12()?.digest {
+    if schema_digest(connection)? != known_v13()?.digest {
         return Err(invalid("authority integrity guard missing or changed"));
     }
     Ok(())
@@ -659,8 +660,77 @@ pub(super) fn apply_v12(tx: &Transaction<'_>) -> Result<()> {
 
 pub(super) fn validate_v12(connection: &Connection) -> Result<()> {
     validate_migrations(connection, 12)?;
-    validate_live_schema(connection)?;
+    if schema_digest(connection)? != known_v12()?.digest {
+        return Err(invalid("unexpected authority v12 schema"));
+    }
     validate_reference_graph(connection)
+}
+
+fn known_v13() -> Result<&'static SigningSchema> {
+    static SCHEMA: std::sync::OnceLock<SigningSchema> = std::sync::OnceLock::new();
+    if let Some(schema) = SCHEMA.get() {
+        return Ok(schema);
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    apply_v2(&tx)?;
+    apply_v3(&tx)?;
+    apply_v4(&tx)?;
+    apply_v5(&tx)?;
+    apply_v6(&tx)?;
+    apply_v7(&tx)?;
+    tx.execute_batch(MIGRATION_8)?;
+    tx.execute_batch(MIGRATION_9)?;
+    tx.execute_batch(MIGRATION_10)?;
+    tx.execute_batch(MIGRATION_11)?;
+    signing_jobs::backfill_work_audits(&tx)?;
+    tx.execute_batch(signing_jobs::MIGRATION_WORK)?;
+    rebuild_v12_schema(&tx)?;
+    tx.execute_batch(MIGRATION_13)?;
+    let digest = schema_digest(&tx)?;
+    let mut stmt =
+        tx.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")?;
+    let guards = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let _ = SCHEMA.set(SigningSchema { digest, guards });
+    SCHEMA.get().ok_or(invalid("known authority schema13"))
+}
+
+fn validate_physical_integrity(connection: &Connection) -> Result<()> {
+    // Schema SQL equality does not prove that an index contains every row. A
+    // writable_schema/REINDEX attack can restore the exact SQL after emptying
+    // its B-tree. Never repair or rebuild source indexes while validating them.
+    let integrity: String = connection.query_row("PRAGMA integrity_check(1)", [], |r| r.get(0))?;
+    if integrity != "ok" {
+        return Err(invalid("authority retained physical integrity"));
+    }
+    Ok(())
+}
+
+pub(super) fn apply_v13(tx: &Transaction<'_>) -> Result<()> {
+    validate_v12(tx)?;
+    validate_physical_integrity(tx)?;
+    validate_retained_integrity(tx)?;
+    tx.execute_batch(MIGRATION_13)?;
+    migration_failpoint("schema13-guards-created")?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(13,?,13,13,?)",
+        params![hash(&hash_bytes(MIGRATION_13.as_bytes()))?, now()?],
+    )?;
+    tx.pragma_update(None, "user_version", 13)?;
+    migration_failpoint("schema13-version-recorded")?;
+    validate_v13(tx)
+}
+
+/// Full retained validation runs inside the opening/maintenance snapshot.
+/// Sensitive live operations keep their bounded checks separately.
+pub(super) fn validate_v13(tx: &Transaction<'_>) -> Result<()> {
+    validate_migrations(tx, 13)?;
+    validate_live_schema(tx)?;
+    validate_physical_integrity(tx)?;
+    validate_retained_integrity(tx)
 }
 
 #[cfg(not(test))]
@@ -995,6 +1065,9 @@ fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
     if version >= 12 {
         expected.push((12, hash(&hash_bytes(MIGRATION_12.as_bytes()))?, 12, 12));
     }
+    if version >= 13 {
+        expected.push((13, hash(&hash_bytes(MIGRATION_13.as_bytes()))?, 13, 13));
+    }
     if rows != expected {
         return Err(invalid("authority migration checksum or compatibility"));
     }
@@ -1157,6 +1230,7 @@ fn create_backup(
     let manifest_path = backup_path.with_extension("manifest.json");
     let mut manifest = new_private_file(&manifest_path)?;
     private_path(&manifest_path)?;
+    migration_failpoint("backup-files-created")?;
     let source = Connection::open_with_flags(source, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut destination = Connection::open(backup_path)?;
     {
@@ -1234,6 +1308,9 @@ impl AuthorityStore {
     /// Existing duplicate key material aborts migration; no row is deleted or
     /// silently selected as trusted. Keep the backup private and do not restore
     /// old authority state over a live deployment's revocations/counters.
+    /// An interrupted backup may leave an incomplete destination/manifest pair.
+    /// Retain those private files for inspection and retry with a new destination;
+    /// migration never overwrites or automatically removes recovery evidence.
     pub fn migrate(path: impl AsRef<Path>, backup_path: impl AsRef<Path>) -> Result<()> {
         let path = path.as_ref();
         backup_paths(path, backup_path.as_ref())?;
@@ -1250,14 +1327,13 @@ impl AuthorityStore {
             let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-            if application == APPLICATION_ID && version == 12 {
-                validate_v12(&tx)?;
-                validate_retained_integrity(&tx)?;
+            if application == APPLICATION_ID && version == 13 {
+                validate_v13(&tx)?;
                 tx.commit()?;
                 return Ok(());
             }
             if application != APPLICATION_ID
-                || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].contains(&version)
+                || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].contains(&version)
             {
                 return Err(invalid("authority migration requires known prior database"));
             }
@@ -1291,6 +1367,9 @@ impl AuthorityStore {
             if version == 11 {
                 validate_v11_schema(&tx)?;
             }
+            if version == 12 {
+                validate_migrations(&tx, 12)?;
+            }
             let original_schema = match version {
                 1 => known_v1_digest()?,
                 2 => known_v2_digest()?,
@@ -1302,11 +1381,16 @@ impl AuthorityStore {
                 8 => known_v8_digest()?,
                 9 => known_v9_digest()?,
                 10 => known_v10_digest()?,
-                _ => known_v11()?.digest.clone(),
+                11 => known_v11()?.digest.clone(),
+                _ => known_v12()?.digest.clone(),
             };
             if schema_digest(&tx)? != original_schema {
                 return Err(invalid("unexpected authority source schema"));
             }
+            // Verify source B-trees before backup or any table/index rebuild.
+            // Recreating a released index must never hide preexisting physical
+            // corruption by making the source appear healthy after upgrade.
+            validate_physical_integrity(&tx)?;
             // A second read-only connection sees a consistent pre-migration DB;
             // this IMMEDIATE transaction prevents other writers while it is copied.
             create_backup(path, backup_path.as_ref(), &original_schema, version)?;
@@ -1340,7 +1424,10 @@ impl AuthorityStore {
             if version < 11 {
                 apply_v11(&tx)?;
             }
-            apply_v12(&tx)?;
+            if version < 12 {
+                apply_v12(&tx)?;
+            }
+            apply_v13(&tx)?;
             migration_failpoint("before-commit")?;
             tx.commit()?;
             Ok(())
@@ -1504,13 +1591,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 7,
-                    required: 12
+                    required: 13
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v8.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 12);
+            assert_eq!(version(&f.path), 13);
             assert_eq!(version(&backup), 7);
             assert_eq!(snapshot(&backup), before);
             let after = snapshot(&f.path);
@@ -1518,7 +1605,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 12);
+                    assert_eq!(upgraded.len(), 13);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1549,13 +1636,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 8,
-                    required: 12
+                    required: 13
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v9.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 12);
+            assert_eq!(version(&f.path), 13);
             assert_eq!(version(&backup), 8);
             assert_eq!(snapshot(&backup), before);
             let after = snapshot(&f.path);
@@ -1563,7 +1650,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 12);
+                    assert_eq!(upgraded.len(), 13);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1595,13 +1682,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 9,
-                    required: 12
+                    required: 13
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v10.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 12);
+            assert_eq!(version(&f.path), 13);
             assert_eq!(snapshot(&backup), before);
             assert_private_backup(&backup, 9);
             let after = snapshot(&f.path);
@@ -1609,7 +1696,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 12);
+                    assert_eq!(upgraded.len(), 13);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1656,7 +1743,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 12);
+                    assert_eq!(upgraded.len(), 13);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {state}");
                 }
@@ -1877,7 +1964,7 @@ mod tests {
             let backup = f.directory.path().join("should-not-exist.sqlite3");
             assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
             assert!(!backup.exists());
-            assert_eq!(version(&f.path), 12);
+            assert_eq!(version(&f.path), 13);
         }
     }
 
@@ -1912,7 +1999,7 @@ mod tests {
                 assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
                 assert!(!backup.exists());
                 assert!(!backup.with_extension("manifest.json").exists());
-                assert_eq!(version(&f.path), 12);
+                assert_eq!(version(&f.path), 13);
                 assert_eq!(snapshot(&f.path), before);
             }
         }
@@ -1943,7 +2030,7 @@ mod tests {
         assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
         assert!(!backup.exists());
         assert!(!backup.with_extension("manifest.json").exists());
-        assert_eq!(version(&f.path), 12);
+        assert_eq!(version(&f.path), 13);
         assert_eq!(snapshot(&f.path), before);
     }
 

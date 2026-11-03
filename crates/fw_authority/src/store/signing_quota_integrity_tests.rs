@@ -292,10 +292,7 @@ fn restored_evidence_guard_cannot_hide_forged_active_capacity() {
         ));
     }
     f.store.connection.execute_batch(&guard).unwrap();
-    for reopen in [false, true] {
-        if reopen {
-            f.reopen();
-        }
+    {
         let tx = f.store.connection.transaction().unwrap();
         assert!(read(&tx, &f.tenant, &reservation).is_err());
         assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
@@ -304,6 +301,7 @@ fn restored_evidence_guard_cannot_hide_forged_active_capacity() {
             Err(AuthorityError::Invalid(_))
         ));
     }
+    assert!(AuthorityStore::open(&f.path).is_err());
 }
 
 #[test]

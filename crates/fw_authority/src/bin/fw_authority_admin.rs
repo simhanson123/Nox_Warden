@@ -20,7 +20,7 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
+const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|read-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Recover a retained project pin revision with read-signing-project-quota using an empty JSON object; the read never authorizes signing. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -56,6 +56,7 @@ impl Arguments {
             | "read-native"
             | "pin-signing-root-quota"
             | "pin-signing-project-quota"
+            | "read-signing-project-quota"
             | "revoke-signing-root-quota"
             | "revoke-signing-project-quota"
             | "read-signing-intent"
@@ -549,6 +550,14 @@ fn run() -> Result<Value> {
             Ok(
                 json!({"root_id":input.pin.root_id,"revision":revision.to_string(),"signing_allowed":false,"dispatch_allowed":false}),
             )
+        }
+        "read-signing-project-quota" => {
+            if request::<Value>()? != json!({}) {
+                return Err("INPUT_REJECTED");
+            }
+            store
+                .read_signing_project_quota(&tenant)
+                .map_err(|_| "SIGNING_QUOTA_REJECTED")
         }
         "pin-signing-project-quota" => {
             let (pin, expected_revision, versioned) = project_quota_request()?;

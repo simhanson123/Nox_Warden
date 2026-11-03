@@ -224,10 +224,21 @@ fn refused(output: Output, code: &str) {
 }
 
 fn signing_resources(db: &Path) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
+    resources(db, false)
+}
+
+fn authority_resources(db: &Path) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
+    resources(db, true)
+}
+
+fn resources(db: &Path, all_authority: bool) -> Vec<(String, Vec<Vec<rusqlite::types::Value>>)> {
     let connection = rusqlite::Connection::open(db).unwrap();
-    let mut statement = connection.prepare(
-        "SELECT name FROM sqlite_schema WHERE type='table' AND name GLOB 'authority_signing_*' AND name NOT LIKE '%clock%' ORDER BY name",
-    ).unwrap();
+    let sql = if all_authority {
+        "SELECT name FROM sqlite_schema WHERE type='table' AND name GLOB 'authority_*' ORDER BY name"
+    } else {
+        "SELECT name FROM sqlite_schema WHERE type='table' AND name GLOB 'authority_signing_*' AND name NOT LIKE '%clock%' ORDER BY name"
+    };
+    let mut statement = connection.prepare(sql).unwrap();
     let names = statement
         .query_map([], |row| row.get::<_, String>(0))
         .unwrap()
@@ -658,6 +669,7 @@ fn signing_commands_reject_untrusted_authority_fields_and_bounded_input_aliases(
     for operation in [
         "pin-signing-root-quota",
         "pin-signing-project-quota",
+        "read-signing-project-quota",
         "revoke-signing-root-quota",
         "revoke-signing-project-quota",
         "read-signing-readiness",
@@ -742,6 +754,159 @@ fn signing_commands_reject_untrusted_authority_fields_and_bounded_input_aliases(
 }
 
 #[test]
+fn lost_project_quota_output_recovers_rooted_and_project_only_revisions_without_writes() {
+    let fixture = Fixture::new();
+    let unconfigured = authority_resources(&fixture.db);
+    let absent = success(run(&fixture.db, "read-signing-project-quota", &json!({})));
+    assert_eq!(
+        absent,
+        json!({
+            "schema_version":"fw.signing-project-quota-state/v1",
+            "org_id":ORG,"project_id":PROJECT,"current_pin":null,
+            "signing_allowed":false,"dispatch_allowed":false
+        })
+    );
+    assert_eq!(authority_resources(&fixture.db), unconfigured);
+    success(run(&fixture.db, "pin-signing-root-quota", &fixture.quota));
+    let mut rootless = fixture.quota.clone();
+    rootless["schema_version"] = json!("fw.signing-project-quota-pin/v2");
+    rootless["pin"].as_object_mut().unwrap().remove("root_id");
+    rootless["expected_revision"] = json!("1");
+    for (input, revision, scope, pin_version) in [
+        (
+            &fixture.quota,
+            "1",
+            "root",
+            "fw.signing-project-quota-pin/v1",
+        ),
+        (&rootless, "2", "project", "fw.signing-project-quota-pin/v2"),
+    ] {
+        let mut failed = command(&fixture.db, "pin-signing-project-quota");
+        failed.stdout(
+            fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        );
+        refused(
+            execute(failed, &serde_json::to_vec(input).unwrap()),
+            "OUTPUT_FAILED",
+        );
+        let before = authority_resources(&fixture.db);
+        let recovered = success(run(&fixture.db, "read-signing-project-quota", &json!({})));
+        assert_eq!(
+            recovered["schema_version"],
+            "fw.signing-project-quota-state/v1"
+        );
+        assert_eq!(recovered["org_id"], ORG);
+        assert_eq!(recovered["project_id"], PROJECT);
+        assert_eq!(recovered["current_pin"]["revision"], revision);
+        assert_eq!(recovered["current_pin"]["quota_scope"], scope);
+        assert_eq!(recovered["current_pin"]["pin_schema_version"], pin_version);
+        assert_eq!(recovered["current_pin"]["pin"], input["pin"]);
+        assert_eq!(recovered["current_pin"]["revoked"], false);
+        assert_eq!(recovered["signing_allowed"], false);
+        assert_eq!(recovered["dispatch_allowed"], false);
+        assert_eq!(authority_resources(&fixture.db), before);
+        let mut failed_read = command(&fixture.db, "read-signing-project-quota");
+        failed_read.stdout(
+            fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        );
+        refused(execute(failed_read, b"{}"), "OUTPUT_FAILED");
+        assert_eq!(authority_resources(&fixture.db), before);
+        let mut exact_retry = input.clone();
+        exact_retry["expected_revision"] = recovered["current_pin"]["revision"].clone();
+        assert_eq!(
+            success(run(&fixture.db, "pin-signing-project-quota", &exact_retry))["revision"],
+            revision
+        );
+    }
+}
+
+#[test]
+fn project_quota_recovery_keeps_expired_revoked_heads_scoped_and_rejects_untrusted_input() {
+    let directory = private_directory::private_directory();
+    let db = directory.path().join("authority.sqlite3");
+    success(run(&db, "init", &json!({})));
+    let now = chrono::Utc::now().timestamp();
+    let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+    let mut store = AuthorityStore::open(&db).unwrap();
+    store
+        .provision_target_metadata_project(&tenant, now - 120)
+        .unwrap();
+    let pin = fw_authority::SigningProjectQuotaPin {
+        root_id: None,
+        limits: fw_authority::SigningQuotaLimits {
+            active_leases: 1,
+            new_leases_per_day: 1,
+            unique_destinations_per_day: 1,
+            cumulative_seconds_per_day: 60,
+            concurrent_deployments: 1,
+        },
+        not_before: now - 120,
+        not_after: now - 60,
+    };
+    store
+        .pin_signing_project_quota(&tenant, &pin, None, now - 120)
+        .unwrap();
+    let before_expired_read = authority_resources(&db);
+    let expired = success(run(&db, "read-signing-project-quota", &json!({})));
+    assert_eq!(expired["current_pin"]["revision"], "1");
+    assert_eq!(expired["current_pin"]["pin"]["not_after"], now - 60);
+    assert_eq!(expired["current_pin"]["revoked"], false);
+    assert_eq!(authority_resources(&db), before_expired_read);
+    store.revoke_signing_project_quota(&tenant, 1, now).unwrap();
+    for other in [
+        AuthorityTenant::new(ORG, OTHER).unwrap(),
+        AuthorityTenant::new(OTHER, PROJECT).unwrap(),
+    ] {
+        store
+            .provision_target_metadata_project(&other, now)
+            .unwrap();
+    }
+    drop(store);
+    let before = authority_resources(&db);
+    let revoked = success(run(&db, "read-signing-project-quota", &json!({})));
+    assert_eq!(revoked["current_pin"]["revision"], "1");
+    assert_eq!(revoked["current_pin"]["revoked"], true);
+    for (org, project) in [(ORG, OTHER), (OTHER, PROJECT)] {
+        let hidden = success(execute(
+            tenant_command(&db, "read-signing-project-quota", org, project),
+            b"{}",
+        ));
+        assert_eq!(hidden["org_id"], org);
+        assert_eq!(hidden["project_id"], project);
+        assert_eq!(hidden["current_pin"], Value::Null);
+    }
+    refused(
+        execute(
+            tenant_command(&db, "read-signing-project-quota", ORG, REQUEST),
+            b"{}",
+        ),
+        "SIGNING_QUOTA_REJECTED",
+    );
+    for bytes in [
+        b"{\"project_id\":\"DO_NOT_PRINT\"}".to_vec(),
+        b"{\"root_id\":null}".to_vec(),
+        b"{\"expected_revision\":\"1\",\"expected_revision\":\"2\"}".to_vec(),
+        b"[]".to_vec(),
+        vec![b' '; 128 * 1024 + 1],
+    ] {
+        refused(
+            execute(command(&db, "read-signing-project-quota"), &bytes),
+            "INPUT_REJECTED",
+        );
+    }
+    let mut unexpected_option = command(&db, "read-signing-project-quota");
+    unexpected_option.args(["--approval-origin", "DO_NOT_PRINT"]);
+    refused(execute(unexpected_option, b"{}"), "ARGUMENTS_REJECTED");
+    assert_eq!(authority_resources(&db), before);
+}
+
+#[test]
 fn lost_quota_pin_output_keeps_revision_and_never_grants_signing() {
     let fixture = Fixture::new();
     let mut failed = command(&fixture.db, "pin-signing-root-quota");
@@ -812,7 +977,7 @@ fn actual_migration_requires_backup_and_preserves_native_receipts_without_author
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    assert_eq!(database_version(), 12);
+    assert_eq!(database_version(), 13);
     assert_eq!(
         fs::metadata(&backup).unwrap().permissions().mode() & 0o777,
         0o600

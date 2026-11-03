@@ -67,6 +67,37 @@ retry with the current revision returns that revision; changed limits or validit
 create a new revision. Omitting the expected revision after creation is a conflict.
 Successful pinning returns its revision and does not enable signing or dispatch.
 
+Recover the current retained project revision after lost pin output with this
+trusted local read. It accepts only an empty JSON object and the same protected
+database and explicit tenant arguments; browser sessions and controller access
+do not authorize it.
+
+```sh
+printf '{}' | target/debug/fw_authority_admin read-signing-project-quota \
+  --database authority/authority.sqlite3 \
+  --org-id ORG_UUID --project-id PROJECT_UUID
+```
+
+The canonical response uses schema version
+`fw.signing-project-quota-state/v1`, echoes the selected `org_id` and
+`project_id`, and contains `current_pin: null` when that provisioned tenant has
+no project pin. A retained pin contains its positive decimal `revision`,
+`pinned_at`, complete `pin` limits and validity, and `revoked` boolean. Its
+`pin_schema_version` explicitly distinguishes rooted
+`fw.signing-project-quota-pin/v1` with `quota_scope: "root"` and `pin.root_id`
+from project-only `fw.signing-project-quota-pin/v2` with
+`quota_scope: "project"` and no root field. The rooted v1 label describes the
+retained unversioned pin format; this read does not rewrite those stored bytes.
+Unknown or inconsistent stored versions/projections fail closed.
+
+This is the retained CAS head even when expired or revoked, so it can recover
+the revision needed for an explicit replacement. It is not a current readiness
+or capacity result. The read changes no clock, security revision, quota or audit
+record; both permission fields remain false. Inspect the returned tenant, scope
+and full pin before retrying the exact write with its recovered revision or
+submitting a deliberate update. It does not enumerate other tenants or expose an
+HTTP maintenance route.
+
 ## Configure project-only general policy
 
 Only `pin-signing-project-quota` accepts this explicit versioned input. Omit
@@ -149,6 +180,9 @@ historical reservation. Expired/revoked pins have null scope and a missing quota
 blocker. Core requests with project-only configuration or missing original
 provenance report `quota_configured: false`. A past UNKNOWN stays visible after
 later recorded delivery and does not establish enforcement or return quota.
+The current scope and root fields do not identify the latest intent's retained
+reservation scope; a rooted historical obligation can remain after project-only
+cutover. This response does not expose a historical root identifier.
 
 The original `read-signing-readiness` command retains the v1 15-field shape for
 rooted or unavailable configuration. It rejects current project-only
@@ -223,7 +257,9 @@ Successful stdout is canonical JSON without a trailing newline.
 Output errors can occur after a quota pin or cancellation commits. A full
 destination, a read-only output handle or a pipe without a reader returns exit 1 and
 `AUTHORITY_ADMIN code=OUTPUT_FAILED` when stderr is writable. Preserve the
-reported/current revision and inspect retained state before updating again;
+reported/current revision and inspect retained state before updating again.
+For lost project pin output, use `read-signing-project-quota` to recover the
+retained revision and exact configuration, including after expiry or revocation;
 an output error does not establish rollback. After lost cancellation output,
 inspect the retained intent or retry that exact job cancellation. A writable
 `/dev/null` remains a valid output destination. See [target metadata recovery](target-metadata.md#command-output-and-retained-state)
@@ -243,6 +279,10 @@ NOX_TEST_AUTHORITY_ADMIN="$PWD/target/debug/fw_authority_admin" \
 
 These regressions run the actual administration executable against private
 SQLite databases, including signed lab observation and WebAuthn fixtures.
+Project pin recovery covers lost rooted and project-only commit output,
+retained expired/revoked heads, tenant isolation and closed request parsing.
+Complete authority-table snapshots verify that successful reads and failed read
+output leave clocks, security revisions, quota and audit unchanged.
 The explicitly ignored cancellation test uses private `cfg(test)` preparation to give the real executable
 retained unissued and issued work. It covers expired claimed work, tenant
 refusal, output loss after cancellation, exact retry without extra events,
