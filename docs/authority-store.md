@@ -492,10 +492,15 @@ exact canonical event bytes, all stored projections, tenant identity, hashes,
 contiguous unsigned sequences, previous links, nondecreasing timestamps and the
 final head. It retains constant-size chain state rather than collecting history;
 oversized values are rejected before copying them into Rust-owned buffers.
-The full scan is explicit, not part of every write. Appends use the indexed tail
-and do not certify older events. Legacy backward timestamps therefore remain
-verification errors even after a later append; history is never rewritten or
-silently repaired by this verifier. No schema migration is needed.
+The returned chain and its timestamp ordering remain tenant scoped. The live
+connection gate first revalidates the database globally after an external commit;
+corruption in another tenant can therefore refuse this diagnostic read before a
+summary is produced. Valid tenants never share an audit clock. Unchanged local
+writes retain their indexed-tail checks, while a changed database also requires
+the complete validation described below. Legacy backward history then refuses
+new appends rather than allowing a later event to conceal an older error.
+Neither this verifier nor the connection gate rewrites or repairs history.
+No schema migration is needed.
 
 This summary verifies a local snapshot, not an external trust anchor. A writer
 able to replace the entire database and recompute every chain value can produce
@@ -667,17 +672,53 @@ SQLite-looking name never exempts an unknown trigger, table, index or view.
 
 Schema13 open and current-version maintenance run physical SQLite integrity,
 reference graph, complete audit chain, quota transition/projection and retained
-work/lifecycle validation within one transaction. They reject hidden held heads,
-reservations without intents and stale index contents even when all schema SQL
-has been restored exactly. They do not repair corrupt indexes or rewrite history.
-Sensitive live accounting compares bounded reservation and head membership sets
-using independent indexes, then validates each obligation and its bounded history.
-Nonpartial reservation state indexes include unsigned active policy deliveries.
-This avoids scanning every old cancelled job or imposing a lifetime job ceiling.
-Unrelated historic corruption on an already-open connection is checked at the
-next full open/maintenance validation, not certified by each bounded admission.
-An attacker able to replace the entire DB can also replace its local audit chain;
-external anchors and protected OS deployment remain outstanding.
+work/lifecycle validation within one consistent read snapshot. Existing-database
+validation does not reserve the writer for that complete replay. Empty database
+initialization and actual legacy upgrades remain serialized, with identity and
+version rechecked after acquiring their write lock. Legacy migration is not an
+online rewrite. Validation rejects hidden held heads, reservations without
+intents and stale index contents even when all schema SQL has been restored
+exactly. It never repairs corrupt indexes or rewrites history.
+
+Each opened authority connection retains the `data_version` read inside its
+successfully validated SQLite snapshot. Before a new transaction, a different
+version requires full physical and retained validation again. A healthy write
+from another connection also invalidates that cache; peer commits are not
+implicitly trusted. Sensitive writer transactions first validate in a deferred
+read snapshot, release it, then acquire their write lock and compare that
+snapshot's version. On a change in that interval it drops the writer transaction,
+clears the cached token and repeats deferred validation, for at most three total
+acquisition attempts. It has not yet executed the requested operation's body.
+Repeated changes exhaust the budget with the existing typed `Conflict`; the
+caller may retry. Local taint, failed integrity and storage errors exit without
+this retry. The bound limits attempts, not elapsed time: a contended call can
+replay complete history three times. No new token is sampled after COMMIT and treated
+as already checked. Failed validation leaves no reusable token.
+
+Unchanged transactions on the same connection keep bounded reservation/head
+accounting and scoped evidence checks, without a complete lifetime replay on
+every admission. Nonpartial reservation state indexes include unsigned active
+policy deliveries. Closed work-mutation audit kinds must have matching retained
+events/bindings; unrelated intent/result/quota audit kinds remain independent.
+Complete validation also checks work audits whose resource has no job. Normal
+audit-first/event-second transaction prefixes are validated only when complete.
+
+Preparing an unsafe local schema/PRAGMA operation permanently invalidates that
+connection's cached evidence; an independently validated reopen is required.
+Production code exposes neither a raw connection nor hook replacement through
+this private wrapper. This is a restriction on the authority's reachable API,
+not protection against malicious code executing inside the process. SQLite's
+change counter is a connection-local change detector, not a cryptographic anchor
+or protection against arbitrary offline file replacement. An attacker able to
+replace the entire DB can also replace its local audit chain; external anchors
+and protected OS deployment remain outstanding.
+
+Complete integrity verification still costs work proportional to retained
+history. Cached prepared statements and reuse of already verified records remove
+redundant work, but do not establish constant-time opening or a supported history
+size. Read snapshots may keep WAL pages alive until verification ends. Measured
+fixture sizes, runtime conditions and current limits belong in the verification
+summary; no lifetime job ceiling or silent pruning is introduced.
 
 Schema12 rebuilds quota pins, reservations and transition heads for nullable roots.
 Only its dedicated maintenance connection disables FKs, before the transaction;

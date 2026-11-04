@@ -7,7 +7,7 @@
     "design_provenance": "reports/spec-import.json",
     "review_history": "docs/review-continuity.md",
     "independent_review_prompts": "docs/review-prompts.md",
-    "method": "GPT-6.1 Sol ultra workers with disjoint file ownership; lead orchestration. Implement substantial integrated batches, run focused necessary checks, then one consolidated independent review/full validation and authorized commit/push/PR/CI/merge. No remote branch deletion or shared-history rewriting.",
+    "method": "GPT-6.1 Sol ultra workers with disjoint file ownership; lead orchestration. Implement substantial integrated batches, run focused necessary checks, then one consolidated independent review/full validation and authorized commit/push/PR/CI/merge and separate main CI. No remote branch deletion or shared-history rewriting.",
     "next_dependencies": [
       "Qualify production observer/management-baseline/native gates and establish compiler/validator build identity; development recompilation and signed lab observations do not satisfy these production gates.",
       "Complete core access semantic/native/signing authority with a single retained absolute lease window; then protected target generation bootstrap and independently deployed signer/delivery verification.",
@@ -16,14 +16,14 @@
       "Complete remaining registry/auth/evidence/UI/locale/provider acceptance recorded per task below."
     ],
     "completed_slice": [
-      "Schema13 streams full quota/work/lifecycle/audit and physical/reference validation in opening/current-maintenance transactions; old source physical validation precedes backup and rebuild.",
-      "Live admission compares independently indexed reservation and head identities within live/window bounds; hidden held projections and stale index membership refuse without lifetime job caps.",
-      "Audit append requires exact unsigned successor and atomically projects head; work INSERT atomically creates a current unconsumed audit binding, including FK OFF.",
-      "Legacy audits use complete ordered tenant/job/phase bijection; legitimate same-second renewals migrate unchanged, missing/surplus/mismatched evidence refuses.",
-      "Trusted local read-signing-project-quota returns current retained pin/revision without writes; HTTP v1/v2 repeated prefixes reject; production authority/auth constraints unchanged."
+      "Live authority connections bind complete physical/retained validation to a SQLite snapshot, invalidate it on peer commits and permanently taint unsafe local schema preparations. Production exposes no raw connection or hook replacement.",
+      "Sensitive writes validate in a deferred snapshot, acquire their writer separately and compare its first snapshot marker; up to three attempts preserve typed Conflict on continued healthy contention. Corruption, taint and storage errors are not retried.",
+      "Complete recognized work-mutation audit/event/binding correspondence includes audits for missing jobs; unrelated intent/result/quota audits and normal audit-first atomic writes remain valid.",
+      "Existing open/current maintenance use consistent read snapshots; initialization and genuine legacy upgrades retain serialized checks and private backups. Prepared statement and validated-record reuse reduce duplicate retained replay without changing schema13 or published SQL001–013.",
+      "New genuine lifecycle projection/index regressions, healthy/corrupt snapshot races, exact work-audit checks and actual late-write fault/rollback tests supplement preserved legacy, quota and native evidence coverage. Full integrated validation status is recorded separately."
     ],
-    "next_implementation": "M03/M04L/M05: complete core semantic-review/native/signing integration, single retained absolute lease window and signed workload/delegation authority, then protected bootstrap/accounts/target generation, independent signer and authenticated dispatch/completion/reconciliation. Continue actual Linux host lifecycle/watchdog/installer and Windows WFP+callout/macOS Network Extension according to F08 dependencies. Observe mode is not final host firewall acceptance.",
-    "verification": {
+    "next_implementation": "Resolve this retained branch PR and finish any pending authorized GitHub CI/merge/main CI completion first. The R1-R4 implementation and local verification are complete; next continue M03/M04L/M05 core semantic/native/signing integration, one absolute lease window, protected bootstrap/OS accounts/generation and independent signer/authenticated completion, followed by Linux host lifecycle and actual Windows/macOS backends.",
+    "previous_batch_verification": {
       "status": "passed_fresh_complete_local_validation_after_consolidated_review",
       "date": "2026-11-03",
       "commands": [
@@ -124,18 +124,29 @@
       "summary": "reports/README.md",
       "release_qualification": false
     },
-    "implementation_base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
-    "implementation_branch": "fix/quota-open-integrity",
+    "implementation_base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+    "implementation_branch": "fix/live-authority-integrity",
     "completed_batch": {
       "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
       "branch": "fix/quota-open-integrity",
       "scope": "D1–D6 full-open/physical/quota/audit/work integrity, schema13, ordered legacy backfill, current-pin recovery CLI, exact HTTP prefixes and test-only metadata expiry repair",
-      "status": "locally_validated_remote_CI_and_merge_status_in_branch_PR",
+      "status": "merged_PR_and_main_CI_passed_external_review_received",
       "schema": 13,
       "next_external_reviewer": "Claude Opus 5.5",
-      "external_review_executed": false,
-      "verification": "continuity.verification",
-      "head_resolution": "Resolve retained feature branch and its GitHub PR for exact final head, CI and merge; no self-referential source commit is embedded."
+      "external_review_executed": true,
+      "verification": "continuity.previous_batch_verification",
+      "head_resolution": "Resolve retained feature branch and its GitHub PR for exact final head, CI and merge; no self-referential source commit is embedded.",
+      "head": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
+      "pull_request": 23,
+      "merge": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "pr_ci": {
+        "run": 41580876482,
+        "conclusion": "success"
+      },
+      "main_ci": {
+        "run": 41584624128,
+        "conclusion": "success"
+      }
     },
     "received_external_review": {
       "target": "4c0b65ee4399b500a83011426255be54bdc10654",
@@ -242,7 +253,7 @@
       }
     },
     "handoff_branch": "docs/pr20-review-handoff",
-    "external_review": {
+    "received_pr22_external_review": {
       "pull_request": 22,
       "target": "2cccdb3ba1f22fd461c53bc350bb2d1bc07fffd0",
       "base": "2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3",
@@ -334,15 +345,17 @@
       "portable_probe_recheck": "Exact documented commands were run in a fresh temporary directory and reproduced the same N2, exit0; no old temporary source needed, not an extra passing security test."
     },
     "current_batch": {
-      "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
-      "branch": "fix/quota-open-integrity",
-      "scope": "D1–D6 full-open/physical/quota/audit/work integrity, schema13, ordered legacy backfill, current-pin recovery CLI, exact HTTP prefixes and test-only metadata expiry repair",
-      "status": "locally_validated_remote_CI_and_merge_status_in_branch_PR",
-      "schema": 13,
+      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "branch": "fix/live-authority-integrity",
+      "scope": "R1-R4 live snapshot integrity, complete work-audit correspondence, full validation cost and lock behavior",
+      "status": "implemented_locally_verified_independently_reviewed_resolve_GitHub_completion_record",
       "next_external_reviewer": "Claude Opus 5.5",
-      "external_review_executed": false
+      "external_review_executed": false,
+      "follow_up": "docs/pr23-follow-up.md",
+      "schema": 13,
+      "completion_record": "Resolve retained branch PR for exact head, PR CI, main merge, separate main CI and complete fixed Claude-only prompt; source omits a self-referential commit identifier."
     },
-    "implementation_pr_lookup": "https://github.com/simhanson123/Nox_Warden/pulls?q=head%3Afix%2Fquota-open-integrity",
+    "implementation_pr_lookup": "https://github.com/simhanson123/Nox_Warden/pulls?q=head%3Afix%2Flive-authority-integrity",
     "received_pr20_external_review": {
       "pull_request": 20,
       "target": "9e021b31171ae19ff8c9e7eba400d8dd4630a001",
@@ -436,6 +449,153 @@
           "local_assessment": "fresh_independent_baseline_reproduction_and_opposite_regressions"
         }
       ]
+    },
+    "verification": {
+      "status": "fresh_final_local_suites_passed",
+      "date": "2026-11-04",
+      "environment": "Rust1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154.0.8037.57, managed Docker28.4.0/vfs; final suites ran on unchanged source. Command-scoped writable BUILDX_CONFIG fixed initial read-only home setup failure; existing Docker/auth/proxy/CA preserved.",
+      "summary": "reports/README.md",
+      "release_qualification": false,
+      "performance": {
+        "profile": "default debug, median of three",
+        "fixture": "same genuine cancelled test-authority jobs and complete reviewed/native/work/audit evidence",
+        "baseline": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+        "jobs": [
+          0,
+          100,
+          500
+        ],
+        "library_before_seconds": [
+          0.031095,
+          1.381703,
+          7.562998
+        ],
+        "library_after_seconds": [
+          0.036483,
+          0.836106,
+          4.172422
+        ],
+        "cli_jobs": [
+          100,
+          500
+        ],
+        "cli_before_seconds": [
+          2.1852174989908235,
+          8.157781204994535
+        ],
+        "cli_after_seconds": [
+          1.6809437310002977,
+          4.826134126007673
+        ],
+        "qualification": "Candidate timings precede final Clippy/error-handling/contention refinements, including bounded writer retry; no exact candidate tree digest captured. Measured read-only paths do not execute writer retry. Not an exact-final-commit benchmark or production SLA.",
+        "summary": "docs/authority-validation-performance.md",
+        "remaining_cost": "Complete integrity replay is proportional to retained history; read snapshots retain WAL and concurrent changes can require retry."
+      },
+      "canonical": {
+        "command": "bash scripts/check.sh",
+        "exit_code": 0,
+        "workspace_passed": 900,
+        "ignored_declarations": 3,
+        "nested_worker_summaries_excluded": 2,
+        "explicit_cancellation_cli_passed": 1,
+        "reduced_feature_passed": 32,
+        "ui_passed": 190,
+        "ui_files": 10,
+        "ui_builds": 2,
+        "source_files": 345,
+        "source_unchanged": true,
+        "checks": "format, all-target workspace Clippy with denied warnings, specification/contracts/vendor/locale and Python diagnostic suites passed"
+      },
+      "independent_review": {
+        "reviewer": "GPT-6.1 Sol ultra",
+        "status": "no_confirmed_blocker_after_corrections",
+        "new_adversarial_probes_passed": 4,
+        "authority_source_files": 93,
+        "final_delta": "Final three-file cfg(test) shared-fixture alias change reviewed statically; production and probe behavior unchanged, no unnecessary probe rerun",
+        "external_Claude_execution": false
+      },
+      "shared_umask": {
+        "command": "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
+        "exit_code": 0,
+        "passed": 505,
+        "ignored_declarations": 3,
+        "nested_worker_summaries_excluded": 2,
+        "source_unchanged": true
+      },
+      "runtime": {
+        "http": 24,
+        "cli": 13,
+        "separate_synthetic_cli_protocol": 5,
+        "enrollment_api": 23,
+        "enrollment_browser": 25,
+        "metadata": 41,
+        "catalogue_browser": 11,
+        "passkeys": 76,
+        "login_admission": 14,
+        "audit": 21,
+        "authority_browser": 40,
+        "linux": {
+          "checks": 66,
+          "actual_packet_tests": 40
+        },
+        "signed_linux": {
+          "checks": 98,
+          "actual_packet_tests": 43
+        },
+        "native_evidence": {
+          "checks": 33,
+          "actual_captures": 5
+        }
+      },
+      "provenance": {
+        "fresh_successful_json_reports": 13,
+        "separate_stdout_cli_protocol_result": 1,
+        "matched_source_binary_hash_entries": 212,
+        "unique_paths": 105,
+        "authority_review_files": 93,
+        "executable_test_input_files": 345,
+        "source_unchanged": true,
+        "all_lab_containers_removed": true,
+        "final_daemon_container_count": 0
+      },
+      "initial_lab_setup": "Initial Linux command failed before packet execution because buildx state directory was read-only; original NOT_RUN packet evidence preserved, corrected environment invocation passed."
+    },
+    "external_review": {
+      "pull_request": 23,
+      "target": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
+      "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
+      "reviewer": "Claude Opus 5.5",
+      "reports": "docs/reviews/pr23-claude-review.md",
+      "source_kind": "uploaded pasted text preserved byte-for-byte, including CRLF and opening notes",
+      "preserved_bytes": 15349,
+      "preserved_sha256": "9a3f3072a976beef60d158906d493a41bbe464e97f176406cef77719a282657e",
+      "status": "received_R1_R4_implemented_locally_verified_and_internally_reviewed",
+      "private_probes_available": false,
+      "reported_conclusion": "Original D1-D6 counterexamples corrected; no Critical/High/Medium reported, four Low findings. Attributed external evidence, not product certification.",
+      "follow_up": "docs/pr23-follow-up.md",
+      "findings": [
+        {
+          "id": "R1",
+          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+        },
+        {
+          "id": "R2",
+          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+        },
+        {
+          "id": "R3",
+          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+        },
+        {
+          "id": "R4",
+          "status": "read_snapshot_and_replay_reduction_verified_with_normal_history_measurements_linear_cost_and_contention_limits_remain"
+        }
+      ],
+      "assessment_corrections": [
+        "quick_check does not prove complete index/table correspondence; generic partial-index omissions pass, while bundled SQLite can report count damage in an emptied nonpartial index",
+        "R3 must cover closed work-mutation audit kinds, not every signing audit",
+        "External R4 primitive timings and specific SQLITE_BUSY causal attribution remain separate/unverified; new same-fixture normal-history measurements are recorded with their candidate/profile limits"
+      ]
     }
   },
   "tasks": [
@@ -461,7 +621,7 @@
       "dependencies": [
         "M01"
       ],
-      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports. Migration 4 persists local-owner enrollment, private WebAuthn ceremony/proof state, verified credentials, counters, revocations and atomic audit; restart cannot reopen owner bootstrap. Migration 5 adds immutable content-hashed denial summaries and atomic audit references; bounded audit snapshot pages preserve append-only chain checks. Migration 6 atomically maintains bounded catalogue/request/operation/target/enrollment snapshot projections with verified chunked backfill, retention and clock rollback protection. Evidence-bound immutable quota transitions and guarded indexed membership now protect slots; migration rejects inconsistent legacy release/delivery and verifies actual schema on current-version reopen and migration. Authority schema11/12 adds retained history/audit reference integrity and FK-safe nullable quota-root maintenance with exact rowid/BLOB preservation and private backups. Authority schema13 adds physical and full retained-state open validation, independent bounded membership checks and source-integrity-before-rebuild maintenance.",
+      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports. Migration 4 persists local-owner enrollment, private WebAuthn ceremony/proof state, verified credentials, counters, revocations and atomic audit; restart cannot reopen owner bootstrap. Migration 5 adds immutable content-hashed denial summaries and atomic audit references; bounded audit snapshot pages preserve append-only chain checks. Migration 6 atomically maintains bounded catalogue/request/operation/target/enrollment snapshot projections with verified chunked backfill, retention and clock rollback protection. Evidence-bound immutable quota transitions and guarded indexed membership now protect slots; migration rejects inconsistent legacy release/delivery and verifies actual schema on current-version reopen and migration. Authority schema11/12 adds retained history/audit reference integrity and FK-safe nullable quota-root maintenance with exact rowid/BLOB preservation and private backups. Authority schema13 adds physical and full retained-state open validation, independent bounded membership checks and source-integrity-before-rebuild maintenance. Live snapshot-bound integrity validation now detects externally changed projections/indexes on already-open handles; deferred validation avoids holding the writer through retained replay, with bounded acquisition retries and serialized real migrations.",
       "blocker": "PostgreSQL/RLS, OIDC, workload binding, certificate renewal/rotation, enrollment-record retention maintenance and complete worker queue remain."
     },
     {
@@ -470,7 +630,7 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "AuthorityStore retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..11 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement. Schema11 closes PR20 N1–N7 with immutable audit linkage, atomic heads, complete histories, exact metadata and retained reference/time validation. Schema12 adds strict project-only v2 quota sharing old rooted obligations and permanent root anchor CAS, without releasing issued capacity. Schema13 atomically projects exact-next audits and event-owned work bindings; complete ordered legacy audit matching accepts same-second renewals without inventing evidence.",
+      "implemented": "AuthorityStore retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..13 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement. Schema11 closes PR20 N1–N7 with immutable audit linkage, atomic heads, complete histories, exact metadata and retained reference/time validation. Schema12 adds strict project-only v2 quota sharing old rooted obligations and permanent root anchor CAS, without releasing issued capacity. Schema13 atomically projects exact-next audits and event-owned work bindings; complete ordered legacy audit matching accepts same-second renewals without inventing evidence. Recognized work-mutation audits require complete retained event/binding correspondence, including orphan resources, while normal atomic audit-first writes and separate intent/result/quota audits remain valid.",
       "blocker": "Production authority bootstrap and out-of-band human provisioning; trusted target generation initialization; compiler/validator build identity; qualified management baseline/native observer trust; core access semantic/native/signing profile, single absolute lease window and signed workload/delegation authority; independently deployed signer and authenticated completion receipts, delivery/reconciliation; protected OS accounts; PostgreSQL authority transactions. Lab evidence never grants production signing authority."
     },
     {

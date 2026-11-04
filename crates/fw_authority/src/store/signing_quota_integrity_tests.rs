@@ -86,20 +86,19 @@ fn replacing_a_released_accounting_head_cannot_erase_issued_membership() {
     let original_audit_count = f.count("authority_audit");
     assert_eq!(original_heads.len(), 2);
 
-    f.store
-        .connection
+    // PRAGMA variants belong to the SQL attack connection only.
+    let forensic = Connection::open(&f.path).unwrap();
+    forensic
         .execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF;")
         .unwrap();
     assert_eq!(
-        f.store
-            .connection
+        forensic
             .query_row::<i64, _, _>("PRAGMA foreign_keys", [], |r| r.get(0))
             .unwrap(),
         1
     );
     assert_eq!(
-        f.store
-            .connection
+        forensic
             .query_row::<i64, _, _>("PRAGMA recursive_triggers", [], |r| r.get(0))
             .unwrap(),
         0
@@ -110,8 +109,7 @@ fn replacing_a_released_accounting_head_cannot_erase_issued_membership() {
         "INSERT OR REPLACE INTO authority_signing_quota_transition_heads SELECT org_id,project_id,reservation_id,root_id,lease_id,revision,state,issued_at FROM authority_signing_quota_transition_heads WHERE reservation_id=?2 AND EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads WHERE reservation_id=?1)",
     ] {
         assert!(
-            f.store
-                .connection
+            forensic
                 .execute(mutation, params![issued, released])
                 .is_err(),
             "{mutation}"
@@ -215,6 +213,8 @@ fn active_lease_and_policy_records_both_keep_effective_dispatch_capacity() {
 #[test]
 fn every_expected_live_signing_guard_is_checked_before_admission() {
     let (mut f, _, _) = real_reservation("issued");
+    // Use a separate forensic writer to retain the direct SQL guard checks.
+    let mut forensic = Connection::open(&f.path).unwrap();
     let guards = migrations::signing_guard_definitions().unwrap();
     for required in [
         "authority_signing_quota_transitions_evidence",
@@ -227,12 +227,12 @@ fn every_expected_live_signing_guard_is_checked_before_admission() {
         assert!(guards.iter().any(|(name, _)| name == required));
     }
     for (name, expected) in guards {
-        f.store
-            .connection
+        forensic
             .execute_batch(&format!("DROP TRIGGER {name}"))
             .unwrap();
         {
-            let tx = f.store.connection.transaction().unwrap();
+            assert!(f.store.connection.transaction().is_err());
+            let tx = forensic.transaction().unwrap();
             assert!(
                 matches!(
                     reserve(&tx, &f.tenant, &id(212), &change(212), NOW + 300, NOW),
@@ -243,9 +243,10 @@ fn every_expected_live_signing_guard_is_checked_before_admission() {
                 "missing {name}"
             );
         }
-        f.store.connection.execute_batch(&format!("CREATE TRIGGER {name} BEFORE INSERT ON authority_signing_quota_reservations BEGIN SELECT 1; END;")).unwrap();
+        forensic.execute_batch(&format!("CREATE TRIGGER {name} BEFORE INSERT ON authority_signing_quota_reservations BEGIN SELECT 1; END;")).unwrap();
         {
-            let tx = f.store.connection.transaction().unwrap();
+            assert!(f.store.connection.transaction().is_err());
+            let tx = forensic.transaction().unwrap();
             assert!(
                 matches!(
                     reserve(&tx, &f.tenant, &id(212), &change(212), NOW + 300, NOW),
@@ -256,13 +257,13 @@ fn every_expected_live_signing_guard_is_checked_before_admission() {
                 "changed {name}"
             );
         }
-        f.store
-            .connection
+        forensic
             .execute_batch(&format!("DROP TRIGGER {name}; {expected};"))
             .unwrap();
     }
+    f.store.connection.transaction().unwrap().commit().unwrap();
     assert_eq!(f.count("authority_signing_quota_reservations"), 1);
-    let tx = f.store.connection.transaction().unwrap();
+    let tx = forensic.transaction().unwrap();
     assert!(matches!(
         reserve(&tx, &f.tenant, &id(212), &change(212), NOW + 300, NOW),
         Err(AuthorityError::Quota)
@@ -272,18 +273,19 @@ fn every_expected_live_signing_guard_is_checked_before_admission() {
 #[test]
 fn restored_evidence_guard_cannot_hide_forged_active_capacity() {
     let (mut f, job, reservation) = real_reservation("issued");
-    let guard: String = f.store.connection.query_row(
+    let mut forensic = Connection::open(&f.path).unwrap();
+    let guard: String = forensic.query_row(
         "SELECT sql FROM sqlite_schema WHERE name='authority_signing_quota_transitions_evidence'",
         [], |r| r.get(0),
     ).unwrap();
-    f.store
-        .connection
+    forensic
         .execute_batch("DROP TRIGGER authority_signing_quota_transitions_evidence")
         .unwrap();
-    f.store.connection.execute("INSERT INTO authority_signing_quota_transitions SELECT r.org_id,r.project_id,r.reservation_id,(SELECT MAX(t.revision)+1 FROM authority_signing_quota_transitions t WHERE t.org_id=r.org_id AND t.project_id=r.project_id AND t.reservation_id=r.reservation_id),'active',r.issued_at,r.active_slots,0,?,'active',NULL,NULL,NULL FROM authority_signing_quota_reservations r WHERE reservation_id=?", params![NOW, reservation]).unwrap();
-    f.store.connection.execute("UPDATE authority_signing_quota_reservations SET state='active',dispatch_slots=0 WHERE reservation_id=?", [&reservation]).unwrap();
+    forensic.execute("INSERT INTO authority_signing_quota_transitions SELECT r.org_id,r.project_id,r.reservation_id,(SELECT MAX(t.revision)+1 FROM authority_signing_quota_transitions t WHERE t.org_id=r.org_id AND t.project_id=r.project_id AND t.reservation_id=r.reservation_id),'active',r.issued_at,r.active_slots,0,?,'active',NULL,NULL,NULL FROM authority_signing_quota_reservations r WHERE reservation_id=?", params![NOW, reservation]).unwrap();
+    forensic.execute("UPDATE authority_signing_quota_reservations SET state='active',dispatch_slots=0 WHERE reservation_id=?", [&reservation]).unwrap();
     {
-        let tx = f.store.connection.transaction().unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        let tx = forensic.transaction().unwrap();
         assert!(matches!(
             reserve(&tx, &f.tenant, &id(212), &change(212), NOW + 300, NOW),
             Err(AuthorityError::Invalid(
@@ -291,9 +293,10 @@ fn restored_evidence_guard_cannot_hide_forged_active_capacity() {
             ))
         ));
     }
-    f.store.connection.execute_batch(&guard).unwrap();
+    forensic.execute_batch(&guard).unwrap();
     {
-        let tx = f.store.connection.transaction().unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        let tx = forensic.transaction().unwrap();
         assert!(read(&tx, &f.tenant, &reservation).is_err());
         assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
         assert!(matches!(

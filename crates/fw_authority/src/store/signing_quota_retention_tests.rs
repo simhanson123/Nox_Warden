@@ -11,6 +11,7 @@ fn primitive_fixture_setup_failure_cannot_leave_the_real_witness_path_disabled()
     assert!(failure.is_err());
     assert!(!PRIMITIVE_QUOTA_FIXTURE.get());
     let (mut f, _, reservation) = real_reservation("reserved");
+    assert!(!f.store.connection.is_forensic_arithmetic_fixture());
     let tx = f.store.connection.transaction().unwrap();
     assert_eq!(
         read(&tx, &f.tenant, &reservation).unwrap().state,
@@ -43,7 +44,9 @@ fn ordinary_reserved_reads_reject_missing_work_genesis_and_cannot_use_initialize
         )
         .unwrap();
     f.store.connection.execute_batch(&guard).unwrap();
-    let tx = f.store.connection.transaction().unwrap();
+    assert!(f.store.connection.transaction().is_err());
+    let mut forensic = Connection::open(&f.path).unwrap();
+    let tx = forensic.transaction().unwrap();
     assert!(read(&tx, &f.tenant, &reservation).is_err());
     assert!(read_initializing_job(&tx, &f.tenant, &reservation).is_err());
     assert!(reserve(&tx, &f.tenant, &id(930), &change(2), NOW + 300, NOW).is_err());
@@ -53,19 +56,18 @@ fn ordinary_reserved_reads_reject_missing_work_genesis_and_cannot_use_initialize
 fn replacement_cannot_remove_reserved_genesis_after_genuine_cancellation_work() {
     for foreign_keys in [false, true] {
         for recursive in [false, true] {
-            let (mut f, job, reservation) = real_reservation("reserved");
-            f.store
-                .connection
+            let (f, job, reservation) = real_reservation("reserved");
+            let mut forensic = Connection::open(&f.path).unwrap();
+            forensic
                 .pragma_update(None, "foreign_keys", foreign_keys)
                 .unwrap();
-            f.store
-                .connection
+            forensic
                 .pragma_update(None, "recursive_triggers", recursive)
                 .unwrap();
-            let original:Vec<(i64,i64,String)>=f.store.connection.prepare("SELECT rowid,revision,state FROM authority_signing_quota_transitions ORDER BY rowid").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            let original:Vec<(i64,i64,String)>=forensic.prepare("SELECT rowid,revision,state FROM authority_signing_quota_transitions ORDER BY rowid").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
             let audit = f.count("authority_audit");
             {
-                let tx = f.store.connection.transaction().unwrap();
+                let tx = forensic.transaction().unwrap();
                 signing_jobs::fixture_cancel_work(&tx, &f.tenant, &job, NOW).unwrap();
                 // This is a genuine next cancellation transition. Its explicit
                 // rowid targets the old revision0 while revision1 is unused.
@@ -74,10 +76,10 @@ fn replacement_cannot_remove_reserved_genesis_after_genuine_cancellation_work() 
                 assert!(tx.execute("INSERT OR REPLACE INTO authority_signing_quota_transitions SELECT * FROM authority_signing_quota_transitions WHERE reservation_id=?",[&reservation]).is_err());
                 assert!(tx.execute("UPDATE OR REPLACE authority_signing_quota_transitions SET rowid=rowid+100 WHERE reservation_id=?",[&reservation]).is_err());
             }
-            let after:Vec<(i64,i64,String)>=f.store.connection.prepare("SELECT rowid,revision,state FROM authority_signing_quota_transitions ORDER BY rowid").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            let after:Vec<(i64,i64,String)>=forensic.prepare("SELECT rowid,revision,state FROM authority_signing_quota_transitions ORDER BY rowid").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
             assert_eq!(after, original);
             assert_eq!(f.count("authority_audit"), audit);
-            let tx = f.store.connection.transaction().unwrap();
+            let tx = forensic.transaction().unwrap();
             assert_eq!(
                 read(&tx, &f.tenant, &reservation).unwrap().state,
                 "reserved"
@@ -123,7 +125,9 @@ fn removed_genesis_or_middle_transition_is_rejected_after_exact_guard_repair() {
             .connection
             .execute_batch("PRAGMA foreign_keys=ON")
             .unwrap();
-        let tx = f.store.connection.transaction().unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        let mut forensic = Connection::open(&f.path).unwrap();
+        let tx = forensic.transaction().unwrap();
         assert!(read(&tx, &f.tenant, &reservation).is_err());
         assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW + 6).is_err());
         assert!(reserve(&tx, &f.tenant, &id(930), &change(2), NOW + 300, NOW + 6).is_err());
@@ -140,7 +144,9 @@ fn retained_transition_witness_must_match_exact_historical_event_time() {
         .unwrap();
     f.store.connection.execute("UPDATE authority_signing_quota_transitions SET recorded_at=recorded_at+1 WHERE reservation_id=? AND state='issued'",[&reservation]).unwrap();
     f.store.connection.execute_batch(&guard).unwrap();
-    let tx = f.store.connection.transaction().unwrap();
+    assert!(f.store.connection.transaction().is_err());
+    let mut forensic = Connection::open(&f.path).unwrap();
+    let tx = forensic.transaction().unwrap();
     assert!(read(&tx, &f.tenant, &reservation).is_err());
 }
 
@@ -169,7 +175,9 @@ fn already_open_sensitive_accounting_rejects_a_missing_job_with_foreign_keys_dis
         .connection
         .execute_batch("PRAGMA foreign_keys=ON")
         .unwrap();
-    let tx = f.store.connection.transaction().unwrap();
+    assert!(f.store.connection.transaction().is_err());
+    let mut forensic = Connection::open(&f.path).unwrap();
+    let tx = forensic.transaction().unwrap();
     assert!(read(&tx, &f.tenant, &reservation).is_err());
     assert!(reserve(&tx, &f.tenant, &id(930), &change(2), NOW + 300, NOW).is_err());
     assert_eq!(tx.query_row("SELECT dispatch_slots FROM authority_signing_quota_reservations WHERE reservation_id=?",[&reservation],|r|r.get::<_,i64>(0)).unwrap(),1);
@@ -262,19 +270,18 @@ fn replacement_cannot_hide_a_genuinely_delivered_held_job() {
 
     for foreign_keys in [false, true] {
         for recursive in [false, true] {
-            f.store
-                .connection
+            let mut forensic = Connection::open(&f.path).unwrap();
+            forensic
                 .pragma_update(None, "foreign_keys", foreign_keys)
                 .unwrap();
-            f.store
-                .connection
+            forensic
                 .pragma_update(None, "recursive_triggers", recursive)
                 .unwrap();
             let original_audit = f.count("authority_audit");
-            assert!(f.store.connection.execute("INSERT OR REPLACE INTO authority_signing_jobs(rowid,org_id,project_id,job_id,intent_id,payload_hash,created_at,deadline,canonical_bytes) SELECT (SELECT rowid FROM authority_signing_jobs WHERE job_id=?1),org_id,project_id,job_id,intent_id,payload_hash,created_at,deadline,canonical_bytes FROM authority_signing_jobs WHERE job_id=?2",params![victim,second.intent.job_id]).is_err());
+            assert!(forensic.execute("INSERT OR REPLACE INTO authority_signing_jobs(rowid,org_id,project_id,job_id,intent_id,payload_hash,created_at,deadline,canonical_bytes) SELECT (SELECT rowid FROM authority_signing_jobs WHERE job_id=?1),org_id,project_id,job_id,intent_id,payload_hash,created_at,deadline,canonical_bytes FROM authority_signing_jobs WHERE job_id=?2",params![victim,second.intent.job_id]).is_err());
             assert_eq!(f.count("authority_signing_jobs"), 2);
             assert_eq!(f.count("authority_audit"), original_audit);
-            let tx = f.store.connection.transaction().unwrap();
+            let tx = forensic.transaction().unwrap();
             let saved = read(&tx, &f.tenant, &reservation).unwrap();
             assert_eq!(saved.state, "active");
             assert_eq!(saved.effective_dispatch_slots(), 1);

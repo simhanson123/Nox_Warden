@@ -239,8 +239,8 @@ fn validate_pin(pin: &SigningProjectQuotaPin, now: i64) -> Result<()> {
     Ok(())
 }
 fn pin_at(tx: &Transaction<'_>, org: &str, kind: &str, id: &str, version: u64) -> Result<Pin> {
-    let row: (Option<String>, i64, Vec<u8>, Vec<u8>) = tx.query_row(
-        "SELECT root_id,pinned_at,pin_hash,CASE WHEN length(canonical_bytes)<=32768 THEN canonical_bytes END FROM authority_signing_quota_pins WHERE org_id=? AND bucket_kind=? AND bucket_id=? AND revision=?",
+    let row: (Option<String>, i64, Vec<u8>, Vec<u8>) = tx.prepare_cached(
+        "SELECT root_id,pinned_at,pin_hash,CASE WHEN length(canonical_bytes)<=32768 THEN canonical_bytes END FROM authority_signing_quota_pins WHERE org_id=? AND bucket_kind=? AND bucket_id=? AND revision=?")?.query_row(
         params![org,kind,id,version], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
     let record: PinRecord = decode(&row.3)?;
     let digest = hash_bytes(&row.3);
@@ -276,8 +276,8 @@ fn pin_at(tx: &Transaction<'_>, org: &str, kind: &str, id: &str, version: u64) -
     })
 }
 fn pin_head(tx: &Transaction<'_>, org: &str, kind: &str, id: &str) -> Result<Option<Pin>> {
-    let head: Option<u64> = tx.query_row("SELECT revision FROM authority_signing_quota_heads WHERE org_id=? AND bucket_kind=? AND bucket_id=?",params![org,kind,id],|r|r.get(0)).optional()?;
-    let latest: Option<u64> = tx.query_row("SELECT MAX(revision) FROM authority_signing_quota_pins WHERE org_id=? AND bucket_kind=? AND bucket_id=?",params![org,kind,id],|r|r.get(0))?;
+    let head: Option<u64> = tx.prepare_cached("SELECT revision FROM authority_signing_quota_heads WHERE org_id=? AND bucket_kind=? AND bucket_id=?")?.query_row(params![org,kind,id],|r|r.get(0)).optional()?;
+    let latest: Option<u64> = tx.prepare_cached("SELECT MAX(revision) FROM authority_signing_quota_pins WHERE org_id=? AND bucket_kind=? AND bucket_id=?")?.query_row(params![org,kind,id],|r|r.get(0))?;
     if head != latest {
         return Err(invalid("signing quota pin head"));
     }
@@ -308,7 +308,7 @@ pub(super) fn project_pin_recovery(
         .transpose()
 }
 fn revoked(tx: &Transaction<'_>, pin: &Pin) -> Result<bool> {
-    Ok(tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_revocations WHERE org_id=? AND bucket_kind=? AND bucket_id=? AND revision=?)",params![pin.record.org_id,pin.record.bucket_kind,pin.record.bucket_id,pin.revision],|r|r.get(0))?)
+    Ok(tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_revocations WHERE org_id=? AND bucket_kind=? AND bucket_id=? AND revision=?)")?.query_row(params![pin.record.org_id,pin.record.bucket_kind,pin.record.bucket_id,pin.revision],|r|r.get(0))?)
 }
 fn current(tx: &Transaction<'_>, pin: &Pin, now: i64) -> Result<bool> {
     if now < crate::timestamp(&pin.record.pinned_at)? {
@@ -318,7 +318,7 @@ fn current(tx: &Transaction<'_>, pin: &Pin, now: i64) -> Result<bool> {
 }
 fn clock(tx: &Transaction<'_>, org: &str, kind: &str, id: &str, now: i64) -> Result<()> {
     time(now)?;
-    let value: Option<i64> = tx.query_row("SELECT observed_at FROM authority_signing_quota_clocks WHERE org_id=? AND bucket_kind=? AND bucket_id=?",params![org,kind,id],|r|r.get(0)).optional()?;
+    let value: Option<i64> = tx.prepare_cached("SELECT observed_at FROM authority_signing_quota_clocks WHERE org_id=? AND bucket_kind=? AND bucket_id=?")?.query_row(params![org,kind,id],|r|r.get(0)).optional()?;
     match value {
         Some(previous) if (0..=MAX_TIME).contains(&previous) && now >= previous => Ok(()),
         Some(_) => Err(AuthorityError::Time),
@@ -454,7 +454,7 @@ impl AuthorityStore {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let root:Option<Option<String>>=tx.query_row("SELECT r.root_id FROM authority_signing_intents i JOIN authority_signing_jobs j ON j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id JOIN authority_signing_quota_reservations r ON r.org_id=i.org_id AND r.project_id=i.project_id AND r.reservation_id=i.reservation_id WHERE i.org_id=? AND i.project_id=? AND i.job_id=?",params![tenant.org_id,tenant.project_id,job],|r|r.get(0)).optional()?;
+        let root:Option<Option<String>>=tx.prepare_cached("SELECT r.root_id FROM authority_signing_intents i JOIN authority_signing_jobs j ON j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id JOIN authority_signing_quota_reservations r ON r.org_id=i.org_id AND r.project_id=i.project_id AND r.reservation_id=i.reservation_id WHERE i.org_id=? AND i.project_id=? AND i.job_id=?")?.query_row(params![tenant.org_id,tenant.project_id,job],|r|r.get(0)).optional()?;
         if let Some(Some(root)) = root {
             advance(&tx, &tenant.org_id, "root", &root, now)?;
         }
@@ -727,7 +727,7 @@ pub(super) fn read_initializing_job(
         false,
         ReservationRead::InitializingJob,
     )?;
-    let advanced:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_audits a WHERE a.org_id=i.org_id AND a.project_id=i.project_id AND a.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND o.job_id=i.job_id)))",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
+    let advanced:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_audits a WHERE a.org_id=i.org_id AND a.project_id=i.project_id AND a.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id) OR EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND o.job_id=i.job_id)))")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
     if saved.state != "reserved" || saved.issued_at.is_some() || advanced {
         return Err(AuthorityError::Conflict);
     }
@@ -743,7 +743,7 @@ fn read_record(
 ) -> Result<SigningBudgetReservation> {
     identifier(id)?;
     validate_reservation_graph(tx, tenant, id, initializing)?;
-    let row:Stored=tx.query_row("SELECT root_id,plan_id,plan_hash,lease_id,lease_seconds,cost_hash,CASE WHEN length(cost_bytes)<=262144 THEN cost_bytes END,CASE WHEN length(snapshot_bytes)<=32768 THEN snapshot_bytes END,reserved_at,reserved_until,state,issued_at,active_slots,dispatch_slots FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|Ok(Stored{root:r.get(0)?,plan:r.get(1)?,plan_hash:r.get(2)?,lease:r.get(3)?,seconds:r.get(4)?,cost_hash:r.get(5)?,cost:r.get(6)?,snapshot:r.get(7)?,reserved_at:r.get(8)?,reserved_until:r.get(9)?,state:r.get(10)?,issued_at:r.get(11)?,active:r.get(12)?,dispatch:r.get(13)?}))?;
+    let row:Stored=tx.prepare_cached("SELECT root_id,plan_id,plan_hash,lease_id,lease_seconds,cost_hash,CASE WHEN length(cost_bytes)<=262144 THEN cost_bytes END,CASE WHEN length(snapshot_bytes)<=32768 THEN snapshot_bytes END,reserved_at,reserved_until,state,issued_at,active_slots,dispatch_slots FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|Ok(Stored{root:r.get(0)?,plan:r.get(1)?,plan_hash:r.get(2)?,lease:r.get(3)?,seconds:r.get(4)?,cost_hash:r.get(5)?,cost:r.get(6)?,snapshot:r.get(7)?,reserved_at:r.get(8)?,reserved_until:r.get(9)?,state:r.get(10)?,issued_at:r.get(11)?,active:r.get(12)?,dispatch:r.get(13)?}))?;
     let cost: SigningQuotaCost = decode(&row.cost)?;
     let snapshot: Snapshot = decode(&row.snapshot)?;
     cost.validate()?;
@@ -845,7 +845,7 @@ fn read_record(
         }
         usage.within(limits)?;
     }
-    let mut statement=tx.prepare("SELECT asset_id FROM authority_signing_quota_destinations WHERE org_id=? AND project_id=? AND reservation_id=? ORDER BY asset_id LIMIT 4097")?;
+    let mut statement=tx.prepare_cached("SELECT asset_id FROM authority_signing_quota_destinations WHERE org_id=? AND project_id=? AND reservation_id=? ORDER BY asset_id LIMIT 4097")?;
     let destinations = statement
         .query_map(params![tenant.org_id, tenant.project_id, id], |r| {
             r.get::<_, String>(0)
@@ -854,7 +854,7 @@ fn read_record(
     if destinations != cost.destination_asset_ids {
         return Err(invalid("signing quota destination projection"));
     }
-    let usage:Option<(i64,Vec<u8>)>=tx.query_row("SELECT charged_at,cost_hash FROM authority_signing_quota_usage WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    let usage:Option<(i64,Vec<u8>)>=tx.prepare_cached("SELECT charged_at,cost_hash FROM authority_signing_quota_usage WHERE org_id=? AND project_id=? AND reservation_id=?")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
     if row.issued_at.map(|n| (n, row.cost_hash.clone())) != usage
         || row
             .issued_at
@@ -881,8 +881,8 @@ fn read_record(
     }
     if check_transition {
         validate_transition_history(tx, tenant, id, &row)?;
-        let matches: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transitions t WHERE t.org_id=?1 AND t.project_id=?2 AND t.reservation_id=?3 AND t.revision=(SELECT MAX(revision) FROM authority_signing_quota_transitions WHERE org_id=?1 AND project_id=?2 AND reservation_id=?3) AND t.state=?4 AND t.issued_at IS ?5 AND t.active_slots=?6 AND t.dispatch_slots=?7 AND EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h WHERE h.org_id=t.org_id AND h.project_id=t.project_id AND h.reservation_id=t.reservation_id AND h.revision=t.revision AND h.state=t.state AND h.issued_at IS t.issued_at AND h.root_id IS ?8 AND h.lease_id IS ?9))",
+        let matches: bool = tx.prepare_cached(
+            "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transitions t WHERE t.org_id=?1 AND t.project_id=?2 AND t.reservation_id=?3 AND t.revision=(SELECT MAX(revision) FROM authority_signing_quota_transitions WHERE org_id=?1 AND project_id=?2 AND reservation_id=?3) AND t.state=?4 AND t.issued_at IS ?5 AND t.active_slots=?6 AND t.dispatch_slots=?7 AND EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h WHERE h.org_id=t.org_id AND h.project_id=t.project_id AND h.reservation_id=t.reservation_id AND h.revision=t.revision AND h.state=t.state AND h.issued_at IS t.issued_at AND h.root_id IS ?8 AND h.lease_id IS ?9))")?.query_row(
             params![tenant.org_id, tenant.project_id, id, row.state, row.issued_at, row.active, row.dispatch, row.root, row.lease], |r| r.get(0))?;
         if !matches {
             return Err(invalid("signing quota transition projection"));
@@ -931,7 +931,7 @@ fn transition_witness(
         "reserved" => ("signer", ""),
         _ => return Err(invalid("quota transition state")),
     };
-    Ok(tx.query_row("SELECT e.job_id,e.phase,e.revision,e.updated_at FROM authority_signing_intents i JOIN authority_signing_work_events e ON e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND e.phase=?4 AND (e.state=?5 OR (?5='' AND e.state IN ('prepared','claimed'))) ORDER BY e.revision DESC LIMIT 1", params![tenant.org_id,tenant.project_id,id,phase,expected], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?)
+    Ok(tx.prepare_cached("SELECT e.job_id,e.phase,e.revision,e.updated_at FROM authority_signing_intents i JOIN authority_signing_work_events e ON e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND e.phase=?4 AND (e.state=?5 OR (?5='' AND e.state IN ('prepared','claimed'))) ORDER BY e.revision DESC LIMIT 1")?.query_row( params![tenant.org_id,tenant.project_id,id,phase,expected], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?)
 }
 fn record_transition(
     tx: &Transaction<'_>,
@@ -941,7 +941,7 @@ fn record_transition(
     issued: Option<i64>,
     now: i64,
 ) -> Result<()> {
-    let next:i64=tx.query_row("SELECT MAX(revision)+1 FROM authority_signing_quota_transitions WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,saved.reservation_id],|r|r.get(0))?;
+    let next:i64=tx.prepare_cached("SELECT MAX(revision)+1 FROM authority_signing_quota_transitions WHERE org_id=? AND project_id=? AND reservation_id=?")?.query_row(params![tenant.org_id,tenant.project_id,saved.reservation_id],|r|r.get(0))?;
     let witness = transition_witness(tx, tenant, &saved.reservation_id, state)?;
     tx.execute(
         "INSERT INTO authority_signing_quota_transitions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -971,7 +971,7 @@ fn record_transition(
 // Maintenance deliberately scans every legacy reservation. Expiry supplies no
 // cancellation evidence, and imported rows must already agree with their work.
 pub(super) fn validate_legacy_reservations(tx: &Transaction<'_>) -> Result<()> {
-    let mut statement = tx.prepare(
+    let mut statement = tx.prepare_cached(
         "SELECT org_id,project_id,reservation_id FROM authority_signing_quota_reservations",
     )?;
     let mut rows = statement.query([])?;
@@ -979,7 +979,7 @@ pub(super) fn validate_legacy_reservations(tx: &Transaction<'_>) -> Result<()> {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
         let id: String = row.get(2)?;
         let saved = read_record(tx, &tenant, &id, false, false, ReservationRead::Committed)?;
-        let intent_id:String=tx.query_row("SELECT intent_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
+        let intent_id:String=tx.prepare_cached("SELECT intent_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
         let intent = signing_intents::intent_at(tx, &tenant, &intent_id)?;
         signing_intents::job_at(tx, &tenant, &intent.job_id)?;
         if intent.reservation_id != id
@@ -993,12 +993,12 @@ pub(super) fn validate_legacy_reservations(tx: &Transaction<'_>) -> Result<()> {
             return Err(invalid("legacy quota issuance"));
         }
         // Compare the complete mutable heads with the latest immutable events.
-        let mismatch:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=?1 AND h.project_id=?2 AND h.job_id=?3 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=h.org_id AND e.project_id=h.project_id AND e.job_id=h.job_id AND e.phase=h.phase AND e.revision=h.revision AND e.revision=(SELECT MAX(w.revision) FROM authority_signing_work_events w WHERE w.org_id=h.org_id AND w.project_id=h.project_id AND w.job_id=h.job_id AND w.phase=h.phase) AND e.state=h.state AND e.claim_generation=h.claim_generation AND e.claim_hash IS h.claim_hash AND e.worker_id IS h.worker_id AND e.claim_until IS h.claim_until AND e.attempts=h.attempts AND e.available_at=h.available_at AND e.updated_at=h.updated_at)) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=?1 AND e.project_id=?2 AND e.job_id=?3 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=e.org_id AND h.project_id=e.project_id AND h.job_id=e.job_id AND h.phase=e.phase))",params![tenant.org_id,tenant.project_id,intent.job_id],|r|r.get(0))?;
+        let mismatch:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=?1 AND h.project_id=?2 AND h.job_id=?3 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=h.org_id AND e.project_id=h.project_id AND e.job_id=h.job_id AND e.phase=h.phase AND e.revision=h.revision AND e.revision=(SELECT MAX(w.revision) FROM authority_signing_work_events w WHERE w.org_id=h.org_id AND w.project_id=h.project_id AND w.job_id=h.job_id AND w.phase=h.phase) AND e.state=h.state AND e.claim_generation=h.claim_generation AND e.claim_hash IS h.claim_hash AND e.worker_id IS h.worker_id AND e.claim_until IS h.claim_until AND e.attempts=h.attempts AND e.available_at=h.available_at AND e.updated_at=h.updated_at)) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=?1 AND e.project_id=?2 AND e.job_id=?3 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=e.org_id AND h.project_id=e.project_id AND h.job_id=e.job_id AND h.phase=e.phase))")?.query_row(params![tenant.org_id,tenant.project_id,intent.job_id],|r|r.get(0))?;
         if mismatch {
             return Err(invalid("legacy signing work projection"));
         }
-        let signer:String=tx.query_row("SELECT state FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase='signer'",params![tenant.org_id,tenant.project_id,intent.job_id],|r|r.get(0))?;
-        let dispatch:Option<String>=tx.query_row("SELECT state FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase='dispatch'",params![tenant.org_id,tenant.project_id,intent.job_id],|r|r.get(0)).optional()?;
+        let signer:String=tx.prepare_cached("SELECT state FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase='signer'")?.query_row(params![tenant.org_id,tenant.project_id,intent.job_id],|r|r.get(0))?;
+        let dispatch:Option<String>=tx.prepare_cached("SELECT state FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase='dispatch'")?.query_row(params![tenant.org_id,tenant.project_id,intent.job_id],|r|r.get(0)).optional()?;
         let legal = match saved.state.as_str() {
             "reserved" => matches!(signer.as_str(), "prepared" | "claimed") && dispatch.is_none(),
             "released" => signer == "cancelled" && dispatch.is_none() && saved.issued_at.is_none(),
@@ -1020,7 +1020,7 @@ pub(super) fn validate_legacy_reservations(tx: &Transaction<'_>) -> Result<()> {
     Ok(())
 }
 pub(super) fn backfill_legacy_transitions(tx: &Transaction<'_>) -> Result<()> {
-    let mut statement = tx.prepare(
+    let mut statement = tx.prepare_cached(
         "SELECT org_id,project_id,reservation_id FROM authority_signing_quota_reservations",
     )?;
     let mut rows = statement.query([])?;
@@ -1036,7 +1036,7 @@ pub(super) fn backfill_legacy_transitions(tx: &Transaction<'_>) -> Result<()> {
         // checked retained signatures, exact outbox bytes and delivery hashes.
         // Use the latest retained work time, not migration wall time or an
         // unverified delivery timestamp, so historical data is not refreshed.
-        let now:i64=tx.query_row("SELECT MAX(updated_at) FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=?", params![tenant.org_id,tenant.project_id,witness.0], |r|r.get(0))?;
+        let now:i64=tx.prepare_cached("SELECT MAX(updated_at) FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=?")?.query_row( params![tenant.org_id,tenant.project_id,witness.0], |r|r.get(0))?;
         signing_jobs::lifecycle_status(tx, &tenant, &witness.0, now)?;
     }
     Ok(())
@@ -1079,7 +1079,7 @@ fn accounting_membership(
         "SELECT project_id,reservation_id FROM {table} INDEXED BY {held_index} WHERE org_id=?1 AND {key}=?2 AND state IN ('reserved','issued','unknown','active') UNION ALL SELECT project_id,reservation_id FROM {table} INDEXED BY {accounting_index} WHERE org_id=?1 AND {key}=?2 AND state='released' AND lease_id IS NOT NULL AND issued_at>?3 AND issued_at<=?4 LIMIT {}",
         MAX_ACCOUNTED_ROWS + 1
     );
-    let mut statement = tx.prepare(&sql)?;
+    let mut statement = tx.prepare_cached(&sql)?;
     let mut rows = statement.query(params![tenant.org_id, bucket, now - WINDOW, now])?;
     let mut membership = BTreeSet::new();
     while let Some(row) = rows.next()? {
@@ -1101,6 +1101,9 @@ fn account(
 ) -> Result<SigningQuotaUsage> {
     migrations::validate_live_schema(tx)
         .map_err(|_| invalid("quota accounting guard missing or changed"))?;
+    // Production entry points obtain this transaction from IntegrityConnection,
+    // binding complete physical/retained evidence to the live writer snapshot.
+    // These per-scope scans still read the current obligations on every call.
     // The complete independently constructed schema inventory also covers
     // audit dependencies and rejects unexpected internal-named objects.
     // Compare independently indexed source reservations with projected heads.
@@ -1203,7 +1206,7 @@ pub(super) fn reserve(
     }
     let (root, project) = configuration(tx, tenant, now)?.ok_or(AuthorityError::Binding)?;
     observed(tx, tenant, project.record.pin.root_id.as_deref(), now)?;
-    let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?)",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
+    let exists:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_reservations WHERE org_id=? AND project_id=? AND reservation_id=?)")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
     if exists {
         let saved = read(tx, tenant, id)?;
         if saved.cost != *cost
@@ -1225,7 +1228,7 @@ pub(super) fn reserve(
         return Err(AuthorityError::Time);
     }
     if let Some(lease) = &cost.lease_id {
-        let existing:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_reservations WHERE org_id=? AND lease_id=?)",params![tenant.org_id,lease],|r|r.get(0))?;
+        let existing:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_quota_reservations WHERE org_id=? AND lease_id=?)")?.query_row(params![tenant.org_id,lease],|r|r.get(0))?;
         if existing {
             return Err(AuthorityError::Conflict);
         }
@@ -1570,6 +1573,11 @@ mod tests {
             let directory = builder.tempdir().unwrap();
             let mut store =
                 AuthorityStore::open(directory.path().join("authority.sqlite3")).unwrap();
+            // This arithmetic-only fixture already omits intent/job witnesses
+            // and removes an evidence guard for synthetic slot transitions.
+            // Genuine lifecycle/integrity fixtures retain normal connection
+            // validation and never enable this test-only setting.
+            store.connection.use_forensic_arithmetic_fixture();
             let tenant = AuthorityTenant::new(&id(1), &id(2)).unwrap();
             store
                 .provision_target_metadata_project(&tenant, NOW)
@@ -1765,7 +1773,9 @@ mod tests {
         let guard:String=f.store.connection.query_row("SELECT sql FROM sqlite_schema WHERE name='authority_signing_quota_reservations_projection'",[],|r|r.get(0)).unwrap();
         f.store.connection.execute_batch("DROP TRIGGER authority_signing_quota_reservations_projection; UPDATE authority_signing_quota_reservations SET state='released',active_slots=0,dispatch_slots=0;").unwrap();
         f.store.connection.execute_batch(&guard).unwrap();
-        let tx = f.store.connection.transaction().unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        let mut forensic = Connection::open(&f.path).unwrap();
+        let tx = forensic.transaction().unwrap();
         assert!(read(&tx, &f.tenant, &id).is_err());
         assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
         assert!(matches!(
@@ -1782,7 +1792,9 @@ mod tests {
         ] {
             let (mut f, _, _) = real_reservation("issued");
             f.store.connection.execute_batch(mutation).unwrap();
-            let tx = f.store.connection.transaction().unwrap();
+            assert!(f.store.connection.transaction().is_err());
+            let mut forensic = Connection::open(&f.path).unwrap();
+            let tx = forensic.transaction().unwrap();
             assert!(
                 matches!(
                     reserve(&tx, &f.tenant, &id(21), &change(2), NOW + 300, NOW),
@@ -1826,6 +1838,12 @@ mod tests {
             assert_eq!(f.count("authority_signing_results"), 0);
             assert_eq!(f.count("authority_signing_outbox"), 0);
             assert_eq!(f.count("authority_signing_quota_transitions"), 1);
+            assert!(f.store.connection.transaction().is_err());
+            f.store
+                .connection
+                .execute_batch("DROP TRIGGER reject_quota_transition")
+                .unwrap();
+            f.reopen();
             let tx = f.store.connection.transaction().unwrap();
             assert_eq!(read(&tx, &f.tenant, &id).unwrap().state, "reserved");
             assert_eq!(
@@ -2291,10 +2309,14 @@ mod tests {
                     let mut store = AuthorityStore::open(path).unwrap();
                     let tenant = AuthorityTenant::new(&id(1), &id(p)).unwrap();
                     barrier.wait();
-                    let tx = store
+                    let tx = match store
                         .connection
                         .transaction_with_behavior(TransactionBehavior::Immediate)
-                        .unwrap();
+                    {
+                        Ok(tx) => tx,
+                        Err(AuthorityError::Conflict) => return false,
+                        Err(error) => panic!("unexpected admission failure: {error}"),
+                    };
                     if reserve(&tx, &tenant, &id(100 + p), &change(p), NOW + 300, NOW).is_ok() {
                         tx.commit().unwrap();
                         true

@@ -105,17 +105,16 @@ fn another_genuine_job_cannot_replace_a_delivered_held_victim_rowid() {
     let original = job_rows(&f.store.connection);
     let audit_count = f.count("authority_audit");
     assert_eq!(original.len(), 2);
+    // Connection settings belong to the forensic writer. The live store keeps
+    // its validated guards while SQL must independently refuse each takeover.
+    let db = Connection::open(&f.path).unwrap();
     for foreign_keys in [false, true] {
         for recursive in [false, true] {
-            f.store
-                .connection
-                .pragma_update(None, "foreign_keys", foreign_keys)
+            db.pragma_update(None, "foreign_keys", foreign_keys)
                 .unwrap();
-            f.store
-                .connection
-                .pragma_update(None, "recursive_triggers", recursive)
+            db.pragma_update(None, "recursive_triggers", recursive)
                 .unwrap();
-            let takeover = f.store.connection.execute(
+            let takeover = db.execute(
                 "INSERT OR REPLACE INTO authority_signing_jobs(rowid,org_id,project_id,job_id,intent_id,payload_hash,created_at,deadline,canonical_bytes) SELECT (SELECT rowid FROM authority_signing_jobs WHERE job_id=?1),org_id,project_id,job_id,intent_id,payload_hash,created_at,deadline,canonical_bytes FROM authority_signing_jobs WHERE job_id=?2",
                 params![victim, second.intent.job_id],
             );

@@ -2,11 +2,14 @@
 //! Trusted-local cost provenance tests. No production signing authority.
 #[path = "support/core_access_fixture.rs"]
 mod core;
+#[allow(dead_code)]
+#[path = "support/integrity_fixture.rs"]
+mod integrity_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 
 use core::NOW;
-use fw_authority::{AuthorityStore, AuthorityTenant, CoreAccessProvenance};
+use fw_authority::{AuthorityError, AuthorityStore, AuthorityTenant, CoreAccessProvenance};
 use fw_contracts::{canonical_hash, hash_bytes};
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
@@ -358,21 +361,21 @@ fn lease_identity_is_unique_across_projects_but_tenant_reads_do_not_leak() {
 }
 
 #[test]
-fn mandatory_audit_failure_rolls_back_request_binding_and_security_revision() {
+fn altered_audit_schema_refuses_provenance_without_changing_rows_then_restores_retry() {
     let mut f = Fixture::new();
     let db = Connection::open(&f.path).unwrap();
     db.execute_batch("CREATE TRIGGER fail_core_audit BEFORE INSERT ON authority_audit WHEN NEW.kind='core_access_provenance_registered' BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;").unwrap();
     let before = snapshot(&f.path);
-    assert!(
-        f.store
-            .register_core_access_provenance(
-                &f.tenant,
-                f.plan["plan_id"].as_str().unwrap(),
-                &f.provenance,
-                NOW + 1
-            )
-            .is_err()
-    );
+    // The added trigger is refused by complete schema validation before writes.
+    assert!(matches!(
+        f.store.register_core_access_provenance(
+            &f.tenant,
+            f.plan["plan_id"].as_str().unwrap(),
+            &f.provenance,
+            NOW + 1
+        ),
+        Err(AuthorityError::Invalid(_))
+    ));
     assert_eq!(snapshot(&f.path), before);
     db.execute_batch("DROP TRIGGER fail_core_audit").unwrap();
     f.register();
@@ -569,8 +572,12 @@ fn read_rechecks_every_stored_request_and_binding_projection() {
         let mut f = Fixture::new();
         f.register();
         let db = Connection::open(&f.path).unwrap();
+        let guard = integrity_fixture::trigger_sql(&db, &format!("{table}_no_update"));
         db.execute_batch(&format!("PRAGMA foreign_keys=OFF; PRAGMA ignore_check_constraints=ON; DROP TRIGGER {table}_no_update; UPDATE {table} SET {assignment};")).unwrap();
+        db.execute_batch(&guard).unwrap();
+        let damaged = snapshot(&f.path);
         assert!(f.read(NOW + 5).is_err(), "trusted {table}: {assignment}");
+        assert_eq!(snapshot(&f.path), damaged);
     }
 }
 
@@ -580,6 +587,11 @@ fn damaged_original_bytes_missing_rows_and_oversized_blobs_are_errors_not_absenc
         let mut f = Fixture::new();
         f.register();
         let db = Connection::open(&f.path).unwrap();
+        let guards = [
+            "authority_core_access_requests_no_update",
+            "authority_core_access_requests_no_delete",
+        ]
+        .map(|name| integrity_fixture::trigger_sql(&db, name));
         db.execute_batch("PRAGMA foreign_keys=OFF; DROP TRIGGER authority_core_access_requests_no_update; DROP TRIGGER authority_core_access_requests_no_delete; PRAGMA ignore_check_constraints=ON;").unwrap();
         match scenario {
             0 => {
@@ -614,7 +626,12 @@ fn damaged_original_bytes_missing_rows_and_oversized_blobs_are_errors_not_absenc
                 .unwrap();
             }
         }
+        for guard in guards {
+            db.execute_batch(&guard).unwrap();
+        }
+        let damaged = snapshot(&f.path);
         assert!(f.read(NOW + 2).is_err(), "scenario {scenario}");
+        assert_eq!(snapshot(&f.path), damaged);
     }
 }
 fn hex_hash(hash: &str) -> Vec<u8> {

@@ -1321,10 +1321,61 @@ mod tests {
     }
     #[test]
     fn prepare_and_finalize_audit_failures_roll_back_all_composed_writes() {
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        fn fail_nth_audit_insert(f: &Fixture, fail_at: usize) -> Arc<AtomicUsize> {
+            let attempts = Arc::new(AtomicUsize::new(0));
+            let observed = attempts.clone();
+            // Hook replacement exists only on the cfg(test) raw accessor.
+            // The released schema remains intact, so composed writes proceed
+            // until the real audit INSERT is prepared and explicitly refused.
+            f.store
+                .connection
+                .authorizer(Some(move |context: AuthContext<'_>| {
+                    if matches!(
+                        context.action,
+                        AuthAction::Insert {
+                            table_name: "authority_audit"
+                        }
+                    ) {
+                        let attempt = observed.fetch_add(1, Ordering::SeqCst) + 1;
+                        if attempt == fail_at {
+                            Authorization::Deny
+                        } else {
+                            Authorization::Allow
+                        }
+                    } else {
+                        Authorization::Allow
+                    }
+                }));
+            attempts
+        }
+
         let mut f = Fixture::new();
         test_initialize(&mut f, NOW);
         let request = test_request(&f);
         f.store.connection.execute_batch("CREATE TRIGGER signing_audit_fail BEFORE INSERT ON authority_audit WHEN NEW.kind='signing_intent_prepared' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;").unwrap();
+        assert!(matches!(
+            f.store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate),
+            Err(AuthorityError::Invalid(
+                "authority live connection schema state changed"
+            ))
+        ));
+        f.store
+            .connection
+            .execute_batch("DROP TRIGGER signing_audit_fail")
+            .unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        f.reopen();
+
+        let audit_before = f.count("authority_audit");
+        let attempts = fail_nth_audit_insert(&f, 2);
         {
             let tx = f
                 .store
@@ -1342,24 +1393,170 @@ mod tests {
                 )
                 .is_err()
             );
+            assert_eq!(attempts.load(Ordering::SeqCst), 2);
+            for table in [
+                "authority_signing_intents",
+                "authority_signing_jobs",
+                "authority_signing_quota_reservations",
+                "authority_signing_work_heads",
+                "authority_signing_work_events",
+                "authority_signing_work_audits",
+                "authority_signing_quota_transitions",
+            ] {
+                assert_eq!(
+                    tx.query_row::<i64, _, _>(
+                        &format!("SELECT count(*) FROM {table}"),
+                        [],
+                        |row| row.get(0)
+                    )
+                    .unwrap(),
+                    1
+                );
+            }
+            assert_eq!(
+                target_head(&tx, &f.tenant, crate::string(&f.plan, "target_id").unwrap()).unwrap(),
+                Some((1, 1))
+            );
+            assert_eq!(
+                tx.query_row::<i64, _, _>("SELECT count(*) FROM authority_audit", [], |row| row
+                    .get(0))
+                    .unwrap(),
+                audit_before + 1
+            );
+            assert_eq!(
+                tx.query_row::<String, _, _>(
+                    "SELECT state FROM authority_signing_work_heads WHERE phase='signer'",
+                    [],
+                    |row| row.get(0)
+                )
+                .unwrap(),
+                "prepared"
+            );
+            tx.rollback().unwrap();
         }
         for table in [
             "authority_signing_intents",
             "authority_signing_jobs",
             "authority_signing_quota_reservations",
             "authority_signing_work_heads",
+            "authority_signing_work_events",
+            "authority_signing_work_audits",
+            "authority_signing_quota_transitions",
         ] {
             assert_eq!(f.count(table), 0);
         }
-        f.store
-            .connection
-            .execute_batch("DROP TRIGGER signing_audit_fail;")
-            .unwrap();
+        assert_eq!(f.count("authority_audit"), audit_before);
+        // Reopen independently verifies rollback and restores the normal hook.
+        f.reopen();
+        {
+            let tx = f.store.connection.transaction().unwrap();
+            assert_eq!(
+                target_head(&tx, &f.tenant, crate::string(&f.plan, "target_id").unwrap()).unwrap(),
+                Some((1, 0))
+            );
+        }
+
         let prepared = test_prepare(&mut f, NOW);
         let claim = claim(&mut f, &prepared.intent.job_id, NOW);
         let result = test_sign(&mut f, &prepared.intent.intent_id, NOW);
         f.store.connection.execute_batch("CREATE TRIGGER signing_audit_fail BEFORE INSERT ON authority_audit WHEN NEW.kind='signing_result_finalized' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;").unwrap();
         assert!(test_finalize_result(&mut f, &claim, &result, NOW).is_err());
+        f.store
+            .connection
+            .execute_batch("DROP TRIGGER signing_audit_fail")
+            .unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        f.reopen();
+
+        let audit_before = f.count("authority_audit");
+        let retained_before = [
+            "authority_signing_work_heads",
+            "authority_signing_work_events",
+            "authority_signing_work_audits",
+            "authority_signing_quota_transitions",
+        ]
+        .map(|table| (table, f.count(table)));
+        let attempts = fail_nth_audit_insert(&f, 3);
+        {
+            let tx = f
+                .store
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .unwrap();
+            assert!(
+                finalize_in_tx(
+                    &tx,
+                    &f.tenant,
+                    &f.verifier,
+                    &claim,
+                    &result,
+                    &test_authority(),
+                    NOW
+                )
+                .is_err()
+            );
+            assert_eq!(attempts.load(Ordering::SeqCst), 3);
+            for table in [
+                "authority_signing_results",
+                "authority_signing_outbox",
+                "authority_signing_quota_usage",
+            ] {
+                assert_eq!(
+                    tx.query_row::<i64, _, _>(
+                        &format!("SELECT count(*) FROM {table}"),
+                        [],
+                        |row| row.get(0)
+                    )
+                    .unwrap(),
+                    1
+                );
+            }
+            for (table, expected) in [
+                ("authority_signing_work_heads", 2),
+                ("authority_signing_work_events", 4),
+                ("authority_signing_work_audits", 4),
+                ("authority_signing_quota_transitions", 2),
+            ] {
+                assert_eq!(
+                    tx.query_row::<i64, _, _>(
+                        &format!("SELECT count(*) FROM {table}"),
+                        [],
+                        |row| row.get(0)
+                    )
+                    .unwrap(),
+                    expected
+                );
+            }
+            assert_eq!(
+                tx.query_row::<i64, _, _>("SELECT count(*) FROM authority_audit", [], |row| row
+                    .get(0))
+                    .unwrap(),
+                audit_before + 2
+            );
+            assert_eq!(
+                tx.query_row::<String, _, _>(
+                    "SELECT state FROM authority_signing_work_heads WHERE phase='signer'",
+                    [],
+                    |row| row.get(0)
+                )
+                .unwrap(),
+                "ready"
+            );
+            assert_eq!(
+                tx.query_row::<String, _, _>(
+                    "SELECT state FROM authority_signing_work_heads WHERE phase='dispatch'",
+                    [],
+                    |row| row.get(0)
+                )
+                .unwrap(),
+                "queued"
+            );
+            let pending =
+                signing_quota::read(&tx, &f.tenant, &prepared.intent.reservation_id).unwrap();
+            assert_eq!(pending.state, "issued");
+            assert_eq!(pending.issued_at, Some(at(NOW).unwrap()));
+            tx.rollback().unwrap();
+        }
         for table in [
             "authority_signing_results",
             "authority_signing_outbox",
@@ -1367,10 +1564,18 @@ mod tests {
         ] {
             assert_eq!(f.count(table), 0);
         }
-        f.store
-            .connection
-            .execute_batch("DROP TRIGGER signing_audit_fail;")
-            .unwrap();
+        for (table, expected) in retained_before {
+            assert_eq!(f.count(table), expected);
+        }
+        assert_eq!(f.count("authority_audit"), audit_before);
+        f.reopen();
+        {
+            let tx = f.store.connection.transaction().unwrap();
+            let saved =
+                signing_quota::read(&tx, &f.tenant, &prepared.intent.reservation_id).unwrap();
+            assert_eq!(saved.state, "reserved");
+            assert!(saved.issued_at.is_none());
+        }
         test_finalize_result(&mut f, &claim, &result, NOW).unwrap();
         assert_eq!(f.count("authority_signing_outbox"), 1);
     }
@@ -1396,10 +1601,16 @@ mod tests {
                         let verifier =
                             WebAuthn::new(signing_test_support::authenticator::ORIGIN).unwrap();
                         barrier.wait();
-                        let tx = store
+                        let tx = match store
                             .connection
                             .transaction_with_behavior(TransactionBehavior::Immediate)
-                            .unwrap();
+                        {
+                            Ok(tx) => tx,
+                            Err(AuthorityError::Conflict) => return Err(AuthorityError::Conflict),
+                            Err(error) => {
+                                panic!("unexpected generation admission failure: {error}")
+                            }
+                        };
                         let result = prepare_in_tx(
                             &tx,
                             &tenant,
@@ -1430,7 +1641,13 @@ mod tests {
                 .any(|r| matches!(r, Err(AuthorityError::Conflict)))
         );
         assert_eq!(f.count("authority_signing_intents"), 1);
+        assert_eq!(f.count("authority_signing_jobs"), 1);
         assert_eq!(f.count("authority_signing_quota_reservations"), 1);
+        let tx = f.store.connection.transaction().unwrap();
+        assert_eq!(
+            target_head(&tx, &f.tenant, crate::string(&f.plan, "target_id").unwrap()).unwrap(),
+            Some((1, 1))
+        );
     }
     #[test]
     fn stored_signature_and_generation_projection_corruption_is_refused() {

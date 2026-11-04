@@ -2,6 +2,10 @@
 use super::*;
 use rusqlite::{Row, types::ValueRef};
 
+#[cfg(test)]
+#[path = "audit_atomicity_tests.rs"]
+mod audit_atomicity_tests;
+
 /// A consistent read snapshot of this tenant's locally retained audit chain.
 /// This is not an external anchor, proof of completeness against full database
 /// replacement, or a capability to authorize a later operation.
@@ -120,11 +124,16 @@ pub(super) fn append_head(
 }
 
 impl AuthorityStore {
-    /// Stream and verify one tenant's history in a single deferred read
-    /// transaction. None means the tenant has no project, head or events. A
+    /// Return one tenant's verified history from a deferred read transaction.
+    /// None means the tenant has no project, head or events. A
     /// known empty project requires the zero-sequence, zero-hash genesis head.
     /// Legacy backward timestamps are reported as errors and never rewritten.
-    /// This O(n) read does not modify state or run automatically on every append.
+    /// After external commits invalidate the connection's validated snapshot,
+    /// database-wide physical and retained integrity checks precede this read.
+    /// Corruption in another tenant therefore also refuses this call, including
+    /// unknown-tenant lookups. The tenant scan is linear in its audit history;
+    /// required snapshot revalidation additionally scans the retained database.
+    /// Neither path modifies retained state.
     pub fn verify_audit_chain(
         &mut self,
         tenant: &AuthorityTenant,
@@ -202,7 +211,7 @@ pub(super) fn verify_bound_event(
     let expected: [u8; 32] = expected_hash
         .try_into()
         .map_err(|_| invalid("bound audit hash"))?;
-    let mut statement = tx.prepare(&format!("SELECT {COLUMNS} FROM authority_audit WHERE org_id=? AND project_id=? AND sequence=? AND kind=? AND resource_id=? AND recorded_at=?"))?;
+    let mut statement = tx.prepare_cached(&format!("SELECT {COLUMNS} FROM authority_audit WHERE org_id=? AND project_id=? AND sequence=? AND kind=? AND resource_id=? AND recorded_at=?"))?;
     let mut rows = statement.query(params![
         tenant.org_id,
         tenant.project_id,

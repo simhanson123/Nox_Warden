@@ -9,7 +9,7 @@ mod authenticator;
 mod private_directory;
 
 use authenticator::{Authenticator, ORIGIN, PRINCIPAL};
-use fw_authority::{ApprovalRole, AuthorityStore, AuthorityTenant, ReviewLogin};
+use fw_authority::{ApprovalRole, AuthorityError, AuthorityStore, AuthorityTenant, ReviewLogin};
 use fw_webauthn::{AuthenticationResponse, Credential, WebAuthn};
 use rusqlite::{Connection, types::Value};
 use std::{
@@ -234,7 +234,7 @@ fn simultaneous_zero_counter_logins_on_separate_connections_have_one_winner() {
 }
 
 #[test]
-fn audit_failure_rolls_back_consumption_and_pending_activation_then_same_proof_retries() {
+fn altered_audit_schema_refuses_login_without_consumption_then_same_proof_retries() {
     for active in [false, true] {
         let f = Fixture::new(active);
         let mut store = f.open();
@@ -242,14 +242,14 @@ fn audit_failure_rolls_back_consumption_and_pending_activation_then_same_proof_r
         let raw = Connection::open(&f.path).unwrap();
         let before = snapshot(&raw);
         raw.execute_batch("CREATE TRIGGER injected_review_audit_failure BEFORE INSERT ON authority_audit BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
-        assert!(
-            store
-                .finish_review_login(&f.tenant, &login, &proof, &f.verifier, NOW + 2)
-                .is_err()
-        );
+        // This proves early guard refusal, including for pending activation.
+        assert!(matches!(
+            store.finish_review_login(&f.tenant, &login, &proof, &f.verifier, NOW + 2),
+            Err(AuthorityError::Invalid(_))
+        ));
         assert!(
             before == snapshot(&raw),
-            "failed audit must roll back credential, activation, security revision and audit"
+            "schema refusal must leave credential, activation, security revision and audit unchanged"
         );
         raw.execute_batch("DROP TRIGGER injected_review_audit_failure;")
             .unwrap();

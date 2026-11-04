@@ -4,6 +4,8 @@
 mod authority_legacy;
 #[path = "support/native_fixture.rs"]
 mod fixture;
+#[path = "support/integrity_fixture.rs"]
+mod integrity_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 use fixture::*;
@@ -289,52 +291,51 @@ fn expired_failed_compilation_persists_clock_before_refusal() {
     );
 }
 #[test]
-fn mandatory_audit_failure_rolls_back_compilation_challenge_and_observation() {
+fn altered_audit_schema_refuses_compilation_challenge_and_observation_without_row_changes() {
     let mut f = Fixture::new();
     let db = Connection::open(&f.path).unwrap();
     let block = |kind: &str| {
         db.execute_batch(&format!("CREATE TRIGGER injected_native_audit BEFORE INSERT ON authority_audit WHEN NEW.kind='{kind}' BEGIN SELECT RAISE(ABORT,'injected'); END;")).unwrap()
     };
+    // Custom SQL triggers now fail integrity validation before the mutation.
     block("native_compilation_admitted");
-    let before = f.counts();
-    assert!(
-        f.store
-            .register_native_compilation(&f.tenant, PLAN, 1, NOW)
-            .is_err()
-    );
-    assert_eq!(f.counts(), before);
+    let before = integrity_fixture::rows(&f.path);
+    assert!(matches!(
+        f.store.register_native_compilation(&f.tenant, PLAN, 1, NOW),
+        Err(AuthorityError::Invalid(_))
+    ));
+    assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER injected_native_audit;")
         .unwrap();
     f.compile(NOW);
     block("native_observation_challenge_issued");
-    let before = f.counts();
+    let before = integrity_fixture::rows(&f.path);
     let installed = installation(&f.artifact, NOW);
-    assert!(
-        f.store
-            .challenge_native_observation(
-                &f.tenant,
-                PLAN,
-                ArtifactRole::Candidate,
-                &installed,
-                None,
-                1,
-                1,
-                NOW
-            )
-            .is_err()
-    );
-    assert_eq!(f.counts(), before);
+    assert!(matches!(
+        f.store.challenge_native_observation(
+            &f.tenant,
+            PLAN,
+            ArtifactRole::Candidate,
+            &installed,
+            None,
+            1,
+            1,
+            NOW
+        ),
+        Err(AuthorityError::Invalid(_))
+    ));
+    assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER injected_native_audit;")
         .unwrap();
     let signed = f.signed(NOW, None);
     block("native_observation_admitted");
-    let before = f.counts();
-    assert!(
+    let before = integrity_fixture::rows(&f.path);
+    assert!(matches!(
         f.store
-            .admit_native_observation(&f.tenant, &signed, NOW + 1)
-            .is_err()
-    );
-    assert_eq!(f.counts(), before);
+            .admit_native_observation(&f.tenant, &signed, NOW + 1),
+        Err(AuthorityError::Invalid(_))
+    ));
+    assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER injected_native_audit;")
         .unwrap();
     assert!(
@@ -607,7 +608,23 @@ fn stored_compilation_and_observation_projections_reject_coherent_corruption() {
             .store
             .admit_native_observation(&f.tenant, &signed, NOW + 1)
             .unwrap();
+        // Status reads persist this floor before checking native evidence.
+        assert!(
+            f.store
+                .current_target_metadata(&f.tenant, TARGET, NOW + 2)
+                .unwrap()
+                .is_some()
+        );
         let db = Connection::open(&f.path).unwrap();
+        let guard = integrity_fixture::trigger_sql(
+            &db,
+            match case {
+                0 | 6 => "authority_native_compilations_no_update",
+                2 => "authority_native_challenges_no_update",
+                3 => "authority_native_observation_heads_no_delete",
+                _ => "authority_native_observations_no_update",
+            },
+        );
         match case {
             0 => {
                 db.execute_batch("DROP TRIGGER authority_native_compilations_no_update; UPDATE authority_native_compilations SET evidence_bytes=x'7b7d';").unwrap();
@@ -632,9 +649,7 @@ fn stored_compilation_and_observation_projections_reject_coherent_corruption() {
                     db.execute_batch("DELETE FROM authority_native_observation_heads;")
                         .is_err()
                 );
-                let guard:String=db.query_row("SELECT sql FROM sqlite_schema WHERE name='authority_native_observation_heads_no_delete'",[],|row|row.get(0)).unwrap();
                 db.execute_batch("DROP TRIGGER authority_native_observation_heads_no_delete; DELETE FROM authority_native_observation_heads;").unwrap();
-                db.execute_batch(&guard).unwrap();
             }
             4 => {
                 db.execute_batch("PRAGMA ignore_check_constraints=ON; DROP TRIGGER authority_native_observations_no_update; UPDATE authority_native_observations SET proof_bytes=zeroblob(3145729);").unwrap();
@@ -667,12 +682,16 @@ fn stored_compilation_and_observation_projections_reject_coherent_corruption() {
             }
             _ => unreachable!(),
         }
+        // Keep schema identity intact so refusal exercises damaged evidence.
+        db.execute_batch(&guard).unwrap();
+        let damaged = integrity_fixture::rows(&f.path);
         assert!(
             f.store
                 .native_evidence_status(&f.tenant, PLAN, NOW + 2)
                 .is_err(),
             "corruption {case}"
         );
+        assert_eq!(integrity_fixture::rows(&f.path), damaged);
     }
 }
 fn hex_digest(hash: &str) -> Vec<u8> {
@@ -695,6 +714,7 @@ fn signature_binds_exact_previous_receipt_even_if_old_projection_is_rehashed() {
         .admit_native_observation(&f.tenant, &next, NOW + 2)
         .unwrap();
     let db = Connection::open(&f.path).unwrap();
+    let guard = integrity_fixture::trigger_sql(&db, "authority_native_observations_no_update");
     db.execute_batch("DROP TRIGGER authority_native_observations_no_update;")
         .unwrap();
     let mut changed = serde_json::to_value(a.receipt).unwrap();
@@ -709,30 +729,33 @@ fn signature_binds_exact_previous_receipt_even_if_old_projection_is_rehashed() {
         ],
     )
     .unwrap();
+    db.execute_batch(&guard).unwrap();
+    let damaged = integrity_fixture::rows(&f.path);
     assert!(
         f.store
             .native_evidence_status(&f.tenant, PLAN, NOW + 2)
             .is_err()
     );
+    assert_eq!(integrity_fixture::rows(&f.path), damaged);
 }
 #[test]
-fn reference_and_observer_pin_audit_failure_does_not_leave_partial_trust() {
+fn altered_audit_schema_refuses_reference_and_observer_pins_without_partial_trust() {
     let mut f = Fixture::new();
     let db = Connection::open(&f.path).unwrap();
     let refs = f.count("authority_native_pins");
     let keys = f.count("authority_native_observer_keys");
     db.execute_batch("CREATE TRIGGER fail_pin_audit BEFORE INSERT ON authority_audit WHEN NEW.kind IN ('native_references_pinned','native_observer_pinned') BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
-    let mut pin = NativeReferencePin {
+    let before = integrity_fixture::rows(&f.path);
+    let pin = NativeReferencePin {
         target_id: TARGET.into(),
         references: f.refs.clone(),
         not_before: NOW,
         not_after: NOW + 4000,
     };
-    assert!(
-        f.store
-            .pin_native_references(&f.tenant, &pin, Some(1), NOW)
-            .is_err()
-    );
+    assert!(matches!(
+        f.store.pin_native_references(&f.tenant, &pin, Some(1), NOW),
+        Err(AuthorityError::Invalid(_))
+    ));
     assert_eq!(f.count("authority_native_pins"), refs);
     let observer = NativeObserverPin {
         target_id: TARGET.into(),
@@ -742,19 +765,25 @@ fn reference_and_observer_pin_audit_failure_does_not_leave_partial_trust() {
         not_before: NOW,
         not_after: NOW + 4000,
     };
-    assert!(
+    assert!(matches!(
         f.store
-            .pin_native_observer(&f.tenant, &observer, Some(1), NOW)
-            .is_err()
-    );
+            .pin_native_observer(&f.tenant, &observer, Some(1), NOW),
+        Err(AuthorityError::Invalid(_))
+    ));
     assert_eq!(f.count("authority_native_pins"), refs);
     assert_eq!(f.count("authority_native_observer_keys"), keys);
     assert_eq!(f.count("authority_native_observer_revocations"), 0);
+    assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER fail_pin_audit;").unwrap();
-    pin.not_after += 1;
     assert_eq!(
         f.store
             .pin_native_references(&f.tenant, &pin, Some(1), NOW)
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        f.store
+            .pin_native_observer(&f.tenant, &observer, Some(1), NOW)
             .unwrap(),
         2
     );

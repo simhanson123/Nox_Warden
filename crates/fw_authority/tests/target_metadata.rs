@@ -3,6 +3,8 @@
 #[path = "support/authority_legacy.rs"]
 #[allow(dead_code)]
 mod authority_legacy;
+#[path = "support/integrity_fixture.rs"]
+mod integrity_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 use ed25519_dalek::SigningKey;
@@ -267,19 +269,19 @@ fn challenge_capacity_is_four_and_expiry_is_exclusive_without_deleting_history()
     ));
 }
 #[test]
-fn audit_failure_rolls_back_report_consumption_head_and_allows_exact_retry() {
+fn altered_audit_schema_refuses_report_without_row_changes_then_allows_exact_retry() {
     let mut f = Fixture::new();
     let challenge = f.challenge(NOW + 1);
     let proof = f.proof(&challenge, NOW + 2);
-    let before = f.state_counts();
+    let before = integrity_fixture::rows(&f.path);
     let db = Connection::open(&f.path).unwrap();
     db.execute_batch("CREATE TRIGGER injected_metadata_audit BEFORE INSERT ON authority_audit WHEN NEW.kind='target_metadata_admitted' BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
-    assert!(
-        f.store
-            .admit_target_report(&f.tenant, &proof, NOW + 2)
-            .is_err()
-    );
-    assert_eq!(f.state_counts(), before);
+    // The unknown trigger is refused at entry, before clock or report writes.
+    assert!(matches!(
+        f.store.admit_target_report(&f.tenant, &proof, NOW + 2),
+        Err(AuthorityError::Invalid(_))
+    ));
+    assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER injected_metadata_audit;")
         .unwrap();
     let retry = f
@@ -517,6 +519,19 @@ fn partial_head_and_projection_corruption_is_refused() {
         f.store
             .admit_target_report(&f.tenant, &p2, NOW + 4)
             .unwrap();
+        if corruption == "pin_head" {
+            let mut renewal = f.pin.clone();
+            renewal.certificate_fingerprint = hash_bytes(b"renewal");
+            f.store
+                .pin_target_transport(&f.tenant, &renewal, Some(1), NOW + 5)
+                .unwrap();
+        }
+        if corruption != "clock" {
+            // Later semantic refusal must still preserve the observed floor.
+            f.store
+                .current_target_metadata(&f.tenant, TARGET, NOW + 6)
+                .unwrap();
+        }
         let db = Connection::open(&f.path).unwrap();
         match corruption {
             "report_head" => {
@@ -527,11 +542,6 @@ fn partial_head_and_projection_corruption_is_refused() {
                 .unwrap();
             }
             "pin_head" => {
-                let mut renewal = f.pin.clone();
-                renewal.certificate_fingerprint = hash_bytes(b"renewal");
-                f.store
-                    .pin_target_transport(&f.tenant, &renewal, Some(1), NOW + 5)
-                    .unwrap();
                 db.execute(
                     "UPDATE authority_target_pin_heads SET revision=?",
                     [1u64.to_be_bytes().as_slice()],
@@ -539,29 +549,49 @@ fn partial_head_and_projection_corruption_is_refused() {
                 .unwrap();
             }
             "admitted" => {
+                let guard =
+                    integrity_fixture::trigger_sql(&db, "authority_target_metadata_no_update");
                 db.execute_batch("DROP TRIGGER authority_target_metadata_no_update; UPDATE authority_target_metadata SET admitted_at=admitted_at+1;").unwrap();
+                db.execute_batch(&guard).unwrap();
             }
             "proof" => {
+                let guard =
+                    integrity_fixture::trigger_sql(&db, "authority_target_metadata_no_update");
                 db.execute_batch("DROP TRIGGER authority_target_metadata_no_update; UPDATE authority_target_metadata SET proof_bytes=x'7b7d';").unwrap();
+                db.execute_batch(&guard).unwrap();
             }
             "clock" => {
                 db.execute("UPDATE authority_target_clocks SET observed_at=?", [NOW])
                     .unwrap();
+                let mut expected = integrity_fixture::rows(&f.path);
+                let (_, clocks) = expected
+                    .iter_mut()
+                    .find(|(table, _)| table == "authority_target_clocks")
+                    .unwrap();
+                assert_eq!(clocks.len(), 1);
+                assert_eq!(clocks[0].len(), 4);
+                assert_eq!(clocks[0][3], rusqlite::types::Value::Integer(NOW));
+                // Even a later semantic refusal retains the separately committed
+                // observation time; every other stored value must stay intact.
+                clocks[0][3] = rusqlite::types::Value::Integer(NOW + 1);
                 assert!(
                     f.store
                         .current_target_metadata(&f.tenant, TARGET, NOW + 1)
                         .is_err()
                 );
+                assert_eq!(integrity_fixture::rows(&f.path), expected);
                 continue;
             }
             _ => unreachable!(),
         }
+        let damaged = integrity_fixture::rows(&f.path);
         assert!(
             f.store
                 .current_target_metadata(&f.tenant, TARGET, NOW + 6)
                 .is_err(),
             "{corruption}"
         );
+        assert_eq!(integrity_fixture::rows(&f.path), damaged);
     }
 }
 #[test]
@@ -657,7 +687,7 @@ fn v4_migration_requires_private_backup_and_invents_no_target_trust() {
     );
 }
 #[test]
-fn failed_pin_audit_leaves_no_key_or_pin_and_retries_without_partial_trust() {
+fn altered_audit_schema_refuses_pin_without_partial_trust_then_allows_exact_retry() {
     let mut f = Fixture::new();
     let mut next = f.pin.clone();
     next.target_id = "55555555-5555-4555-8555-555555555555".into();
@@ -667,14 +697,16 @@ fn failed_pin_audit_leaves_no_key_or_pin_and_retries_without_partial_trust() {
     next.certificate_fingerprint = hash_bytes(b"second target cert");
     let db = Connection::open(&f.path).unwrap();
     db.execute_batch("CREATE TRIGGER injected_pin_audit BEFORE INSERT ON authority_audit WHEN NEW.kind='target_transport_pinned' BEGIN SELECT RAISE(ABORT,'test failure'); END;").unwrap();
-    assert!(
+    let before = integrity_fixture::rows(&f.path);
+    assert!(matches!(
         f.store
-            .pin_target_transport(&f.tenant, &next, None, NOW + 1)
-            .is_err()
-    );
+            .pin_target_transport(&f.tenant, &next, None, NOW + 1),
+        Err(AuthorityError::Invalid(_))
+    ));
     assert_eq!(f.count("authority_target_pins"), 1);
     assert_eq!(f.count("authority_target_keys"), 1);
     assert_eq!(f.count("authority_target_clocks"), 1);
+    assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER injected_pin_audit;")
         .unwrap();
     assert_eq!(
@@ -744,6 +776,7 @@ fn old_signed_report_cannot_be_rebound_to_same_key_certificate_renewal() {
     receipt.key_revision = "2".into();
     receipt.certificate_fingerprint = renewal.certificate_fingerprint;
     let db = Connection::open(&f.path).unwrap();
+    let guard = integrity_fixture::trigger_sql(&db, "authority_target_metadata_no_update");
     db.execute_batch("DROP TRIGGER authority_target_metadata_no_update")
         .unwrap();
     db.execute(
@@ -755,6 +788,8 @@ fn old_signed_report_cannot_be_rebound_to_same_key_certificate_renewal() {
         ],
     )
     .unwrap();
+    db.execute_batch(&guard).unwrap();
+    let damaged = integrity_fixture::rows(&f.path);
     assert!(
         f.store
             .current_target_metadata(&f.tenant, TARGET, NOW + 2)
@@ -765,6 +800,7 @@ fn old_signed_report_cannot_be_rebound_to_same_key_certificate_renewal() {
             .admit_target_report(&f.tenant, &proof, NOW + 2)
             .is_err()
     );
+    assert_eq!(integrity_fixture::rows(&f.path), damaged);
 }
 
 #[test]

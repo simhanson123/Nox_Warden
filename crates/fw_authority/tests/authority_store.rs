@@ -1115,7 +1115,7 @@ fn snapshot(path: &std::path::Path) -> Vec<(String, Vec<Vec<rusqlite::types::Val
 }
 
 #[test]
-fn storage_failure_at_each_decision_write_rolls_back_counter_consumption_evidence_and_audit() {
+fn unexpected_decision_write_triggers_refuse_mutation_and_allow_clean_retry() {
     for (table, action) in [
         ("authority_credentials", "UPDATE"),
         ("authority_challenges", "UPDATE"),
@@ -1133,13 +1133,16 @@ fn storage_failure_at_each_decision_write_rolls_back_counter_consumption_evidenc
             "CREATE TRIGGER test_storage_failure BEFORE {action} ON {table} BEGIN SELECT RAISE(ABORT, 'injected storage failure'); END;"
         )).unwrap();
         assert!(
-            f.submit(&issued, &response, IDEMPOTENCY, NOW + 1).is_err(),
+            matches!(
+                f.submit(&issued, &response, IDEMPOTENCY, NOW + 1),
+                Err(fw_authority::AuthorityError::Invalid(_))
+            ),
             "{table}"
         );
         assert_eq!(
             snapshot(&f.path),
             before,
-            "partial commit after failed {action} on {table}"
+            "mutation after unexpected trigger for {action} on {table}"
         );
         db.execute_batch("DROP TRIGGER test_storage_failure;")
             .unwrap();
@@ -1361,7 +1364,7 @@ fn registration_is_pending_until_the_independent_store_verifies_possession() {
 }
 
 #[test]
-fn activation_audit_failure_rolls_back_possession_and_counter_transition() {
+fn unexpected_activation_audit_trigger_refuses_mutation_and_allows_clean_retry() {
     let directory = private_directory::private_directory();
     let path = directory.path().join("authority.sqlite3");
     let mut store = AuthorityStore::open(&path).unwrap();
@@ -1396,17 +1399,16 @@ fn activation_audit_failure_rolls_back_possession_and_counter_transition() {
     let before = snapshot(&path);
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute_batch("CREATE TRIGGER test_activation_audit_failure BEFORE INSERT ON authority_audit BEGIN SELECT RAISE(ABORT, 'injected activation audit failure'); END;").unwrap();
-    assert!(
-        store
-            .finish_credential_activation(
-                &tenant,
-                &activation.activation_id,
-                &response,
-                &verifier,
-                NOW + 1
-            )
-            .is_err()
-    );
+    assert!(matches!(
+        store.finish_credential_activation(
+            &tenant,
+            &activation.activation_id,
+            &response,
+            &verifier,
+            NOW + 1
+        ),
+        Err(fw_authority::AuthorityError::Invalid(_))
+    ));
     assert_eq!(snapshot(&path), before);
     db.execute_batch("DROP TRIGGER test_activation_audit_failure;")
         .unwrap();

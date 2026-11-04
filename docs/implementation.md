@@ -4,6 +4,18 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The [PR23 external review](reviews/pr23-claude-review.md) confirms the previous
+D1–D6 counterexamples corrected and identifies coordinated live quota/index
+corruption, surplus work audits and full-validation cost/locking. The
+[R1–R4 follow-up](pr23-follow-up.md), based on main merge
+`4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`, implements snapshot-bound live
+validation, complete work-audit correspondence and deferred full checks with
+less duplicate replay. Genuine lifecycle, concurrency and late-write rollback
+regressions preserve retained-history checks and production authority gates.
+Fresh integrated local verification passed and is recorded in [reports](../reports/README.md);
+previous PR23 passes do not validate these changes. Full validation still grows
+with retained history and healthy peer commits can require revalidation.
+
 The [PR22 external review](reviews/pr22-claude-review.md) identified hidden quota
 membership, incomplete open/physical validation, audit/binding atomicity and
 legitimate same-second legacy migration gaps. The

@@ -1053,7 +1053,7 @@ fn snapshot(path: &std::path::Path) -> Vec<(String, Vec<Vec<rusqlite::types::Val
 }
 
 #[test]
-fn every_set_write_failure_rolls_back_the_new_signature_counter_decision_and_audit() {
+fn unexpected_set_write_triggers_refuse_admission_without_mutation_and_allow_clean_retry() {
     for (table, kind, condition) in [
         ("authority_approval_sets", "INSERT", "1"),
         ("authority_approval_set_members", "INSERT", "NEW.position=1"),
@@ -1082,9 +1082,11 @@ fn every_set_write_failure_rolls_back_the_new_signature_counter_decision_and_aud
         let original = snapshot(&f.path);
         let db = Connection::open(&f.path).unwrap();
         db.execute_batch(&format!("CREATE TRIGGER fail_set_write BEFORE {kind} ON {table} WHEN {condition} BEGIN SELECT RAISE(ABORT,'injected write failure'); END;")).unwrap();
+        // Unknown schema is refused before any decision/set write. Actual
+        // audit-step rollback is exercised by private audit atomicity tests.
         assert!(
-            f.store
-                .admit_decision(
+            matches!(
+                f.store.admit_decision(
                     &f.tenant,
                     BOB,
                     issued.challenge.challenge_id(),
@@ -1092,8 +1094,9 @@ fn every_set_write_failure_rolls_back_the_new_signature_counter_decision_and_aud
                     &assertion,
                     &f.verifier,
                     NOW + 2
-                )
-                .is_err(),
+                ),
+                Err(fw_authority::AuthorityError::Invalid(_))
+            ),
             "{table}"
         );
         assert_eq!(snapshot(&f.path), original, "{table}");
@@ -1466,7 +1469,7 @@ fn set_withdrawal_is_scoped_idempotent_and_never_falls_back_to_older_authority()
 }
 
 #[test]
-fn set_withdrawal_audit_failure_rolls_back_tombstone_and_security_revision() {
+fn unexpected_withdrawal_audit_trigger_refuses_mutation_and_allows_clean_retry() {
     let mut f = Fixture::new("lab_owner", &[ApprovalRole::Owner], true);
     f.vote(
         AUTHOR,
@@ -1479,15 +1482,20 @@ fn set_withdrawal_audit_failure_rolls_back_tombstone_and_security_revision() {
     let db = Connection::open(&f.path).unwrap();
     db.execute_batch("CREATE TRIGGER fail_set_revoke BEFORE INSERT ON authority_audit WHEN NEW.kind='approval_set_revoked' BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;").unwrap();
     let before = snapshot(&f.path);
+    assert!(matches!(
+        f.store.revoke_approval_set(&f.tenant, id, AUTHOR, NOW + 2),
+        Err(fw_authority::AuthorityError::Invalid(_))
+    ));
+    assert_eq!(snapshot(&f.path), before);
     assert!(
         f.store
-            .revoke_approval_set(&f.tenant, id, AUTHOR, NOW + 2)
+            .current_approval_set(&f.tenant, PLAN, &f.verifier, NOW + 2)
             .is_err()
     );
     assert_eq!(snapshot(&f.path), before);
-    assert_eq!(f.current(NOW + 2), Some(original.clone()));
     db.execute_batch("DROP TRIGGER fail_set_revoke").unwrap();
     f.store = AuthorityStore::open(&f.path).unwrap();
+    assert_eq!(f.current(NOW + 2), Some(original.clone()));
     f.store
         .revoke_approval_set(&f.tenant, id, AUTHOR, NOW + 2)
         .unwrap();

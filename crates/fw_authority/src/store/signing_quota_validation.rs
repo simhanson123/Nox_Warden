@@ -21,7 +21,7 @@ fn validate_transition_history(
     id: &str,
     stored: &Stored,
 ) -> Result<()> {
-    let mut statement = tx.prepare("SELECT revision,state,issued_at,active_slots,dispatch_slots,recorded_at,kind,job_id,work_phase,work_revision FROM authority_signing_quota_transitions WHERE org_id=? AND project_id=? AND reservation_id=? ORDER BY revision LIMIT 5")?;
+    let mut statement = tx.prepare_cached("SELECT revision,state,issued_at,active_slots,dispatch_slots,recorded_at,kind,job_id,work_phase,work_revision FROM authority_signing_quota_transitions WHERE org_id=? AND project_id=? AND reservation_id=? ORDER BY revision LIMIT 5")?;
     let transitions = statement
         .query_map(params![tenant.org_id, tenant.project_id, id], |r| {
             Ok(RetainedTransition {
@@ -105,8 +105,8 @@ fn validate_transition_history(
         #[cfg(not(test))]
         let primitive_fixture = false;
         if !(primitive_fixture || index == 0 && event.kind == "reserved") {
-            let witness: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM authority_signing_intents i JOIN authority_signing_jobs j ON j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id JOIN authority_signing_work_events e ON e.org_id=j.org_id AND e.project_id=j.project_id AND e.job_id=j.job_id WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND e.job_id=?4 AND e.phase=?5 AND e.revision=?6 AND e.updated_at=?7 AND ((?8='reserved' AND e.phase='signer' AND e.state IN ('prepared','claimed')) OR (?8='released' AND e.phase='signer' AND e.state='cancelled' AND e.kind='cancelled') OR (?8='issued' AND e.phase='signer' AND e.state='ready' AND e.kind='finalized') OR (?8='unknown' AND e.phase='dispatch' AND e.state='unknown' AND e.kind='unknown') OR (?8='active' AND e.phase='dispatch' AND e.state='delivered' AND e.kind='delivered')) AND ((?9 IS NULL AND (?8='reserved' OR NOT EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id))) OR (?9 IS NOT NULL AND EXISTS(SELECT 1 FROM authority_signing_results s JOIN authority_signing_outbox o ON o.org_id=s.org_id AND o.project_id=s.project_id AND o.intent_id=s.intent_id AND o.job_id=i.job_id AND o.grant_hash=s.grant_hash AND o.grant_bytes=s.grant_bytes JOIN authority_signing_quota_usage u ON u.org_id=i.org_id AND u.project_id=i.project_id AND u.reservation_id=i.reservation_id WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id AND s.finalized_at=?9 AND u.charged_at=?9 AND u.cost_hash=?10 AND (?8!='active' OR EXISTS(SELECT 1 FROM authority_signing_deliveries d WHERE d.org_id=i.org_id AND d.project_id=i.project_id AND d.job_id=i.job_id AND d.grant_hash=s.grant_hash AND d.recorded_at=?7))))))",
+            let witness: bool = tx.prepare_cached(
+                "SELECT EXISTS(SELECT 1 FROM authority_signing_intents i JOIN authority_signing_jobs j ON j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id JOIN authority_signing_work_events e ON e.org_id=j.org_id AND e.project_id=j.project_id AND e.job_id=j.job_id WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND e.job_id=?4 AND e.phase=?5 AND e.revision=?6 AND e.updated_at=?7 AND ((?8='reserved' AND e.phase='signer' AND e.state IN ('prepared','claimed')) OR (?8='released' AND e.phase='signer' AND e.state='cancelled' AND e.kind='cancelled') OR (?8='issued' AND e.phase='signer' AND e.state='ready' AND e.kind='finalized') OR (?8='unknown' AND e.phase='dispatch' AND e.state='unknown' AND e.kind='unknown') OR (?8='active' AND e.phase='dispatch' AND e.state='delivered' AND e.kind='delivered')) AND ((?9 IS NULL AND (?8='reserved' OR NOT EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id))) OR (?9 IS NOT NULL AND EXISTS(SELECT 1 FROM authority_signing_results s JOIN authority_signing_outbox o ON o.org_id=s.org_id AND o.project_id=s.project_id AND o.intent_id=s.intent_id AND o.job_id=i.job_id AND o.grant_hash=s.grant_hash AND o.grant_bytes=s.grant_bytes JOIN authority_signing_quota_usage u ON u.org_id=i.org_id AND u.project_id=i.project_id AND u.reservation_id=i.reservation_id WHERE s.org_id=i.org_id AND s.project_id=i.project_id AND s.intent_id=i.intent_id AND s.finalized_at=?9 AND u.charged_at=?9 AND u.cost_hash=?10 AND (?8!='active' OR EXISTS(SELECT 1 FROM authority_signing_deliveries d WHERE d.org_id=i.org_id AND d.project_id=i.project_id AND d.job_id=i.job_id AND d.grant_hash=s.grant_hash AND d.recorded_at=?7))))))")?.query_row(
                 params![tenant.org_id,tenant.project_id,id,event.job,event.phase,event.work_revision,event.recorded,event.state,event.issued,stored.cost_hash],|r|r.get(0))?;
             if !witness {
                 return Err(invalid("signing quota retained witness"));
@@ -125,16 +125,47 @@ fn validate_transition_history(
     Ok(())
 }
 
-pub(super) fn validate_retained_transitions(tx: &Transaction<'_>) -> Result<()> {
-    let dangling: bool = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=h.org_id AND r.project_id=h.project_id AND r.reservation_id=h.reservation_id) UNION ALL SELECT 1 FROM authority_signing_quota_transitions t NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=t.org_id AND r.project_id=t.project_id AND r.reservation_id=t.reservation_id))",
+// Full-store validation subsequently visits every retained job through
+// lifecycle_status, which already verifies its complete reservation and quota
+// history. Prove the graph here instead of decoding and checking every record a
+// second time. Standalone primitive fixtures have no jobs and keep their full
+// reservation pass; this exception is absent from production builds.
+pub(super) fn validate_lifecycle_reservation_graph(tx: &Transaction<'_>) -> Result<()> {
+    #[cfg(test)]
+    if tests::PRIMITIVE_QUOTA_FIXTURE.get() {
+        return validate_retained_transitions(tx);
+    }
+
+    let dangling: bool = tx.prepare_cached(
+        "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=h.org_id AND r.project_id=h.project_id AND r.reservation_id=h.reservation_id) UNION ALL SELECT 1 FROM authority_signing_quota_transitions t NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=t.org_id AND r.project_id=t.project_id AND r.reservation_id=t.reservation_id))")?.query_row(
         [],
         |r| r.get(0),
     )?;
     if dangling {
         return Err(invalid("signing quota retained reservation graph"));
     }
-    let mut statement = tx.prepare(
+    let orphan: bool = tx.prepare_cached("SELECT EXISTS(
+        SELECT 1 FROM authority_signing_quota_reservations r NOT INDEXED
+        WHERE (SELECT count(*) FROM (SELECT 1 FROM authority_signing_intents i
+          WHERE i.org_id=r.org_id AND i.project_id=r.project_id AND i.reservation_id=r.reservation_id LIMIT 2)) != 1
+    )")?.query_row([], |row| row.get(0))?;
+    if orphan {
+        return Err(invalid("signing reservation intent identity"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn validate_retained_transitions(tx: &Transaction<'_>) -> Result<()> {
+    let dangling: bool = tx.prepare_cached(
+        "SELECT EXISTS(SELECT 1 FROM authority_signing_quota_transition_heads h NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=h.org_id AND r.project_id=h.project_id AND r.reservation_id=h.reservation_id) UNION ALL SELECT 1 FROM authority_signing_quota_transitions t NOT INDEXED WHERE NOT EXISTS(SELECT 1 FROM authority_signing_quota_reservations r WHERE r.org_id=t.org_id AND r.project_id=t.project_id AND r.reservation_id=t.reservation_id))")?.query_row(
+        [],
+        |r| r.get(0),
+    )?;
+    if dangling {
+        return Err(invalid("signing quota retained reservation graph"));
+    }
+    let mut statement = tx.prepare_cached(
         "SELECT org_id,project_id,reservation_id FROM authority_signing_quota_reservations NOT INDEXED",
     )?;
     let mut rows = statement.query([])?;
@@ -161,7 +192,7 @@ fn validate_reservation_graph(
     id: &str,
     initializing: ReservationRead,
 ) -> Result<()> {
-    let intents:i64=tx.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=? LIMIT 2)",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
+    let intents:i64=tx.prepare_cached("SELECT COUNT(*) FROM (SELECT 1 FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=? LIMIT 2)")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
     #[cfg(test)]
     let primitive_fixture = tests::PRIMITIVE_QUOTA_FIXTURE.get();
     #[cfg(not(test))]
@@ -170,22 +201,27 @@ fn validate_reservation_graph(
     if intents > 1 || (!primitive_fixture && intents != expected_intents) {
         return Err(invalid("signing reservation intent identity"));
     }
-    let events:i64=tx.query_row("SELECT COUNT(*) FROM (SELECT 1 FROM authority_signing_work_events e JOIN authority_signing_intents i ON i.org_id=e.org_id AND i.project_id=e.project_id AND i.job_id=e.job_id WHERE i.org_id=? AND i.project_id=? AND i.reservation_id=? LIMIT ?4)",params![tenant.org_id,tenant.project_id,id,(signing_jobs::MAX_WORK_EVENTS * 2 + 1) as i64],|r|r.get(0))?;
+    let events:i64=tx.prepare_cached("SELECT COUNT(*) FROM (SELECT 1 FROM authority_signing_work_events e JOIN authority_signing_intents i ON i.org_id=e.org_id AND i.project_id=e.project_id AND i.job_id=e.job_id WHERE i.org_id=? AND i.project_id=? AND i.reservation_id=? LIMIT ?4)")?.query_row(params![tenant.org_id,tenant.project_id,id,(signing_jobs::MAX_WORK_EVENTS * 2 + 1) as i64],|r|r.get(0))?;
     if events > (signing_jobs::MAX_WORK_EVENTS * 2) as i64 {
         return Err(AuthorityError::Quota);
     }
-    let bound_audits:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')",[],|r|r.get(0))?;
+    let bound_audits:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')")?.query_row([],|r|r.get(0))?;
     if bound_audits {
+        let job: Option<String> = tx.prepare_cached("SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?")?
+            .query_row(params![tenant.org_id,tenant.project_id,id], |row| row.get(0)).optional()?;
+        if let Some(job) = job {
+            signing_jobs::validate_job_work_audits(tx, tenant, &job)?;
+        }
         // The preceding event bound makes this an indexed, per-obligation
         // check. Retained cancelled history is never scanned on admission.
-        let missing:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i JOIN authority_signing_work_events e ON e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_audits b JOIN authority_audit a ON a.org_id=b.org_id AND a.project_id=b.project_id AND a.sequence=b.audit_sequence AND a.event_hash=b.audit_hash WHERE b.org_id=e.org_id AND b.project_id=e.project_id AND b.job_id=e.job_id AND b.phase=e.phase AND b.revision=e.revision AND b.kind=e.kind AND b.updated_at=e.updated_at AND a.resource_id=e.job_id AND a.kind='signing_'||e.phase||'_'||e.kind AND a.recorded_at=e.updated_at))",params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
+        let missing:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i JOIN authority_signing_work_events e ON e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_audits b JOIN authority_audit a ON a.org_id=b.org_id AND a.project_id=b.project_id AND a.sequence=b.audit_sequence AND a.event_hash=b.audit_hash WHERE b.org_id=e.org_id AND b.project_id=e.project_id AND b.job_id=e.job_id AND b.phase=e.phase AND b.revision=e.revision AND b.kind=e.kind AND b.updated_at=e.updated_at AND a.resource_id=e.job_id AND a.kind='signing_'||e.phase||'_'||e.kind AND a.recorded_at=e.updated_at))")?.query_row(params![tenant.org_id,tenant.project_id,id],|r|r.get(0))?;
         if missing {
             return Err(invalid("signing retained work audit graph"));
         }
     } else if tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? >= 11 {
         return Err(invalid("missing signing work audit bindings"));
     }
-    let broken:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (NOT EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.intent_id=i.intent_id AND j.job_id!=i.job_id) OR (?4=0 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND h.phase='signer')) OR EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=h.org_id AND e.project_id=h.project_id AND e.job_id=h.job_id AND e.phase=h.phase AND e.revision=h.revision AND e.revision=(SELECT MAX(w.revision) FROM authority_signing_work_events w WHERE w.org_id=h.org_id AND w.project_id=h.project_id AND w.job_id=h.job_id AND w.phase=h.phase) AND e.state=h.state AND e.claim_generation=h.claim_generation AND e.claim_hash IS h.claim_hash AND e.worker_id IS h.worker_id AND e.claim_until IS h.claim_until AND e.attempts=h.attempts AND e.available_at=h.available_at AND e.updated_at=h.updated_at)) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=e.org_id AND h.project_id=e.project_id AND h.job_id=e.job_id AND h.phase=e.phase)) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND (o.job_id=i.job_id OR o.intent_id=i.intent_id) AND (o.job_id!=i.job_id OR o.intent_id!=i.intent_id OR NOT EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=o.org_id AND s.project_id=o.project_id AND s.intent_id=o.intent_id AND s.grant_hash=o.grant_hash AND s.grant_bytes=o.grant_bytes)))))",params![tenant.org_id,tenant.project_id,id,matches!(initializing, ReservationRead::InitializingJob)],|r|r.get(0))?;
+    let broken:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_intents i WHERE i.org_id=?1 AND i.project_id=?2 AND i.reservation_id=?3 AND (NOT EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.job_id=i.job_id AND j.intent_id=i.intent_id) OR EXISTS(SELECT 1 FROM authority_signing_jobs j WHERE j.org_id=i.org_id AND j.project_id=i.project_id AND j.intent_id=i.intent_id AND j.job_id!=i.job_id) OR (?4=0 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND h.phase='signer')) OR EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=i.org_id AND h.project_id=i.project_id AND h.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=h.org_id AND e.project_id=h.project_id AND e.job_id=h.job_id AND e.phase=h.phase AND e.revision=h.revision AND e.revision=(SELECT MAX(w.revision) FROM authority_signing_work_events w WHERE w.org_id=h.org_id AND w.project_id=h.project_id AND w.job_id=h.job_id AND w.phase=h.phase) AND e.state=h.state AND e.claim_generation=h.claim_generation AND e.claim_hash IS h.claim_hash AND e.worker_id IS h.worker_id AND e.claim_until IS h.claim_until AND e.attempts=h.attempts AND e.available_at=h.available_at AND e.updated_at=h.updated_at)) OR EXISTS(SELECT 1 FROM authority_signing_work_events e WHERE e.org_id=i.org_id AND e.project_id=i.project_id AND e.job_id=i.job_id AND NOT EXISTS(SELECT 1 FROM authority_signing_work_heads h WHERE h.org_id=e.org_id AND h.project_id=e.project_id AND h.job_id=e.job_id AND h.phase=e.phase)) OR EXISTS(SELECT 1 FROM authority_signing_outbox o WHERE o.org_id=i.org_id AND o.project_id=i.project_id AND (o.job_id=i.job_id OR o.intent_id=i.intent_id) AND (o.job_id!=i.job_id OR o.intent_id!=i.intent_id OR NOT EXISTS(SELECT 1 FROM authority_signing_results s WHERE s.org_id=o.org_id AND s.project_id=o.project_id AND s.intent_id=o.intent_id AND s.grant_hash=o.grant_hash AND s.grant_bytes=o.grant_bytes)))))")?.query_row(params![tenant.org_id,tenant.project_id,id,matches!(initializing, ReservationRead::InitializingJob)],|r|r.get(0))?;
     if broken {
         return Err(invalid("signing retained reference graph"));
     }
