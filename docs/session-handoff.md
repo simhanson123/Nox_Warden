@@ -7,7 +7,38 @@ Read this file, [startup prompt](session-start-prompt.txt), `AGENTS.md`,
 No previous chat, attachment, temporary file, agent mailbox or cached binary is
 needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
-## Current PR22 review follow-up
+## Current PR23 review follow-up
+
+PR23 head `8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f` merged as
+`4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`, with the same tree.
+PR CI41580876482 and main CI41584624128 both succeeded. The user supplied
+[Claude's complete PR23 review](reviews/pr23-claude-review.md), preserved as
+15,349 original uploaded bytes including CRLF, SHA256
+`9a3f3072a976beef60d158906d493a41bbe464e97f176406cef77719a282657e`.
+Do not request that fixed review again. Its temporary private probes are absent.
+
+The current correction batch is `fix/live-authority-integrity`, based on that
+merge. [R1–R4](pr23-follow-up.md) concern coordinated live quota/index hiding,
+surplus work audits, and complete validation cost/write-lock duration. New
+independent baseline fixtures reproduce R1–R3; the initial separate R4 harness
+failed before runtime and supplies no measurements. Source and commands are in
+[the local reproduction](reviews/pr23-local-repro.md). Implementation, focused
+regressions, independent internal review and fresh canonical/shared-umask/runtime/
+browser/Linux checks are complete. Resolve this retained branch's PR for its exact
+fixed head, PR CI, main merge and separate main CI result; the PR body is the
+GitHub completion record and carries the next Claude-only prompt. The current
+ledger and reports preserve local results. Do not reuse previous counts. Keep
+published SQL001–013 and original reports/specs.
+
+The correction combines snapshot-bound conditional validation, complete relevant
+work-audit correspondence and reduced full-validation lock/cost. A change counter
+is not external authentication; quick_check does not prove index membership.
+Production signing/dispatch remain closed and issued capacity is not refunded.
+The next external review uses one Claude Opus5.5 request for the actual new fixed
+base/head after this integrated batch and independent internal review.
+
+## Completed PR22 review follow-up (PR23)
+
 
 PR22 head `2cccdb3ba1f22fd461c53bc350bb2d1bc07fffd0` merged as
 `d54021a9df32c0a041c52002b05a0e9d64058c0f`, with the same tree.
@@ -27,9 +58,9 @@ and specifications are unchanged. New fixtures are independent of Claude's priva
 probe sources; the preserved report's test counts are external historical results.
 The metadata timing fix changes the test setup, not production freshness rules.
 
-The next external review is again one Claude Opus5.5 consolidated review of the
-new fixed base/head. The PR body and conversation provide the full prompt. Do not
-request the already received PR22 review again or treat internal review as Claude.
+The PR23 external review was subsequently received and is recorded above.
+Do not request the already received PR22 or PR23 fixed review again or treat
+internal review as Claude. The prior PR body retains its historical prompt.
 
 ## Baselines and completed scope
 

@@ -3,6 +3,19 @@ use super::*;
 
 const WORKER: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
+#[path = "signing_work_audit_surplus_tests.rs"]
+mod surplus_tests;
+
+// Legacy reconstruction and deliberate guard tampering use a separate SQLite
+// connection. The live AuthorityStore connection now refuses those operations
+// before the SQL/event invariants under test can be exercised.
+fn raw_database(fixture: &Fixture) -> Connection {
+    let db = Connection::open(&fixture.path).unwrap();
+    db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
+        .unwrap();
+    db
+}
+
 fn prepared() -> (Fixture, String) {
     let mut fixture = Fixture::new();
     let outcome = signing_intents::test_prepare(&mut fixture, NOW);
@@ -69,10 +82,11 @@ fn raw_claim(tx: &Transaction<'_>, job: &str, worker: &str) -> rusqlite::Result<
 
 #[test]
 fn published_schema10_accepts_unaudited_cancel_but_upgrade_refuses_missing_evidence() {
-    let (mut f, job) = prepared();
+    let (f, job) = prepared();
     migrations::legacy::restore_v10(&f.path);
+    let mut db = raw_database(&f);
     let audits = f.count("authority_audit");
-    let tx = f.store.connection.transaction().unwrap();
+    let tx = db.transaction().unwrap();
     tx.execute("INSERT INTO authority_signing_work_events SELECT org_id,project_id,job_id,phase,'cancelled',?1,claim_generation,NULL,NULL,NULL,attempts,available_at,updated_at,'cancelled' FROM authority_signing_work_heads WHERE job_id=?2 AND phase='signer'", params![2u64.to_be_bytes().as_slice(),job]).unwrap();
     tx.execute("UPDATE authority_signing_work_heads SET state='cancelled',revision=?1 WHERE job_id=?2 AND phase='signer'", params![2u64.to_be_bytes().as_slice(),job]).unwrap();
     let intent = signing_intents::intent_at(
@@ -87,7 +101,7 @@ fn published_schema10_accepts_unaudited_cancel_but_upgrade_refuses_missing_evide
     signing_quota::cancel_unissued(&tx, &f.tenant, &intent.reservation_id, NOW).unwrap();
     tx.commit().unwrap();
     assert_eq!(f.count("authority_audit"), audits);
-    let tx = f.store.connection.transaction().unwrap();
+    let tx = db.transaction().unwrap();
     assert_eq!(
         lifecycle_status(&tx, &f.tenant, &job, NOW).unwrap().state,
         "cancelled"
@@ -109,16 +123,13 @@ fn published_schema10_accepts_unaudited_cancel_but_upgrade_refuses_missing_evide
 
 #[test]
 fn published_schema10_accepts_invalid_uuid_and_event_only_commit_but_upgrade_refuses() {
-    let (mut f, job) = prepared();
+    let (f, job) = prepared();
     migrations::legacy::restore_v10(&f.path);
-    f.store
-        .connection
-        .execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
-        .unwrap();
-    let tx = f.store.connection.transaction().unwrap();
+    let mut db = raw_database(&f);
+    let tx = db.transaction().unwrap();
     raw_claim(&tx, &job, &"x".repeat(36)).unwrap();
     tx.commit().unwrap();
-    let tx = f.store.connection.transaction().unwrap();
+    let tx = db.transaction().unwrap();
     assert!(work_history(&tx, &f.tenant, &job, "signer").is_err());
     assert_eq!(
         tx.query_row::<i64, _, _>(
@@ -146,12 +157,9 @@ fn direct_cancel_and_delivery_without_bound_audit_preserve_every_retained_row() 
             fixture_claim(&tx, &f.tenant, &job, "dispatch", WORKER, 0, 60, NOW).unwrap();
             tx.commit().unwrap();
         }
-        f.store
-            .connection
-            .execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
-            .unwrap();
+        let mut db = raw_database(&f);
         let before = snapshot(&f.store.connection);
-        let tx = f.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         if delivered {
             let result = b"diagnostic delivery";
             tx.execute("INSERT INTO authority_signing_deliveries SELECT org_id,project_id,job_id,grant_hash,?1,?2,?3 FROM authority_signing_outbox WHERE job_id=?4",params![hash(&hash_bytes(result)).unwrap(),result.as_slice(),NOW,job]).unwrap();
@@ -166,7 +174,7 @@ fn direct_cancel_and_delivery_without_bound_audit_preserve_every_retained_row() 
         assert_eq!(snapshot(&f.store.connection), before);
         f.reopen();
         assert_eq!(snapshot(&f.store.connection), before);
-        let tx = f.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         let status = lifecycle_status(&tx, &f.tenant, &job, NOW).unwrap();
         assert!(status.quota_held);
         assert_ne!(status.state, "cancelled");
@@ -207,10 +215,7 @@ fn work_audit_binding_requires_exact_tenant_job_phase_revision_kind_time_and_one
 #[test]
 fn canonical_worker_uuid_sql_matches_rust_and_event_only_statement_projects_head() {
     let (mut f, job) = prepared();
-    f.store
-        .connection
-        .execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
-        .unwrap();
+    let mut db = raw_database(&f);
     let mut workers = vec![
         WORKER.to_owned(),
         "00000000-0000-0000-0000-000000000000".into(),
@@ -232,7 +237,7 @@ fn canonical_worker_uuid_sql_matches_rust_and_event_only_statement_projects_head
         workers.push(changed);
     }
     for worker in workers {
-        let tx = f.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
         assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
         assert_eq!(
@@ -243,14 +248,14 @@ fn canonical_worker_uuid_sql_matches_rust_and_event_only_statement_projects_head
         tx.rollback().unwrap();
     }
     let audits = f.count("authority_audit");
-    let tx = f.store.connection.transaction().unwrap();
+    let tx = db.transaction().unwrap();
     audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
     assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
     raw_claim(&tx, &job, WORKER).unwrap();
     tx.commit().unwrap();
     assert_eq!(f.count("authority_audit"), audits + 1);
     f.reopen();
-    let tx = f.store.connection.transaction().unwrap();
+    let tx = db.transaction().unwrap();
     assert_eq!(
         head(&tx, &f.tenant, &job, "signer")
             .unwrap()
@@ -303,9 +308,10 @@ fn signer_renew_retry_cancel_and_exact_noops_each_retain_one_audit_per_mutation(
 
 #[test]
 fn standalone_binding_is_refused_and_projection_failure_rolls_back_all_mutations() {
-    let (mut f, job) = prepared();
+    let (f, job) = prepared();
     let before = snapshot(&f.store.connection);
-    let tx = f.store.connection.transaction().unwrap();
+    let mut db = raw_database(&f);
+    let tx = db.transaction().unwrap();
     audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
     assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
     tx.rollback().unwrap();
@@ -314,7 +320,7 @@ fn standalone_binding_is_refused_and_projection_failure_rolls_back_all_mutations
         "authority_signing_work_events",
         "authority_signing_work_heads",
     ] {
-        let tx = f.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         audit(&tx, &f.tenant, "signing_signer_claimed", &job, NOW).unwrap();
         assert!(bind(&tx, &f.tenant, &job, "signer", 2, "claimed", NOW).is_err());
         let timing = if target == "authority_signing_work_events" {
@@ -342,28 +348,24 @@ fn standalone_binding_is_refused_and_projection_failure_rolls_back_all_mutations
     use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
     let hit = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let observed = hit.clone();
-    f.store
-        .connection
-        .authorizer(Some(move |context: AuthContext<'_>| {
-            if matches!(
-                context.action,
-                AuthAction::Update {
-                    table_name: "authority_audit_heads",
-                    ..
-                }
-            ) {
-                observed.store(true, std::sync::atomic::Ordering::SeqCst);
-                Authorization::Deny
-            } else {
-                Authorization::Allow
+    db.authorizer(Some(move |context: AuthContext<'_>| {
+        if matches!(
+            context.action,
+            AuthAction::Update {
+                table_name: "authority_audit_heads",
+                ..
             }
-        }));
-    let tx = f.store.connection.transaction().unwrap();
+        ) {
+            observed.store(true, std::sync::atomic::Ordering::SeqCst);
+            Authorization::Deny
+        } else {
+            Authorization::Allow
+        }
+    }));
+    let tx = db.transaction().unwrap();
     assert!(fixture_claim(&tx, &f.tenant, &job, "signer", WORKER, 0, 60, NOW).is_err());
     tx.rollback().unwrap();
-    f.store
-        .connection
-        .authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+    db.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
     assert!(hit.load(std::sync::atomic::Ordering::SeqCst));
     assert_eq!(snapshot(&f.store.connection), before);
 }
@@ -502,8 +504,9 @@ fn legacy_monotonic_matcher_checks_complete_counts_kind_time_and_revision_order(
         fixture_renew(&tx, &f.tenant, &claim, 12, NOW).unwrap();
         tx.commit().unwrap();
         migrations::legacy::restore_v10(&f.path);
+        let mut db = raw_database(&f);
         let before = snapshot(&f.store.connection);
-        let tx = f.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         // Isolate the historical matcher from the state-machine validator,
         // which independently refuses these changes before a real migration.
         tx.execute_batch("DROP TRIGGER authority_signing_work_events_immutable_update; DROP TRIGGER authority_signing_work_events_immutable_delete").unwrap();
@@ -538,21 +541,16 @@ fn legacy_monotonic_matcher_checks_complete_counts_kind_time_and_revision_order(
 #[test]
 fn missing_or_mismatched_work_audit_links_fail_startup_scoped_reads_and_admission() {
     for damage in ["missing", "kind", "time", "audit"] {
-        let (mut f, job) = prepared();
-        f.store
-            .connection
-            .execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
-            .unwrap();
-        let reservation: String = f
-            .store
-            .connection
+        let (f, job) = prepared();
+        let mut db = raw_database(&f);
+        let reservation: String = db
             .query_row(
                 "SELECT reservation_id FROM authority_signing_intents WHERE job_id=?",
                 [&job],
                 |r| r.get(0),
             )
             .unwrap();
-        let tx = f.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         let saved = signing_quota::read(&tx, &f.tenant, &reservation).unwrap();
         assert!(saved.held());
         let cost =
@@ -566,75 +564,67 @@ fn missing_or_mismatched_work_audit_links_fail_startup_scoped_reads_and_admissio
             f.count("authority_signing_work_events"),
             f.count("authority_signing_work_audits")
         );
-        let audit_rows = table_rows(&f.store.connection, "authority_audit");
-        let events = table_rows(&f.store.connection, "authority_signing_work_events");
+        let audit_rows = table_rows(&db, "authority_audit");
+        let events = table_rows(&db, "authority_signing_work_events");
         let guard = if damage == "missing" {
             "authority_signing_work_audits_immutable_delete"
         } else {
             "authority_signing_work_audits_immutable_update"
         };
-        let definition: String = f
-            .store
-            .connection
+        let definition: String = db
             .query_row(
                 "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name=?",
                 [guard],
                 |r| r.get(0),
             )
             .unwrap();
-        f.store
-            .connection
-            .execute_batch(&format!("DROP TRIGGER {guard}"))
-            .unwrap();
+        db.execute_batch(&format!("DROP TRIGGER {guard}")).unwrap();
         match damage {
             "missing" => {
                 assert_eq!(
-                    f.store
-                        .connection
-                        .execute(
-                            "DELETE FROM authority_signing_work_audits WHERE job_id=?",
-                            [&job]
-                        )
-                        .unwrap(),
+                    db.execute(
+                        "DELETE FROM authority_signing_work_audits WHERE job_id=?",
+                        [&job]
+                    )
+                    .unwrap(),
                     1
                 );
             }
             "kind" => {
-                assert_eq!(f.store.connection.execute("UPDATE authority_signing_work_audits SET kind='claimed' WHERE job_id=?",[&job]).unwrap(),1);
+                assert_eq!(
+                    db.execute(
+                        "UPDATE authority_signing_work_audits SET kind='claimed' WHERE job_id=?",
+                        [&job]
+                    )
+                    .unwrap(),
+                    1
+                );
             }
             "time" => {
-                assert_eq!(f.store.connection.execute("UPDATE authority_signing_work_audits SET updated_at=updated_at+1 WHERE job_id=?",[&job]).unwrap(),1);
+                assert_eq!(db.execute("UPDATE authority_signing_work_audits SET updated_at=updated_at+1 WHERE job_id=?",[&job]).unwrap(),1);
             }
             "audit" => {
                 // Use a real, retained, unbound audit from this same tenant.
                 // Its FK and canonical hash are intact; it describes a
                 // different mutation and cannot replace this event's evidence.
-                let other:(Vec<u8>,Vec<u8>)=f.store.connection.query_row("SELECT a.sequence,a.event_hash FROM authority_audit a WHERE a.org_id=?1 AND a.project_id=?2 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_audits b WHERE b.org_id=a.org_id AND b.project_id=a.project_id AND b.audit_sequence=a.sequence) ORDER BY a.sequence DESC LIMIT 1",params![f.tenant.org_id,f.tenant.project_id],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
-                assert_eq!(f.store.connection.execute("UPDATE authority_signing_work_audits SET audit_sequence=?,audit_hash=? WHERE job_id=?",params![other.0,other.1,job]).unwrap(),1);
+                let other:(Vec<u8>,Vec<u8>)=db.query_row("SELECT a.sequence,a.event_hash FROM authority_audit a WHERE a.org_id=?1 AND a.project_id=?2 AND NOT EXISTS(SELECT 1 FROM authority_signing_work_audits b WHERE b.org_id=a.org_id AND b.project_id=a.project_id AND b.audit_sequence=a.sequence) ORDER BY a.sequence DESC LIMIT 1",params![f.tenant.org_id,f.tenant.project_id],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+                assert_eq!(db.execute("UPDATE authority_signing_work_audits SET audit_sequence=?,audit_hash=? WHERE job_id=?",params![other.0,other.1,job]).unwrap(),1);
             }
             _ => unreachable!(),
         }
-        f.store.connection.execute_batch(&definition).unwrap();
+        db.execute_batch(&definition).unwrap();
         assert!(
-            !f.store
-                .connection
-                .query_row::<bool, _, _>(
-                    "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
-                    [],
-                    |r| r.get(0)
-                )
-                .unwrap()
+            !db.query_row::<bool, _, _>(
+                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+                [],
+                |r| r.get(0)
+            )
+            .unwrap()
         );
-        assert_eq!(
-            table_rows(&f.store.connection, "authority_audit"),
-            audit_rows
-        );
-        assert_eq!(
-            table_rows(&f.store.connection, "authority_signing_work_events"),
-            events
-        );
-        let damaged = snapshot(&f.store.connection);
-        let tx = f.store.connection.transaction().unwrap();
+        assert_eq!(table_rows(&db, "authority_audit"), audit_rows);
+        assert_eq!(table_rows(&db, "authority_signing_work_events"), events);
+        let damaged = snapshot(&db);
+        let tx = db.transaction().unwrap();
         assert!(
             work_history(&tx, &f.tenant, &job, "signer").is_err(),
             "{damage}"
@@ -661,6 +651,6 @@ fn missing_or_mismatched_work_audit_links_fail_startup_scoped_reads_and_admissio
             "maintenance {damage}"
         );
         assert!(!backup.exists());
-        assert_eq!(snapshot(&f.store.connection), damaged);
+        assert_eq!(snapshot(&db), damaged);
     }
 }

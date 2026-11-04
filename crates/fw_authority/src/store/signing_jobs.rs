@@ -117,6 +117,73 @@ fn read_head(row: &rusqlite::Row<'_>) -> rusqlite::Result<Head> {
 // the mutable head and latest event to agree.
 pub(super) const MAX_WORK_EVENTS: usize = 192;
 
+// Match the legacy backfill's closed work-mutation set. Other signing audits
+// (intent preparation, result finalization and quota changes) describe separate
+// evidence and must not be consumed by a work event. An impossible phase/kind
+// pair is still purported work evidence and cannot be left unbound.
+const WORK_AUDIT_KINDS: &str = "
+ 'signing_signer_created','signing_signer_claimed','signing_signer_renewed',
+ 'signing_signer_retried','signing_signer_cancelled','signing_signer_finalized',
+ 'signing_signer_unknown','signing_signer_delivered',
+ 'signing_dispatch_created','signing_dispatch_claimed','signing_dispatch_renewed',
+ 'signing_dispatch_retried','signing_dispatch_cancelled','signing_dispatch_finalized',
+ 'signing_dispatch_unknown','signing_dispatch_delivered'";
+
+const WORK_AUDIT_MATCH: &str = "EXISTS(
+ SELECT 1 FROM authority_signing_work_audits b
+ JOIN authority_signing_work_events e ON e.org_id=b.org_id
+  AND e.project_id=b.project_id AND e.job_id=b.job_id AND e.phase=b.phase
+  AND e.revision=b.revision AND e.kind=b.kind AND e.updated_at=b.updated_at
+ WHERE b.org_id=a.org_id AND b.project_id=a.project_id
+  AND b.audit_sequence=a.sequence AND b.audit_hash=a.event_hash
+  AND b.job_id=a.resource_id AND a.kind='signing_'||b.phase||'_'||b.kind
+  AND a.recorded_at=b.updated_at)";
+
+/// Check the reverse edge as well as event-to-audit validation: every retained
+/// work-mutation audit for this job must own an exact work event. The released
+/// resource/kind candidate index bounds this by the job's work history, including
+/// a first surplus row; it does not scan the tenant's unrelated audit history.
+pub(super) fn validate_job_work_audits(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job: &str,
+) -> Result<()> {
+    let surplus: bool = tx
+        .prepare_cached(&format!(
+            "SELECT EXISTS(SELECT 1 FROM authority_audit a
+         WHERE a.org_id=?1 AND a.project_id=?2 AND a.resource_id=?3
+          AND a.kind IN ({WORK_AUDIT_KINDS}) AND NOT {WORK_AUDIT_MATCH})"
+        ))?
+        .query_row(params![tenant.org_id, tenant.project_id, job], |r| r.get(0))?;
+    if surplus {
+        return Err(invalid("unbound signing work audit"));
+    }
+    Ok(())
+}
+
+/// Full validation also finds work audits for nonexistent jobs or tenants. One
+/// physical audit pass avoids one whole-history scan per retained job. Missing
+/// bindings/events and forged ownership fail the same reverse-edge check.
+pub(super) fn validate_retained_work_audits(tx: &Transaction<'_>) -> Result<()> {
+    let bound_audits: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')")?.query_row([], |r| r.get(0))?;
+    if !bound_audits {
+        if tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? >= 11 {
+            return Err(invalid("missing signing work audit bindings"));
+        }
+        return Ok(());
+    }
+    let surplus: bool = tx
+        .prepare_cached(&format!(
+            "SELECT EXISTS(SELECT 1 FROM authority_audit a NOT INDEXED
+         WHERE a.kind IN ({WORK_AUDIT_KINDS}) AND NOT {WORK_AUDIT_MATCH})"
+        ))?
+        .query_row([], |r| r.get(0))?;
+    if surplus {
+        return Err(invalid("unbound retained signing work audit"));
+    }
+    Ok(())
+}
+
 struct WorkHistory {
     current: Option<Head>,
     had_unknown: bool,
@@ -164,18 +231,18 @@ fn work_history(
     job: &str,
     phase: &str,
 ) -> Result<WorkHistory> {
-    let bound_audits: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')", [], |r| r.get(0))?;
+    let bound_audits: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='authority_signing_work_audits')")?.query_row([], |r| r.get(0))?;
     if !bound_audits && tx.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))? >= 11 {
         return Err(invalid("missing signing work audit bindings"));
     }
     let dispatch_times: (Option<i64>, Option<i64>) = if phase == "dispatch" {
-        tx.query_row("SELECT (SELECT created_at FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND job_id=?3),(SELECT recorded_at FROM authority_signing_deliveries WHERE org_id=?1 AND project_id=?2 AND job_id=?3)", params![tenant.org_id,tenant.project_id,job], |r| Ok((r.get(0)?,r.get(1)?)))?
+        tx.prepare_cached("SELECT (SELECT created_at FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND job_id=?3),(SELECT recorded_at FROM authority_signing_deliveries WHERE org_id=?1 AND project_id=?2 AND job_id=?3)")?.query_row(params![tenant.org_id,tenant.project_id,job], |r| Ok((r.get(0)?,r.get(1)?)))?
     } else {
         (None, None)
     };
-    let current = tx.query_row(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase=?"),
+    let current = tx.prepare_cached(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_heads WHERE org_id=? AND project_id=? AND job_id=? AND phase=?"))?.query_row(
         params![tenant.org_id, tenant.project_id, job, phase], read_head).optional()?;
-    let mut statement = tx.prepare(&format!("SELECT {HEAD_COLUMNS},CASE WHEN length(kind)<=16 THEN kind END FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT {}", MAX_WORK_EVENTS + 1))?;
+    let mut statement = tx.prepare_cached(&format!("SELECT {HEAD_COLUMNS},CASE WHEN length(kind)<=16 THEN kind END FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT {}", MAX_WORK_EVENTS + 1))?;
     let mut rows = statement.query(params![tenant.org_id, tenant.project_id, job, phase])?;
     let mut previous: Option<Head> = None;
     let mut renewals = 0;
@@ -201,7 +268,7 @@ fn work_history(
         let (created, deadline) = if let Some(value) = bounds {
             value
         } else {
-            let value: (i64, i64) = tx.query_row("SELECT created_at,deadline FROM authority_signing_jobs WHERE org_id=? AND project_id=? AND job_id=?", params![tenant.org_id, tenant.project_id, job], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let value: (i64, i64) = tx.prepare_cached("SELECT created_at,deadline FROM authority_signing_jobs WHERE org_id=? AND project_id=? AND job_id=?")?.query_row(params![tenant.org_id, tenant.project_id, job], |r| Ok((r.get(0)?, r.get(1)?)))?;
             time(value.0)?;
             time(value.1)?;
             bounds = Some(value);
@@ -325,10 +392,11 @@ fn work_history(
         return Err(invalid("signing work head mismatch"));
     }
     if bound_audits {
-        let bindings: usize = tx.query_row("SELECT count(*) FROM (SELECT 1 FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? LIMIT 193)", params![tenant.org_id,tenant.project_id,job,phase], |r| r.get(0))?;
+        let bindings: usize = tx.prepare_cached("SELECT count(*) FROM (SELECT 1 FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? LIMIT 193)")?.query_row(params![tenant.org_id,tenant.project_id,job,phase], |r| r.get(0))?;
         if bindings != count {
             return Err(invalid("signing work audit binding count"));
         }
+        validate_job_work_audits(tx, tenant, job)?;
     }
     Ok(WorkHistory {
         current,
@@ -345,7 +413,7 @@ fn verify_work_audit(
     kind: &str,
 ) -> Result<u64> {
     type Binding = (Vec<u8>, Vec<u8>, String, i64);
-    let binding: Binding = tx.query_row("SELECT CASE WHEN length(audit_sequence)=8 THEN audit_sequence END,CASE WHEN length(audit_hash)=32 THEN audit_hash END,CASE WHEN length(kind)<=16 THEN kind END,updated_at FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? AND revision=?", params![tenant.org_id,tenant.project_id,job,phase,next.revision.to_be_bytes().as_slice()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
+    let binding: Binding = tx.prepare_cached("SELECT CASE WHEN length(audit_sequence)=8 THEN audit_sequence END,CASE WHEN length(audit_hash)=32 THEN audit_hash END,CASE WHEN length(kind)<=16 THEN kind END,updated_at FROM authority_signing_work_audits WHERE org_id=? AND project_id=? AND job_id=? AND phase=? AND revision=?")?.query_row(params![tenant.org_id,tenant.project_id,job,phase,next.revision.to_be_bytes().as_slice()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
     if binding.2 != kind || binding.3 != next.updated {
         return Err(invalid("signing work audit projection"));
     }
@@ -373,7 +441,7 @@ fn verify_work_audit(
 /// cannot be justified and aborts the upgrade. Original rows stay untouched.
 pub(super) fn backfill_work_audits(tx: &Transaction<'_>) -> Result<()> {
     tx.execute_batch(MIGRATION_WORK_BINDINGS)?;
-    let mut jobs = tx.prepare("SELECT org_id,project_id,job_id FROM authority_signing_jobs ORDER BY org_id,project_id,job_id")?;
+    let mut jobs = tx.prepare_cached("SELECT org_id,project_id,job_id FROM authority_signing_jobs ORDER BY org_id,project_id,job_id")?;
     let mut rows = jobs.query([])?;
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
@@ -392,7 +460,7 @@ fn backfill_phase_audits(
     job: &str,
     phase: &str,
 ) -> Result<()> {
-    let mut events = tx.prepare("SELECT revision,kind,updated_at FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT 193")?;
+    let mut events = tx.prepare_cached("SELECT revision,kind,updated_at FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? ORDER BY revision LIMIT 193")?;
     let events = events
         .query_map(params![tenant.org_id, tenant.project_id, job, phase], |r| {
             Ok((
@@ -404,7 +472,7 @@ fn backfill_phase_audits(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     // The closed list excludes unrelated resource audits while retaining every
     // possible work mutation for this phase, including surplus evidence.
-    let mut audits = tx.prepare("SELECT CASE WHEN length(sequence)=8 THEN sequence END,CASE WHEN length(event_hash)=32 THEN event_hash END,kind,recorded_at FROM authority_audit WHERE org_id=?1 AND project_id=?2 AND resource_id=?3 AND kind IN ('signing_'||?4||'_created','signing_'||?4||'_claimed','signing_'||?4||'_renewed','signing_'||?4||'_retried','signing_'||?4||'_cancelled','signing_'||?4||'_finalized','signing_'||?4||'_unknown','signing_'||?4||'_delivered') ORDER BY sequence LIMIT 193")?;
+    let mut audits = tx.prepare_cached("SELECT CASE WHEN length(sequence)=8 THEN sequence END,CASE WHEN length(event_hash)=32 THEN event_hash END,kind,recorded_at FROM authority_audit WHERE org_id=?1 AND project_id=?2 AND resource_id=?3 AND kind IN ('signing_'||?4||'_created','signing_'||?4||'_claimed','signing_'||?4||'_renewed','signing_'||?4||'_retried','signing_'||?4||'_cancelled','signing_'||?4||'_finalized','signing_'||?4||'_unknown','signing_'||?4||'_delivered') ORDER BY sequence LIMIT 193")?;
     let audits = audits
         .query_map(params![tenant.org_id, tenant.project_id, job, phase], |r| {
             Ok((
@@ -474,7 +542,7 @@ pub(super) fn reservation_has_unknown_history(
     tenant: &AuthorityTenant,
     reservation: &str,
 ) -> Result<bool> {
-    let job: Option<String> = tx.query_row("SELECT CASE WHEN length(job_id)=36 THEN job_id END FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?", params![tenant.org_id, tenant.project_id, reservation], |r| r.get(0)).optional()?;
+    let job: Option<String> = tx.prepare_cached("SELECT CASE WHEN length(job_id)=36 THEN job_id END FROM authority_signing_intents WHERE org_id=? AND project_id=? AND reservation_id=?")?.query_row(params![tenant.org_id, tenant.project_id, reservation], |r| r.get(0)).optional()?;
     job.map(|job| work_history(tx, tenant, &job, "dispatch").map(|history| history.had_unknown))
         .transpose()
         .map(|value| value.unwrap_or(false))
@@ -483,8 +551,9 @@ pub(super) fn reservation_has_unknown_history(
 /// Maintenance checks every retained phase before adding new SQL guards. No
 /// legacy work bytes or claimed delivery records are upgraded into authority.
 pub(super) fn validate_work_histories(tx: &Transaction<'_>) -> Result<()> {
+    validate_retained_work_audits(tx)?;
     let mut statement =
-        tx.prepare("SELECT CASE WHEN length(org_id)=36 THEN org_id END,CASE WHEN length(project_id)=36 THEN project_id END,CASE WHEN length(job_id)=36 THEN job_id END FROM authority_signing_jobs")?;
+        tx.prepare_cached("SELECT CASE WHEN length(org_id)=36 THEN org_id END,CASE WHEN length(project_id)=36 THEN project_id END,CASE WHEN length(job_id)=36 THEN job_id END FROM authority_signing_jobs")?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
@@ -577,7 +646,8 @@ fn bound_job(
     job_id: &str,
     now: i64,
 ) -> Result<(PreparedSigningJob, signing_intents::SigningIntentRecord)> {
-    bound_job_in_state(tx, tenant, job_id, now, false)
+    let (job, intent, _) = bound_job_in_state(tx, tenant, job_id, now, false)?;
+    Ok((job, intent))
 }
 
 fn bound_job_in_state(
@@ -586,7 +656,11 @@ fn bound_job_in_state(
     job_id: &str,
     now: i64,
     initializing: bool,
-) -> Result<(PreparedSigningJob, signing_intents::SigningIntentRecord)> {
+) -> Result<(
+    PreparedSigningJob,
+    signing_intents::SigningIntentRecord,
+    SigningBudgetReservation,
+)> {
     identifier(job_id)?;
     time(now)?;
     let job = signing_intents::job_at(tx, tenant, job_id)?;
@@ -606,7 +680,7 @@ fn bound_job_in_state(
     if now < crate::timestamp(&intent.created_at)? {
         return Err(AuthorityError::Time);
     }
-    Ok((job, intent))
+    Ok((job, intent, reservation))
 }
 
 pub(super) fn initialize_job(
@@ -813,7 +887,7 @@ pub(super) fn record_ready(
     {
         return Err(AuthorityError::Binding);
     }
-    let stored:(Vec<u8>,Vec<u8>,Vec<u8>)=tx.query_row("SELECT grant_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?",params![tenant.org_id,tenant.project_id,intent.intent_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+    let stored:(Vec<u8>,Vec<u8>,Vec<u8>)=tx.prepare_cached("SELECT grant_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?")?.query_row(params![tenant.org_id,tenant.project_id,intent.intent_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
     if stored.0 != hash(result.grant_hash())?
         || stored.1 != result.canonical_grant_bytes()
         || stored.2 != result.canonical_result_bytes()
@@ -863,18 +937,30 @@ fn outbox(
     job_id: &str,
     now: i64,
 ) -> Result<(String, Vec<u8>)> {
-    let (_, intent) = bound_job(tx, tenant, job_id, now)?;
-    let row:(String,Vec<u8>,Vec<u8>,i64)=tx.query_row("SELECT intent_id,grant_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,created_at FROM authority_signing_outbox WHERE org_id=? AND project_id=? AND job_id=?",params![tenant.org_id,tenant.project_id,job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?.ok_or(AuthorityError::Binding)?;
+    let (_, intent, reservation) = bound_job_in_state(tx, tenant, job_id, now, false)?;
+    verify_outbox(tx, tenant, job_id, now, &intent, &reservation)
+}
+
+// Both callers have already verified this job, intent and reservation in the
+// same transaction. Reuse them while checking signed outbox bytes rather than
+// replaying the reservation history a second time for a lifecycle read.
+fn verify_outbox(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    job_id: &str,
+    now: i64,
+    intent: &signing_intents::SigningIntentRecord,
+    reservation: &SigningBudgetReservation,
+) -> Result<(String, Vec<u8>)> {
+    let row:(String,Vec<u8>,Vec<u8>,i64)=tx.prepare_cached("SELECT intent_id,grant_hash,CASE WHEN length(grant_bytes)<=262144 THEN grant_bytes END,created_at FROM authority_signing_outbox WHERE org_id=? AND project_id=? AND job_id=?")?.query_row(params![tenant.org_id,tenant.project_id,job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?.ok_or(AuthorityError::Binding)?;
     // Reverify the actual Ed25519 signature and exact prepared payload at every
     // dequeue, including historical retries after expiry. Hash equality alone
     // cannot authenticate an attacker-rewritten result and outbox together.
     let verified =
-        signing_intents::retained_result(tx, tenant, &intent)?.ok_or(AuthorityError::Binding)?;
-    let issued: i64 = tx.query_row(
-        "SELECT finalized_at FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?",
+        signing_intents::retained_result(tx, tenant, intent)?.ok_or(AuthorityError::Binding)?;
+    let issued: i64 = tx.prepare_cached("SELECT finalized_at FROM authority_signing_results WHERE org_id=? AND project_id=? AND intent_id=?")?.query_row(
         params![tenant.org_id, tenant.project_id, intent.intent_id], |r| r.get(0),
     )?;
-    let reservation = signing_quota::read(tx, tenant, &intent.reservation_id)?;
     if row.0 != intent.intent_id
         || row.1 != hash(verified.grant_hash())?
         || row.2 != verified.canonical_grant_bytes()
@@ -894,23 +980,20 @@ pub(super) fn lifecycle_status(
     job_id: &str,
     now: i64,
 ) -> Result<SigningLifecycleStatus> {
-    let (_, intent) = bound_job(tx, tenant, job_id, now)?;
+    let (_, intent, reservation) = bound_job_in_state(tx, tenant, job_id, now, false)?;
     let signer = head(tx, tenant, job_id, "signer")?.ok_or(AuthorityError::Binding)?;
     let dispatch = head(tx, tenant, job_id, "dispatch")?;
     if now < signer.updated || dispatch.as_ref().is_some_and(|d| now < d.updated) {
         return Err(AuthorityError::Time);
     }
-    let reservation = signing_quota::read(tx, tenant, &intent.reservation_id)?;
     if (signer.state == "ready") != dispatch.is_some() {
         return Err(invalid("signing dispatch state"));
     }
-    let (has_result, has_outbox): (bool, bool) = tx.query_row(
-        "SELECT EXISTS(SELECT 1 FROM authority_signing_results WHERE org_id=?1 AND project_id=?2 AND intent_id=?3), EXISTS(SELECT 1 FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND intent_id=?3)",
+    let (has_result, has_outbox): (bool, bool) = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_results WHERE org_id=?1 AND project_id=?2 AND intent_id=?3), EXISTS(SELECT 1 FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND intent_id=?3)")?.query_row(
         params![tenant.org_id, tenant.project_id, intent.intent_id], |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     type DeliveryRow = (Vec<u8>, Vec<u8>, Vec<u8>, i64);
-    let delivery: Option<DeliveryRow> = tx.query_row(
-        "SELECT grant_hash,result_hash,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END,recorded_at FROM authority_signing_deliveries WHERE org_id=? AND project_id=? AND job_id=?",
+    let delivery: Option<DeliveryRow> = tx.prepare_cached("SELECT grant_hash,result_hash,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END,recorded_at FROM authority_signing_deliveries WHERE org_id=? AND project_id=? AND job_id=?")?.query_row(
         params![tenant.org_id, tenant.project_id, job_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     ).optional()?;
     if (signer.state == "ready") != has_result || has_result != has_outbox {
@@ -933,7 +1016,7 @@ pub(super) fn lifecycle_status(
         return Err(invalid("signing quota lifecycle"));
     }
     if dispatch.is_some() {
-        let (grant, _) = outbox(tx, tenant, job_id, now)?;
+        let (grant, _) = verify_outbox(tx, tenant, job_id, now, &intent, &reservation)?;
         if let Some((delivered_grant, result_hash, result_bytes, recorded)) = delivery
             && (delivered_grant != hash(&grant)?
                 || result_hash != hash(&hash_bytes(&result_bytes))?
@@ -1031,8 +1114,7 @@ fn renew_in_tx(
     if until == claim.until {
         return Ok(claim.clone());
     }
-    let renewals: i64 = tx.query_row(
-        "SELECT count(*) FROM (SELECT 1 FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? AND claim_generation=? AND kind='renewed' LIMIT 32)",
+    let renewals: i64 = tx.prepare_cached("SELECT count(*) FROM (SELECT 1 FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase=? AND claim_generation=? AND kind='renewed' LIMIT 32)")?.query_row(
         params![tenant.org_id, tenant.project_id, claim.job_id, claim.phase, claim.generation.to_be_bytes().as_slice()],
         |row| row.get(0),
     )?;
@@ -1082,7 +1164,7 @@ fn unknown_in_tx(
     // A timed-out sender is allowed to report uncertainty, never success. It
     // must still own this generation; a superseded worker cannot mutate it.
     if old.state == "unknown" && old.generation == claim.generation {
-        let previous=tx.query_row(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase='dispatch' AND state='claimed' AND claim_generation=? ORDER BY revision DESC LIMIT 1"),params![tenant.org_id,tenant.project_id,claim.job_id,claim.generation.to_be_bytes().as_slice()],read_head)?;
+        let previous=tx.prepare_cached(&format!("SELECT {HEAD_COLUMNS} FROM authority_signing_work_events WHERE org_id=? AND project_id=? AND job_id=? AND phase='dispatch' AND state='claimed' AND claim_generation=? ORDER BY revision DESC LIMIT 1"))?.query_row(params![tenant.org_id,tenant.project_id,claim.job_id,claim.generation.to_be_bytes().as_slice()],read_head)?;
         claim_identity(&previous, claim, &claim.job_id, "dispatch")?;
         return Ok(());
     }
@@ -1160,7 +1242,7 @@ pub(super) fn deliver_in_tx(
     {
         return Err(AuthorityError::Binding);
     }
-    let existing:Option<(Vec<u8>,Vec<u8>,Vec<u8>)>=tx.query_row("SELECT grant_hash,result_hash,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_deliveries WHERE org_id=? AND project_id=? AND job_id=?",params![tenant.org_id,tenant.project_id,claim.job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+    let existing:Option<(Vec<u8>,Vec<u8>,Vec<u8>)>=tx.prepare_cached("SELECT grant_hash,result_hash,CASE WHEN length(result_bytes)<=262144 THEN result_bytes END FROM authority_signing_deliveries WHERE org_id=? AND project_id=? AND job_id=?")?.query_row(params![tenant.org_id,tenant.project_id,claim.job_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
     let result_hash = hash(&hash_bytes(&receipt.result_bytes))?;
     let old = head(tx, tenant, &claim.job_id, "dispatch")?.ok_or(AuthorityError::Binding)?;
     if let Some((grant, result, bytes)) = existing {
@@ -1211,7 +1293,7 @@ fn cancel_in_tx(
     lifecycle_status(tx, tenant, job_id, now)?;
     let (_, intent) = bound_job(tx, tenant, job_id, now)?;
     let old = head(tx, tenant, job_id, "signer")?.ok_or(AuthorityError::Binding)?;
-    let committed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_results WHERE org_id=?1 AND project_id=?2 AND intent_id=?3) OR EXISTS(SELECT 1 FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND intent_id=?3)",params![tenant.org_id,tenant.project_id,intent.intent_id],|r|r.get(0))?;
+    let committed:bool=tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM authority_signing_results WHERE org_id=?1 AND project_id=?2 AND intent_id=?3) OR EXISTS(SELECT 1 FROM authority_signing_outbox WHERE org_id=?1 AND project_id=?2 AND intent_id=?3)")?.query_row(params![tenant.org_id,tenant.project_id,intent.intent_id],|r|r.get(0))?;
     if committed || old.state == "ready" || head(tx, tenant, job_id, "dispatch")?.is_some() {
         return Err(AuthorityError::Conflict);
     }
@@ -1656,19 +1738,56 @@ mod tests {
             let result_bytes = bytes(&result).unwrap();
             let grant = bytes(&result.signed_grant).unwrap();
             let grant_hash = hash(&hash_bytes(&grant)).unwrap();
-            f.store.connection.execute_batch("DROP TRIGGER authority_signing_results_no_update; DROP TRIGGER authority_signing_outbox_immutable_update;").unwrap();
-            f.store.connection.execute("UPDATE authority_signing_results SET grant_hash=?,result_hash=?,grant_bytes=?,result_bytes=?", params![grant_hash, hash(&hash_bytes(&result_bytes)).unwrap(), grant, result_bytes]).unwrap();
-            f.store
-                .connection
-                .execute(
-                    "UPDATE authority_signing_outbox SET grant_hash=?,grant_bytes=?",
-                    params![grant_hash, grant],
+            // A forensic writer can restore the exact schema around rewritten
+            // bytes. The public gate and direct signed-byte checks must both
+            // reject the result, independently of unknown schema objects.
+            let mut db = Connection::open(&f.path).unwrap();
+            db.pragma_update(None, "foreign_keys", true).unwrap();
+            let guards = [
+                "authority_signing_results_no_update",
+                "authority_signing_outbox_immutable_update",
+            ]
+            .map(|name| {
+                db.query_row::<String, _, _>(
+                    "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name=?",
+                    [name],
+                    |r| r.get(0),
                 )
-                .unwrap();
-            let tx = f.store.connection.transaction().unwrap();
-            assert!(outbox(&tx, &f.tenant, &job, NOW).is_err());
-            assert!(lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
-            assert!(fixture_claim(&tx, &f.tenant, &job, "dispatch", WORKER, 0, 60, NOW).is_err());
+                .unwrap()
+            });
+            db.execute_batch("DROP TRIGGER authority_signing_results_no_update; DROP TRIGGER authority_signing_outbox_immutable_update;").unwrap();
+            db.execute("UPDATE authority_signing_results SET grant_hash=?,result_hash=?,grant_bytes=?,result_bytes=?", params![grant_hash, hash(&hash_bytes(&result_bytes)).unwrap(), grant, result_bytes]).unwrap();
+            db.execute(
+                "UPDATE authority_signing_outbox SET grant_hash=?,grant_bytes=?",
+                params![grant_hash, grant],
+            )
+            .unwrap();
+            for guard in guards {
+                db.execute_batch(&guard).unwrap();
+            }
+            assert!(
+                f.store
+                    .read_signing_intent(&f.tenant, &result.intent_id, NOW)
+                    .is_err()
+            );
+            let tx = db.transaction().unwrap();
+            for error in [
+                outbox(&tx, &f.tenant, &job, NOW).unwrap_err(),
+                lifecycle_status(&tx, &f.tenant, &job, NOW).unwrap_err(),
+                match fixture_claim(&tx, &f.tenant, &job, "dispatch", WORKER, 0, 60, NOW) {
+                    Err(error) => error,
+                    Ok(_) => panic!("rewritten signing result was claimed"),
+                },
+            ] {
+                assert!(
+                    if valid_but_rebound {
+                        matches!(error, AuthorityError::Binding)
+                    } else {
+                        matches!(error, AuthorityError::Signature)
+                    },
+                    "valid_but_rebound={valid_but_rebound}: {error:?}"
+                );
+            }
         }
     }
 
@@ -1846,16 +1965,24 @@ mod tests {
             handles.push(std::thread::spawn(move || {
                 let mut store = AuthorityStore::open(path).unwrap();
                 barrier.wait();
-                let tx = store
+                let tx = match store
                     .connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .unwrap();
+                {
+                    Ok(tx) => tx,
+                    // A peer may commit between the validated read snapshot
+                    // and acquisition of our writer lock. The typed conflict
+                    // is a safe losing contender, never a successful claim.
+                    Err(AuthorityError::Conflict) => return None,
+                    Err(error) => panic!("unexpected transaction failure: {error:?}"),
+                };
                 match fixture_claim(&tx, &tenant, &job, "signer", WORKER, 0, 60, NOW) {
                     Ok(c) => {
                         tx.commit().unwrap();
                         Some(c.generation())
                     }
-                    Err(_) => None,
+                    Err(AuthorityError::Conflict) => None,
+                    Err(error) => panic!("unexpected claim failure: {error:?}"),
                 }
             }));
         }
@@ -1869,6 +1996,11 @@ mod tests {
         let status = lifecycle_status(&tx, &f.tenant, &job, NOW).unwrap();
         assert_eq!(status.attempts, 1);
         assert_eq!(status.claim_generation, 1);
+        assert_eq!(status.state, "claimed");
+        let claims: i64 = tx.query_row(
+            "SELECT count(*) FROM authority_signing_work_events WHERE job_id=? AND phase='signer' AND kind='claimed'", [&job], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(claims, 1);
     }
 
     #[test]
@@ -2059,18 +2191,113 @@ mod tests {
 
     #[test]
     fn audit_failure_rolls_back_claim_and_cancellation_with_quota() {
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
         let (mut f, job, reservation) = prepared();
-        let count = f.count("authority_signing_work_events");
-        f.store.connection.execute_batch("CREATE TRIGGER reject_signing_audit BEFORE INSERT ON authority_audit BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;").unwrap();
-        assert!(claim(&mut f, &job, "signer", 0, 60, NOW).is_err());
+        let snapshot = |db: &Connection| {
+            [
+                "authority_signing_work_events",
+                "authority_signing_work_heads",
+                "authority_signing_work_audits",
+                "authority_signing_quota_reservations",
+                "authority_signing_quota_transitions",
+                "authority_signing_quota_transition_heads",
+                "authority_audit",
+                "authority_audit_heads",
+            ]
+            .map(|table| {
+                let mut query = db
+                    .prepare(&format!("SELECT rowid,* FROM {table} ORDER BY rowid"))
+                    .unwrap();
+                let columns = query.column_count();
+                query
+                    .query_map([], |row| {
+                        (0..columns)
+                            .map(|i| row.get::<_, rusqlite::types::Value>(i))
+                            .collect::<rusqlite::Result<Vec<_>>>()
+                    })
+                    .unwrap()
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .unwrap()
+            })
+        };
+        let before = snapshot(&f.store.connection);
+        let mut db = Connection::open(&f.path).unwrap();
+        db.pragma_update(None, "foreign_keys", true).unwrap();
+        // The live boundary rejects unknown schema before composing mutations.
+        db.execute_batch("CREATE TRIGGER reject_signing_audit BEFORE INSERT ON authority_audit BEGIN SELECT RAISE(ABORT,'fixture audit failure'); END;").unwrap();
         assert!(f.store.cancel_signing_job(&f.tenant, &job, NOW).is_err());
-        assert_eq!(f.count("authority_signing_work_events"), count);
+        assert_eq!(snapshot(&db), before);
+        db.execute_batch("DROP TRIGGER reject_signing_audit")
+            .unwrap();
+
+        // With the exact released schema restored, inject a failure at the real
+        // audit INSERT. Count hits so early validation cannot satisfy rollback
+        // assertions without reaching the composed write's audit step.
+        let hits = Arc::new(AtomicUsize::new(0));
+        let observed = hits.clone();
+        db.authorizer(Some(move |context: AuthContext<'_>| {
+            if matches!(
+                context.action,
+                AuthAction::Insert {
+                    table_name: "authority_audit"
+                }
+            ) {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Authorization::Deny
+            } else {
+                Authorization::Allow
+            }
+        }));
+        for cancel in [false, true] {
+            let previous_hits = hits.load(Ordering::SeqCst);
+            let tx = db.transaction().unwrap();
+            let error = if cancel {
+                cancel_in_tx(&tx, &f.tenant, &job, NOW).unwrap_err()
+            } else {
+                match fixture_claim(&tx, &f.tenant, &job, "signer", WORKER, 0, 60, NOW) {
+                    Err(error) => error,
+                    Ok(_) => panic!("claim survived audit insertion failure"),
+                }
+            };
+            assert!(
+                matches!(error, AuthorityError::Storage(rusqlite::Error::SqliteFailure(ref code, _))
+                if code.code == rusqlite::ErrorCode::AuthorizationForStatementDenied),
+                "{error:?}"
+            );
+            assert!(hits.load(Ordering::SeqCst) > previous_hits);
+            tx.rollback().unwrap();
+            assert_eq!(snapshot(&db), before);
+        }
+        db.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
         let tx = f.store.connection.transaction().unwrap();
         let status = lifecycle_status(&tx, &f.tenant, &job, NOW).unwrap();
         assert_eq!(status.state, "prepared");
         assert_eq!(status.attempts, 0);
         assert!(
             signing_quota::read(&tx, &f.tenant, &reservation)
+                .unwrap()
+                .held()
+        );
+        tx.rollback().unwrap();
+
+        // A failure consumes neither generation nor quota authority. The next
+        // healthy claim and public cancellation each commit their real event.
+        assert_eq!(
+            claim(&mut f, &job, "signer", 0, 60, NOW)
+                .unwrap()
+                .generation(),
+            1
+        );
+        f.store.cancel_signing_job(&f.tenant, &job, NOW).unwrap();
+        f.reopen();
+        let tx = f.store.connection.transaction().unwrap();
+        let status = lifecycle_status(&tx, &f.tenant, &job, NOW).unwrap();
+        assert_eq!(status.state, "cancelled");
+        assert_eq!(status.attempts, 1);
+        assert!(
+            !signing_quota::read(&tx, &f.tenant, &reservation)
                 .unwrap()
                 .held()
         );
@@ -2094,18 +2321,36 @@ mod tests {
                 )
                 .is_err()
         );
-        f.store
-            .connection
-            .execute_batch("DROP TRIGGER authority_signing_work_heads_update")
+        let mut db = Connection::open(&f.path).unwrap();
+        db.pragma_update(None, "foreign_keys", true).unwrap();
+        let guard: String = db.query_row(
+            "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='authority_signing_work_heads_update'", [], |row| row.get(0),
+        ).unwrap();
+        db.execute_batch("DROP TRIGGER authority_signing_work_heads_update")
             .unwrap();
-        f.store
-            .connection
-            .execute(
-                "UPDATE authority_signing_work_heads SET state='cancelled' WHERE job_id=?",
+        db.execute(
+            "UPDATE authority_signing_work_heads SET state='cancelled' WHERE job_id=?",
+            [&job],
+        )
+        .unwrap();
+        db.execute_batch(&guard).unwrap();
+        let intent: String = db
+            .query_row(
+                "SELECT intent_id FROM authority_signing_jobs WHERE job_id=?",
                 [&job],
+                |row| row.get(0),
             )
             .unwrap();
-        let tx = f.store.connection.transaction().unwrap();
+        assert!(
+            f.store
+                .read_signing_intent(&f.tenant, &intent, NOW)
+                .is_err()
+        );
+        let tx = db.transaction().unwrap();
+        assert!(matches!(
+            work_history(&tx, &f.tenant, &job, "signer"),
+            Err(AuthorityError::Invalid("signing work head mismatch"))
+        ));
         assert!(lifecycle_status(&tx, &f.tenant, &job, NOW).is_err());
     }
 }

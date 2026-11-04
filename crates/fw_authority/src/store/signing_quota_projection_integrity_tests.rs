@@ -29,6 +29,20 @@ fn genuine_obligation(
             .unwrap();
     } else {
         signing_intents::test_initialize(&mut f, NOW);
+        let mut cap = limits();
+        cap.concurrent_deployments = 1;
+        let pin = SigningRootQuotaPin {
+            root_id: ROOT.into(),
+            limits: cap,
+            not_before: NOW,
+            not_after: NOW + 7200,
+        };
+        f.store
+            .pin_signing_root_quota(&f.tenant, &pin, Some(1), NOW)
+            .unwrap();
+        f.store
+            .pin_signing_project_quota(&f.tenant, &pin, Some(1), NOW)
+            .unwrap();
     }
     let prepared = signing_intents::test_prepare(&mut f, NOW);
     let job = prepared.intent.job_id;
@@ -85,8 +99,12 @@ fn hide_head(connection: &Connection, reservation: &str) {
 fn assert_hidden_head_refused(project_only: bool, state: &str) {
     let (mut f, _, reservation, now) = genuine_obligation(project_only, state);
     hide_head(&f.store.connection, &reservation);
+    assert!(f.store.connection.transaction().is_err());
     let (read_refused, history_refused, project_refused, root_refused, reserve_refused) = {
-        let tx = f.store.connection.transaction().unwrap();
+        // Inspect the damaged rows separately: the live connection now refuses
+        // before returning any transaction to its caller.
+        let mut forensic = Connection::open(&f.path).unwrap();
+        let tx = forensic.transaction().unwrap();
         let read_refused = read(&tx, &f.tenant, &reservation).is_err();
         let history_refused = validate_retained_transitions(&tx).is_err();
         let project_refused = account(&tx, &f.tenant, AccountingScope::Project, now, None).is_err();
@@ -181,4 +199,194 @@ fn a_committed_intentless_reservation_is_refused_by_open_reads_and_admission() {
         read_refused && history_refused && account_refused && open_refused && maintenance_refused,
         "read={read_refused}, history={history_refused}, account={account_refused}, open={open_refused}, maintenance={maintenance_refused}"
     );
+}
+
+fn hide_both_projections(connection: &Connection, reservation: &str) {
+    let guards = connection.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name IN ('authority_signing_quota_reservations','authority_signing_quota_transition_heads') ORDER BY name")
+        .unwrap().query_map([], |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?)))
+        .unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+    for (name, _) in &guards {
+        connection
+            .execute_batch(&format!("DROP TRIGGER {name}"))
+            .unwrap();
+    }
+    assert_eq!(connection.execute("UPDATE authority_signing_quota_reservations SET state='released',active_slots=0,dispatch_slots=0,issued_at=NULL WHERE reservation_id=?", [reservation]).unwrap(), 1);
+    assert_eq!(connection.execute("UPDATE authority_signing_quota_transition_heads SET state='released',issued_at=NULL WHERE reservation_id=?", [reservation]).unwrap(), 1);
+    for (_, sql) in guards {
+        connection.execute_batch(&sql).unwrap();
+    }
+    migrations::validate_live_schema(connection).unwrap();
+}
+
+fn empty_membership_index(connection: &Connection, index: &str) {
+    let original: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name=?",
+            [index],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let empty = if original.contains("WHERE ") {
+        original.replacen("WHERE ", "WHERE 0 AND ", 1)
+    } else {
+        format!("{original} WHERE 0")
+    };
+    connection
+        .execute_batch("PRAGMA writable_schema=ON")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE sqlite_schema SET sql=? WHERE name=?",
+            params![empty, index],
+        )
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA writable_schema=RESET")
+        .unwrap();
+    connection
+        .execute_batch(&format!("REINDEX {index}"))
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA writable_schema=ON")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE sqlite_schema SET sql=? WHERE name=?",
+            params![original, index],
+        )
+        .unwrap();
+    connection
+        .execute_batch("PRAGMA writable_schema=RESET")
+        .unwrap();
+}
+
+fn membership_indexes(project_only: bool) -> Vec<&'static str> {
+    let mut indexes = vec![
+        "authority_signing_quota_project_states",
+        "authority_signing_quota_transition_project_held",
+    ];
+    if !project_only {
+        indexes.extend([
+            "authority_signing_quota_root_states",
+            "authority_signing_quota_transition_root_held",
+        ]);
+    }
+    indexes
+}
+
+fn new_admission(f: &mut signing_test_support::Fixture, now: i64) -> Result<()> {
+    let tx = f
+        .store
+        .connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)?;
+    reserve(&tx, &f.tenant, &id(999), &change(999), now + 300, now)?;
+    tx.commit()?;
+    Ok(())
+}
+
+#[test]
+fn peer_hiding_both_quota_projections_with_restored_guards_refuses_live_admission() {
+    for project_only in [false, true] {
+        for state in ["reserved", "issued", "unknown", "active"] {
+            let (mut f, _, reservation, now) = genuine_obligation(project_only, state);
+            assert!(!f.store.connection.is_forensic_arithmetic_fixture());
+            assert!(matches!(
+                new_admission(&mut f, now),
+                Err(AuthorityError::Quota)
+            ));
+            let peer = Connection::open(&f.path).unwrap();
+            hide_both_projections(&peer, &reservation);
+            // Both bounded membership projections now agree on an empty set.
+            // Complete snapshot evidence, not a third mutable index, refuses it.
+            for _ in 0..2 {
+                let error = new_admission(&mut f, now).unwrap_err();
+                assert!(
+                    matches!(error, AuthorityError::Invalid(_)),
+                    "{project_only}/{state}: {error}"
+                );
+            }
+            assert!(AuthorityStore::open(&f.path).is_err());
+            assert_eq!(
+                peer.query_row::<i64, _, _>(
+                    "SELECT count(*) FROM authority_signing_quota_reservations NOT INDEXED",
+                    [],
+                    |row| row.get(0)
+                )
+                .unwrap(),
+                1
+            );
+        }
+    }
+}
+
+#[test]
+fn jointly_empty_membership_indexes_refuse_live_admission_and_recheck_after_repair() {
+    for project_only in [false, true] {
+        for state in ["reserved", "issued", "unknown", "active"] {
+            let (mut f, _, _, now) = genuine_obligation(project_only, state);
+            assert!(!f.store.connection.is_forensic_arithmetic_fixture());
+            let peer = Connection::open(&f.path).unwrap();
+            let indexes = membership_indexes(project_only);
+            for index in &indexes {
+                empty_membership_index(&peer, index);
+            }
+            migrations::validate_live_schema(&peer).unwrap();
+            // quick_check can notice wrong nonpartial index counts, but it
+            // does not establish complete physical index membership. These
+            // emptied held partial indexes still pass its table-scoped check.
+            let source_quick: String = peer
+                .query_row(
+                    "PRAGMA quick_check(authority_signing_quota_reservations)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                source_quick.starts_with("wrong # of entries in index authority_signing_quota_"),
+                "{source_quick}"
+            );
+            assert_eq!(
+                peer.query_row::<String, _, _>(
+                    "PRAGMA quick_check(authority_signing_quota_transition_heads)",
+                    [],
+                    |row| row.get(0)
+                )
+                .unwrap(),
+                "ok"
+            );
+            assert_ne!(
+                peer.query_row::<String, _, _>("PRAGMA integrity_check(1)", [], |row| row.get(0))
+                    .unwrap(),
+                "ok"
+            );
+            for _ in 0..2 {
+                assert!(matches!(
+                    new_admission(&mut f, now),
+                    Err(AuthorityError::Invalid(_))
+                ));
+            }
+            assert!(AuthorityStore::open(&f.path).is_err());
+            // Explicit external repair is not performed by refusal. It must be
+            // validated afresh and must preserve the held quota, without refund.
+            for index in &indexes {
+                peer.execute_batch(&format!("REINDEX {index}")).unwrap();
+            }
+            assert_eq!(
+                peer.query_row::<String, _, _>("PRAGMA integrity_check(1)", [], |row| row.get(0))
+                    .unwrap(),
+                "ok"
+            );
+            assert!(matches!(
+                new_admission(&mut f, now),
+                Err(AuthorityError::Quota)
+            ));
+            for index in &indexes {
+                empty_membership_index(&peer, index);
+            }
+            assert!(matches!(
+                new_admission(&mut f, now),
+                Err(AuthorityError::Invalid(_))
+            ));
+        }
+    }
 }

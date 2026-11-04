@@ -5,6 +5,9 @@ mod authenticator;
 #[path = "support/authority_legacy.rs"]
 #[allow(dead_code)]
 mod authority_legacy;
+#[allow(dead_code)]
+#[path = "support/integrity_fixture.rs"]
+mod integrity_fixture;
 #[path = "../../fw_authority_service/tests/support/plans.rs"]
 mod plans;
 #[path = "support/private_directory.rs"]
@@ -396,7 +399,7 @@ fn invalid_recomposition_tenant_hash_size_and_immutable_collision_leave_no_rows(
 }
 
 #[test]
-fn evidence_or_final_audit_failure_rolls_back_plan_requirements_review_and_security() {
+fn altered_evidence_or_audit_schema_refuses_import_without_changing_rows_then_restores_retry() {
     for failure in ["evidence", "audit"] {
         let mut f = Fixture::new();
         let db = Connection::open(&f.path).unwrap();
@@ -406,11 +409,12 @@ fn evidence_or_final_audit_failure_rolls_back_plan_requirements_review_and_secur
             db.execute_batch("CREATE TRIGGER injected_failure BEFORE INSERT ON authority_audit WHEN NEW.kind='plan_review_evidence_registered' BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;").unwrap();
         }
         let original = snapshot(&f.path);
-        assert!(
+        // External triggers are detected before any evidence or audit write.
+        assert!(matches!(
             f.store
-                .register_reviewed_plan(&f.tenant, &f.plan, &f.requirements, &f.evidence, NOW)
-                .is_err()
-        );
+                .register_reviewed_plan(&f.tenant, &f.plan, &f.requirements, &f.evidence, NOW),
+            Err(AuthorityError::Invalid(_))
+        ));
         assert_eq!(snapshot(&f.path), original);
         db.execute_batch("DROP TRIGGER injected_failure;").unwrap();
         f.register(NOW);
@@ -443,7 +447,9 @@ fn tampered_evidence_is_rejected_on_read_retry_and_proof_admission() {
             .unwrap();
         let assertion = f.key.assertion(&challenge.options, 2, 0x05, ORIGIN);
         let db = Connection::open(&f.path).unwrap();
+        let guard = integrity_fixture::trigger_sql(&db, "authority_plan_review_evidence_no_update");
         db.execute_batch(&format!("DROP TRIGGER authority_plan_review_evidence_no_update; UPDATE authority_plan_review_evidence SET {column};")).unwrap();
+        db.execute_batch(&guard).unwrap();
         let original = snapshot(&f.path);
         assert!(
             f.store

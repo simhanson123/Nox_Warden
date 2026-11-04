@@ -282,7 +282,11 @@ fn stale_physical_held_index_with_exact_schema_refuses_live_open_and_maintenance
             .query_row("PRAGMA integrity_check", [], |r| r.get(0))
             .unwrap();
         assert_ne!(physical, "ok");
-        let tx = f.store.connection.transaction().unwrap();
+        assert!(f.store.connection.transaction().is_err());
+        // Preserve the independent scope-level rejection check after the live
+        // connection has already refused to return a transaction.
+        let mut forensic = Connection::open(&f.path).unwrap();
+        let tx = forensic.transaction().unwrap();
         let admitted = signing_quota::reserve(
             &tx,
             &f.tenant,

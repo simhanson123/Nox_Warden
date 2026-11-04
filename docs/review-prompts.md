@@ -1,14 +1,15 @@
 # Independent review prompts
 
-> Current status: PR22's supplied Claude Opus5.5 report is preserved in
-> [the original pasted review](reviews/pr22-claude-review.md).
-> The new integrated follow-up corrects D1–D6 with schema13 and operator recovery.
+> Current status: PR23's supplied Claude Opus5.5 report is preserved byte-for-byte
+> in [the uploaded review](reviews/pr23-claude-review.md).
+> The new integrated follow-up addresses R1–R4: live snapshot integrity,
+> work-audit correspondence and full-validation cost/locking.
 > Use **Claude Opus5.5 only** for one consolidated external review. The follow-up
 > PR description and user handoff contain the complete prompt with actual fixed
 > base/head; resolve that PR instead of reusing a historical target below.
-> Comparison base: `d54021a9df32c0a041c52002b05a0e9d64058c0f`.
-> Branch: `fix/quota-open-integrity`; resolve its actual PR/head before review.
-> The completed PR22 review must not be requested again for its unchanged target.
+> Comparison base: `4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`.
+> Branch: `fix/live-authority-integrity`; resolve its actual PR/head before review.
+> Completed PR22/PR23 reviews must not be requested again for unchanged targets.
 > Preparing a prompt and internal agent review are not external model execution.
 > Start a development session with [this prompt](session-start-prompt.txt).
 

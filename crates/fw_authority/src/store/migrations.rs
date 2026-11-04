@@ -484,8 +484,11 @@ pub(super) fn apply_v11(tx: &Transaction<'_>) -> Result<()> {
 
 fn validate_retained_integrity(tx: &Transaction<'_>) -> Result<()> {
     validate_reference_graph(tx)?;
-    signing_quota::validate_retained_transitions(tx)?;
-    signing_jobs::validate_work_histories(tx)?;
+    signing_quota::validate_lifecycle_reservation_graph(tx)?;
+    // Every job lifecycle below verifies both complete work histories. Keep
+    // the global inverse audit check here so unknown-resource audit rows cannot
+    // hide outside any job, without replaying every valid history twice.
+    signing_jobs::validate_retained_work_audits(tx)?;
     validate_retained_signing_lifecycles(tx)?;
     audit_log::validate_retained_chains(tx)
 }
@@ -724,13 +727,25 @@ pub(super) fn apply_v13(tx: &Transaction<'_>) -> Result<()> {
     validate_v13(tx)
 }
 
-/// Full retained validation runs inside the opening/maintenance snapshot.
-/// Sensitive live operations keep their bounded checks separately.
+/// Current full validation is read-only and may run while WAL writers commit.
+/// Every check sees the same SQLite snapshot; no index is repaired.
 pub(super) fn validate_v13(tx: &Transaction<'_>) -> Result<()> {
     validate_migrations(tx, 13)?;
     validate_live_schema(tx)?;
+    #[cfg(test)]
+    OPEN_VALIDATION_HOOK.with(|hook| {
+        let callback = hook.borrow_mut().take();
+        if let Some(callback) = callback {
+            callback();
+        }
+    });
     validate_physical_integrity(tx)?;
     validate_retained_integrity(tx)
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static OPEN_VALIDATION_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {std::cell::RefCell::new(None)};
 }
 
 #[cfg(not(test))]
@@ -1317,6 +1332,19 @@ impl AuthorityStore {
         private_path(path)?;
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(Duration::from_millis(5000))?;
+        connection.set_prepared_statement_cache_capacity(256);
+        // Current-version maintenance is validation, not a write operation.
+        // A prior-version source is checked again after acquiring its write lock.
+        {
+            let tx = connection.transaction()?;
+            let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
+            let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+            if application == APPLICATION_ID && version == 13 {
+                validate_v13(&tx)?;
+                tx.commit()?;
+                return Ok(());
+            }
+        }
         connection.pragma_update(None, "synchronous", "FULL")?;
         connection.pragma_update(None, "foreign_keys", "OFF")?;
         let migrated = (|| -> Result<()> {
@@ -1328,13 +1356,14 @@ impl AuthorityStore {
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
             if application == APPLICATION_ID && version == 13 {
+                // Another maintainer finished while this connection waited.
+                drop(tx);
+                let tx = connection.transaction()?;
                 validate_v13(&tx)?;
                 tx.commit()?;
                 return Ok(());
             }
-            if application != APPLICATION_ID
-                || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].contains(&version)
-            {
+            if application != APPLICATION_ID || !(1..=12).contains(&version) {
                 return Err(invalid("authority migration requires known prior database"));
             }
             if version == 2 {

@@ -1,6 +1,5 @@
+use super::super::core_access_fixture as fixture;
 use super::*;
-#[path = "../../tests/support/core_access_fixture.rs"]
-mod fixture;
 use signing_test_support::private_directory;
 
 struct CoreFixture {

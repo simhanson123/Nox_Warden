@@ -7,6 +7,28 @@ fn database(directory: &TempDir) -> Connection {
     Connection::open(directory.path().join("authority.sqlite3")).unwrap()
 }
 
+fn retained_audit_state(connection: &Connection) -> [Vec<Vec<rusqlite::types::Value>>; 4] {
+    [
+        "authority_projects",
+        "authority_principals",
+        "authority_audit",
+        "authority_audit_heads",
+    ]
+    .map(|table| {
+        let mut query = connection
+            .prepare(&format!("SELECT rowid,* FROM {table} ORDER BY rowid"))
+            .unwrap();
+        let columns = query.column_count();
+        query
+            .query_map([], |row| {
+                (0..columns).map(|column| row.get(column)).collect()
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap()
+    })
+}
+
 fn assert_current_open_and_maintenance_refuse(directory: &TempDir) {
     let path = directory.path().join("authority.sqlite3");
     assert!(AuthorityStore::open(&path).is_err());
@@ -173,7 +195,7 @@ fn valid_hashes_cannot_hide_sequence_gaps_wrong_links_or_tenant_transplants() {
 }
 
 #[test]
-fn legacy_backward_time_is_reported_without_rewriting_even_after_new_append() {
+fn legacy_backward_time_refuses_verification_and_new_appends_without_rewriting() {
     let (directory, mut store, tenant) = fixture();
     provision(&mut store, &tenant, FIRST, NOW + 100);
     provision(&mut store, &tenant, SECOND, NOW + 200);
@@ -187,20 +209,31 @@ fn legacy_backward_time_is_reported_without_rewriting_even_after_new_append() {
                 .into()
         })
     });
-    let before = snapshot(&connection);
+    let before = retained_audit_state(&connection);
     assert!(matches!(
         store.verify_audit_chain(&tenant),
-        Err(AuthorityError::Invalid("authority audit time order"))
+        Err(AuthorityError::Invalid("authority audit retained history"))
     ));
-    assert_eq!(snapshot(&connection), before);
-    // Appends only certify their immediate predecessor, not earlier history.
-    provision(
-        &mut store,
-        &tenant,
-        "66666666-6666-4666-8666-666666666666",
-        NOW + 60,
-    );
-    assert!(store.verify_audit_chain(&tenant).is_err());
+    assert_eq!(retained_audit_state(&connection), before);
+    // Both times follow the rewritten immediate predecessor. A peer's bad
+    // retained history still prevents every append, including a later time
+    // that also follows the original history's latest timestamp.
+    for now in [NOW + 60, NOW + 300] {
+        assert!(matches!(
+            store.provision_principal(
+                &tenant,
+                "66666666-6666-4666-8666-666666666666",
+                "local-oob",
+                "66666666-6666-4666-8666-666666666666",
+                now,
+            ),
+            Err(AuthorityError::Invalid("authority audit retained history"))
+        ));
+        assert!(store.verify_audit_chain(&tenant).is_err());
+        assert_eq!(retained_audit_state(&connection), before);
+    }
+    assert_current_open_and_maintenance_refuse(&directory);
+    assert_eq!(retained_audit_state(&connection), before);
 }
 
 #[test]
@@ -212,35 +245,66 @@ fn verification_and_append_clock_are_scoped_by_both_tenant_components() {
         AuthorityTenant::new(ORG, SECOND).unwrap(),
     ] {
         provision(&mut store, &other, FIRST, NOW);
+        provision(&mut store, &other, SECOND, NOW + 10);
         assert_eq!(
             store
                 .verify_audit_chain(&other)
                 .unwrap()
                 .unwrap()
                 .last_recorded_at,
-            Some(NOW)
+            Some(NOW + 10)
         );
     }
-    let before = store.verify_audit_chain(&tenant).unwrap().unwrap();
-    tamper(&database(&directory), |connection| {
+    let verified = store.verify_audit_chain(&tenant).unwrap().unwrap();
+    assert_eq!(verified.event_count, 1);
+    assert_eq!(verified.last_recorded_at, Some(NOW + 100));
+    let unknown = AuthorityTenant::new(SECOND, SECOND).unwrap();
+    let connection = database(&directory);
+    let healthy = retained_audit_state(&connection);
+    assert_eq!(store.verify_audit_chain(&unknown).unwrap(), None);
+    assert_eq!(retained_audit_state(&connection), healthy);
+    tamper(&connection, |connection| {
         connection
             .execute(
-                "UPDATE authority_audit SET event_hash=zeroblob(32) WHERE org_id=?",
-                [SECOND],
+                "UPDATE authority_audit SET event_hash=zeroblob(32) WHERE org_id=?1 AND project_id=?2 AND sequence=(SELECT max(sequence) FROM authority_audit WHERE org_id=?1 AND project_id=?2)",
+                params![SECOND, PROJECT],
             )
             .unwrap();
     });
-    assert_eq!(store.verify_audit_chain(&tenant).unwrap().unwrap(), before);
-    assert!(
-        store
-            .verify_audit_chain(&AuthorityTenant::new(SECOND, PROJECT).unwrap())
-            .is_err()
-    );
-    assert!(
-        store
-            .verify_audit_chain(&AuthorityTenant::new(ORG, SECOND).unwrap())
-            .is_ok()
-    );
+    let damaged = retained_audit_state(&connection);
+    // Returned chains and valid append clocks are tenant-scoped. After an
+    // external commit, the connection's integrity refresh covers the whole DB
+    // and must reject even clean or unknown tenants while any history is bad.
+    for checked in [
+        tenant,
+        AuthorityTenant::new(SECOND, PROJECT).unwrap(),
+        AuthorityTenant::new(ORG, SECOND).unwrap(),
+        unknown,
+    ] {
+        assert!(store.verify_audit_chain(&checked).is_err());
+        assert!(
+            store
+                .provision_principal(
+                    &checked,
+                    "66666666-6666-4666-8666-666666666666",
+                    "local-oob",
+                    "66666666-6666-4666-8666-666666666666",
+                    NOW + 200,
+                )
+                .is_err()
+        );
+        assert_eq!(retained_audit_state(&connection), damaged);
+    }
+    let unknown_project: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM authority_projects WHERE org_id=? AND project_id=?)",
+            params![SECOND, SECOND],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(!unknown_project);
+    assert_current_open_and_maintenance_refuse(&directory);
+    assert_eq!(retained_audit_state(&connection), damaged);
 }
 
 #[test]

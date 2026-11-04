@@ -9,8 +9,18 @@
 mod access_provenance;
 mod admission;
 mod audit_log;
+#[cfg(test)]
+#[path = "../../tests/support/core_access_fixture.rs"]
+mod core_access_fixture;
+mod live_integrity;
 mod migrations;
+#[cfg(test)]
+mod native_authority_atomicity_tests;
 mod native_evidence;
+#[cfg(test)]
+mod open_validation_benchmarks;
+#[cfg(test)]
+mod open_validation_tests;
 mod provision;
 mod records;
 mod review;
@@ -80,7 +90,7 @@ impl AuthorityTenant {
 }
 
 pub struct AuthorityStore {
-    connection: Connection,
+    connection: live_integrity::IntegrityConnection,
 }
 pub struct CredentialActivation {
     pub activation_id: String,
@@ -132,13 +142,26 @@ impl AuthorityStore {
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(Duration::from_millis(5000))?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
-        {
-            let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        connection.set_prepared_statement_cache_capacity(256);
+        // Existing databases need only a consistent read snapshot. Initialization
+        // alone acquires a write lock, and rechecks emptiness after acquiring it.
+        let validated_marker = loop {
+            let tx = connection.transaction()?;
+            let marker = live_integrity::data_version(&tx)?;
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
             let tables: i64 =
                 tx.query_row("SELECT count(*) FROM sqlite_schema", [], |r| r.get(0))?;
             if tables == 0 && application == 0 && version == 0 {
+                drop(tx);
+                let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let empty: bool = tx.query_row("SELECT NOT EXISTS(SELECT 1 FROM sqlite_schema) AND (SELECT application_id FROM pragma_application_id)=0 AND (SELECT user_version FROM pragma_user_version)=0", [], |r| r.get(0))?;
+                if !empty {
+                    // A competing initializer won. Validate its committed state
+                    // in a fresh read snapshot without retaining our write lock.
+                    drop(tx);
+                    continue;
+                }
                 migrations::initialize_v1(&tx)?;
                 migrations::apply_v2(&tx)?;
                 migrations::apply_v3(&tx)?;
@@ -152,32 +175,34 @@ impl AuthorityStore {
                 migrations::apply_v11(&tx)?;
                 migrations::apply_v12(&tx)?;
                 migrations::apply_v13(&tx)?;
-            } else {
-                if application != APPLICATION_ID
-                    || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].contains(&version)
-                {
-                    return Err(invalid("foreign or unsupported authority database"));
-                }
-                let identity: Option<String> = tx
-                    .query_row(
-                        "SELECT schema_identity FROM authority_metadata WHERE singleton=1",
-                        [],
-                        |r| r.get(0),
-                    )
-                    .optional()?;
-                if identity.as_deref() != Some(SCHEMA) {
-                    return Err(invalid("authority database identity"));
-                }
-                if version < 13 {
-                    return Err(AuthorityError::MigrationRequired {
-                        found: version,
-                        required: 13,
-                    });
-                }
-                migrations::validate_v13(&tx)?;
+                let marker = live_integrity::data_version(&tx)?;
+                tx.commit()?;
+                break Some(marker);
             }
+            if application != APPLICATION_ID || !(1..=13).contains(&version) {
+                return Err(invalid("foreign or unsupported authority database"));
+            }
+            let identity: Option<String> = tx
+                .query_row(
+                    "SELECT schema_identity FROM authority_metadata WHERE singleton=1",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if identity.as_deref() != Some(SCHEMA) {
+                return Err(invalid("authority database identity"));
+            }
+            if version < 13 {
+                return Err(AuthorityError::MigrationRequired {
+                    found: version,
+                    required: 13,
+                });
+            }
+            migrations::validate_v13(&tx)?;
+            let unchanged = marker == live_integrity::data_version(&tx)?;
             tx.commit()?;
-        }
+            break unchanged.then_some(marker);
+        };
         let journal = enable_wal(&connection, Duration::from_secs(5))?;
         connection.pragma_update(None, "synchronous", "FULL")?;
         let foreign_keys: i64 = connection.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
@@ -186,7 +211,12 @@ impl AuthorityStore {
         if journal != "wal" || foreign_keys != 1 || sync != 2 || busy != 5000 {
             return Err(invalid("authority database durability configuration"));
         }
-        Ok(Self { connection })
+        Ok(Self {
+            connection: live_integrity::IntegrityConnection::from_validated(
+                connection,
+                validated_marker,
+            )?,
+        })
     }
 }
 

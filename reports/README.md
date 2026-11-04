@@ -6,6 +6,99 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
+## PR23 live integrity and validation cost follow-up
+
+The current batch begins at PR23 merge
+`4cef6acf7e46289b156fcd56ad0ab2f2920fabd6` on
+`fix/live-authority-integrity`. The received
+[complete report](../docs/reviews/pr23-claude-review.md) and
+[correction scope](../docs/pr23-follow-up.md) distinguish external findings
+from new local evidence. PR23's PR CI41580876482 and main CI41584624128 succeeded;
+these historical passes are not tests of the current changes.
+
+New isolated baseline probes reproduced R1 in eight genuine lifecycle variants,
+R2 in four variants and R3 with rooted/project-only jobs. The three passing
+assertion tests confirm vulnerable baseline behavior. Source and portable
+commands are preserved in [the local reproduction](../docs/reviews/pr23-local-repro.md).
+The separate initial R4 harness did not compile and produced no runtime or
+performance evidence. That execution is not a passing test.
+
+The implementation uses a connection-local snapshot marker, complete validation
+after external commits, read-snapshot prevalidation before an immediately locked
+version comparison, permanent unsafe-local-SQL taint and exact work-audit
+correspondence. Published SQL001–013 stays unchanged. Independent internal
+Sol6.1 ultra review found no remaining source blocker after preserving typed
+contention semantics and late audit-failure rollback coverage; four separately
+written adversarial probes passed. These are not another Claude execution.
+
+The [normal-history comparison](../docs/authority-validation-performance.md)
+measured the same genuine cancelled-job fixtures. At 500 jobs, debug median
+library open decreased from 7.563s to 4.172s and ordinary CLI read from 8.158s to
+4.826s. Each has three samples. Complete checks still grow with history and can
+retain WAL pages; concurrent changes may require retry. The measurements precede
+the final error-handling/contention refinements and are not claimed as
+exact-final-commit benchmarks. The measured read-only paths do not execute the
+writer retry. The external primitive20k timings remain separate evidence.
+
+Fresh final `bash scripts/check.sh` passed on 2026-11-04 (exit0): **900
+workspace Rust tests**, 3 intentionally ignored declarations, **1 explicitly
+executed cancellation CLI test**, **32 reduced-feature tests**, and **190 UI
+tests in 10 files**, plus both production UI builds. Formatting, all-target
+workspace Clippy with warnings denied, specification/contracts/vendor/locale
+checks and Python diagnostics 9/6/14/3 passed. The two completed nested migration
+worker summaries are excluded from the workspace count. The ignored declarations
+are the separately invoked CLI fixture, subprocess migration worker, and manual
+performance harness; the performance measurements above remain separate.
+
+The 345-file executable/test input digest stayed identical throughout the full
+entry point, as did the independent 93-file authority review snapshot. The final
+shared `(umask 0002; cargo test --locked -p fw_authority -p
+fw_authority_service)` passed **505** tests with 3 ignored declarations; its two
+nested worker summaries are excluded. Required bins/examples built successfully.
+The real runtime/browser/Linux suites also passed on these same sources.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Current binaries; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Actual browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 40 | Current services, restart and strict readiness |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Native evidence | 33 | 5 actual kernel captures |
+
+Thirteen fresh successful JSON report files and the separate stdout-only CLI
+protocol result were checked. All 212 reported source/binary hash entries across
+105 unique repository paths match the verified bytes. All three lab containers
+were removed and the managed daemon remains healthy with no containers. The
+first Linux invocation stopped before packets because buildx could not write
+its state under the read-only home directory. Repeating that lab with a private,
+command-scoped `BUILDX_CONFIG` succeeded; the original setup failure is preserved
+separately and is not a product PASS. `DOCKER_CONFIG`, authentication, proxy/CA
+configuration and the explicit managed socket were preserved. The native
+collector recorded its existing narrowly recognized optional GLIBC2.39 weak-symbol
+warning when using the host-built executor in the pinned bookworm image; its
+fixed refusal diagnostics and all actual capture checks still passed.
+
+Implementation, local verification and independent internal review are complete.
+Resolve the retained `fix/live-authority-integrity` branch and its GitHub PR for
+the exact fixed head, PR CI, main merge and separate main CI completion record.
+The PR body also carries the complete next Claude-only review prompt; preparing
+it is not a new external review.
+
+Preliminary attempts exposed two lint issues and older fixture assumptions about
+schema corruption, global quarantine, clock advancement and healthy contention.
+Those were corrected while preserving actual late-write rollback and exactly-one-
+winner checks, then the entire canonical entry point passed afresh. An overlapping
+executable rebuild had separately caused a child-spawn NotFound; its quiescent
+migration rerun passed. Failure evidence stays local and is not counted as PASS.
+
+The current
+environment was checked again: pinned Rust1.99.1, Node24.19.0/npm11.9.0,
+Python3.12.14/jsonschema4.26.0, Playwright1.62.0, system Chromium154 and managed
+Docker28.4.0 are available. A browser launch check passed. The product suites above were subsequently executed on the frozen sources;
+these environment observations alone do not establish product qualification.
+
 ## PR22 integrity corrections
 
 The schema13 batch starts at PR22 merge
@@ -651,7 +744,10 @@ when audit time moves backward, plus restart, independent tenants, exact retries
 missing heads, gaps, broken links, tampered projections/hashes, oversized storage
 and legacy backward history. New appends verify the indexed tail and reject time
 regression within the mutation transaction. The read-only verifier streams one
-consistent tenant snapshot without rewriting old history. It has no external
+consistent tenant snapshot without rewriting old history; the current live
+connection gate additionally quarantines a globally corrupted external snapshot
+before either diagnostic reads or new appends. Valid tenant clocks remain
+independent. It has no external
 checkpoint and cannot detect a coherently replaced entire database. These checks
 are SQL/API failure and corruption tests, not power-loss qualification.
 

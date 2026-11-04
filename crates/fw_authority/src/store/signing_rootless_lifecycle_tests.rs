@@ -418,6 +418,7 @@ fn rootless_reserve_and_real_finalize_refuse_every_missing_or_replaced_live_guar
         .unwrap();
     let signed = signing_intents::test_sign(&mut f, &intent_id, NOW);
     let original = snapshot(&f.store.connection);
+    let mut forensic = Connection::open(&f.path).unwrap();
     for (name, sql) in migrations::signing_guard_definitions().unwrap() {
         let table: String = f
             .store
@@ -429,19 +430,18 @@ fn rootless_reserve_and_real_finalize_refuse_every_missing_or_replaced_live_guar
             )
             .unwrap();
         for replaced in [false, true] {
-            f.store
-                .connection
+            forensic
                 .execute_batch(&format!("DROP TRIGGER {name}"))
                 .unwrap();
             if replaced {
-                f.store
-                    .connection
+                forensic
                     .execute_batch(&format!(
                         "CREATE TRIGGER {name} BEFORE INSERT ON {table} BEGIN SELECT 1; END;"
                     ))
                     .unwrap();
             }
-            let tx = f.store.connection.transaction().unwrap();
+            assert!(f.store.connection.transaction().is_err());
+            let tx = forensic.transaction().unwrap();
             assert!(
                 reserve(
                     &tx,
@@ -460,17 +460,12 @@ fn rootless_reserve_and_real_finalize_refuse_every_missing_or_replaced_live_guar
                 "finalize {name},replaced={replaced}"
             );
             if replaced {
-                f.store
-                    .connection
+                forensic
                     .execute_batch(&format!("DROP TRIGGER {name}"))
                     .unwrap();
             }
-            f.store.connection.execute_batch(sql).unwrap();
-            assert_eq!(
-                snapshot(&f.store.connection),
-                original,
-                "{name},replaced={replaced}"
-            );
+            forensic.execute_batch(sql).unwrap();
+            assert_eq!(snapshot(&forensic), original, "{name},replaced={replaced}");
         }
     }
     signing_intents::test_finalize_result(&mut f, &claim, &signed, NOW).unwrap();

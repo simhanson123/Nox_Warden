@@ -208,21 +208,16 @@ fn restored_guards_cannot_hide_retained_unknown_work_history_from_reads_or_accou
         f.store.connection.execute_batch(sql).unwrap();
     }
     assert_uncertain_dispatch_history(&f.store.connection, &job);
-    for reopened in [false, true] {
-        if reopened {
-            drop(f.store);
-            f.store = match AuthorityStore::open(&f.path) {
-                Ok(store) => store,
-                // Current-version opening may reject retained corruption too.
-                Err(_) => return,
-            };
-        }
-        let tx = f.store.connection.transaction().unwrap();
-        assert!(read(&tx, &f.tenant, &reservation).is_err());
-        assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW + 6).is_err());
-        assert!(matches!(
-            reserve(&tx, &f.tenant, &id(931), &change(2), NOW + 300, NOW + 6),
-            Err(AuthorityError::Invalid(_) | AuthorityError::Binding)
-        ));
-    }
+    assert!(f.store.connection.transaction().is_err());
+    // The live connection refuses before returning a transaction. Preserve
+    // independent scoped validation against the corrupted retained records.
+    let mut forensic = Connection::open(&f.path).unwrap();
+    let tx = forensic.transaction().unwrap();
+    assert!(read(&tx, &f.tenant, &reservation).is_err());
+    assert!(signing_jobs::lifecycle_status(&tx, &f.tenant, &job, NOW + 6).is_err());
+    assert!(matches!(
+        reserve(&tx, &f.tenant, &id(931), &change(2), NOW + 300, NOW + 6),
+        Err(AuthorityError::Invalid(_) | AuthorityError::Binding)
+    ));
+    assert!(AuthorityStore::open(&f.path).is_err());
 }

@@ -9,6 +9,37 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR23 consolidated review
+
+The user supplied [Claude Opus5.5's PR23 review](reviews/pr23-claude-review.md)
+for `8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f` against
+`d54021a9df32c0a041c52002b05a0e9d64058c0f`. Its main merge is
+`4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`, with the identical tree.
+PR CI41580876482 and main CI41584624128 both passed. The newly uploaded text is
+preserved byte-for-byte, including CRLF and opening notes: 15,349 bytes, SHA256
+`9a3f3072a976beef60d158906d493a41bbe464e97f176406cef77719a282657e`.
+
+The report confirms D1–D6 corrected under their original counterexamples and
+reports four Low follow-ups: coordinated live quota projection corruption (R1),
+coordinated live index corruption (R2), surplus unbound work audits (R3), and
+full-validation scaling/write-lock availability (R4). Claude directly reproduced
+R2; its parallel reviewers supplied R1/R3 and R4 measurements. The supplied
+private sources and logs are unavailable. The report's Docker checks are NOT_RUN;
+the project's previous lab/CI passes are separate evidence.
+
+Source assessment supports the mechanisms with three qualifications:
+`quick_check(table)` does not prove complete index/table correspondence (it can
+report some nonpartial-index count damage); the audit bijection must cover exact
+work-mutation kinds rather than all signing audits; and the
+reported scaling numbers do not establish the cause of a separate SQLITE_BUSY
+failure. New baseline probes independently reproduce R1 (eight variants), R2
+(four variants) and R3 (two variants). Their three passing vulnerability
+assertions demonstrate defects, not passing security regressions. A separate R4
+baseline harness failed compilation before runtime and produced no measurements.
+See [preserved new reproduction source](reviews/pr23-local-repro.md) and the
+[integrated correction scope](pr23-follow-up.md). Current implementation and
+new validation results belong in the ledger and verification summary.
+
 ## Received PR22 consolidated review
 
 The user supplied [Claude Opus5.5's complete PR22 review](reviews/pr22-claude-review.md)

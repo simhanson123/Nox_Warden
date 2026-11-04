@@ -6,6 +6,33 @@ use super::*;
 
 const WORKER: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
+// Exercise published SQL against deliberate legacy/unsafe connection settings
+// without disabling the live store's connection-integrity boundary.
+fn forensic_connection(fixture: &Fixture) -> Connection {
+    let db = Connection::open(&fixture.path).unwrap();
+    db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA recursive_triggers=OFF")
+        .unwrap();
+    db
+}
+
+fn assert_public_read_refused(fixture: &mut Fixture, job: &str) {
+    let intent: String = fixture
+        .store
+        .connection
+        .query_row(
+            "SELECT intent_id FROM authority_signing_jobs WHERE job_id=?",
+            [job],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        fixture
+            .store
+            .read_signing_intent(&fixture.tenant, &intent, NOW)
+            .is_err()
+    );
+}
+
 fn prepared() -> (Fixture, String) {
     let mut fixture = Fixture::new();
     let outcome = signing_intents::test_prepare(&mut fixture, NOW);
@@ -115,9 +142,10 @@ fn raw_claim(db: &Connection, job: &str) -> rusqlite::Result<usize> {
 fn published_schema12_accepts_a_canonical_audit_gap_without_advancing_its_head() {
     let (mut fixture, job) = prepared();
     migrations::legacy::restore_v12(&fixture.path);
-    let original = audit_head(&fixture.store.connection, &fixture.tenant);
+    let mut db = forensic_connection(&fixture);
+    let original = audit_head(&db, &fixture.tenant);
     append_at(
-        &fixture.store.connection,
+        &db,
         &fixture.tenant,
         original.0 + 2,
         &original.1,
@@ -125,11 +153,9 @@ fn published_schema12_accepts_a_canonical_audit_gap_without_advancing_its_head()
         &job,
     )
     .unwrap();
-    assert_eq!(
-        audit_head(&fixture.store.connection, &fixture.tenant),
-        original
-    );
-    let tx = fixture.store.connection.transaction().unwrap();
+    assert_eq!(audit_head(&db, &fixture.tenant), original);
+    assert_public_read_refused(&mut fixture, &job);
+    let tx = db.transaction().unwrap();
     assert!(audit_log::validate_retained_chains(&tx).is_err());
     assert!(audit_log::append_head(&tx, &fixture.tenant).is_err());
 }
@@ -138,51 +164,34 @@ fn published_schema12_accepts_a_canonical_audit_gap_without_advancing_its_head()
 fn published_schema12_commits_an_orphan_binding_then_consumes_it_after_another_audit() {
     let (mut fixture, job) = prepared();
     migrations::legacy::restore_v12(&fixture.path);
-    fixture
-        .store
-        .connection
-        .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
+    let mut db = forensic_connection(&fixture);
+    db.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
         .unwrap();
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "signing_signer_claimed",
-        &job,
-    );
-    bind_claim(&fixture.store.connection, &fixture.tenant, &job).unwrap();
+    append(&db, &fixture.tenant, "signing_signer_claimed", &job);
+    bind_claim(&db, &fixture.tenant, &job).unwrap();
     assert!(
-        fixture
-            .store
-            .connection
-            .query_row::<bool, _, _>(
-                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap()
+        db.query_row::<bool, _, _>(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
     );
-    let tx = fixture.store.connection.transaction().unwrap();
+    assert_public_read_refused(&mut fixture, &job);
+    let tx = db.transaction().unwrap();
     assert!(work_history(&tx, &fixture.tenant, &job, "signer").is_err());
     tx.commit().unwrap();
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "fixture_intervening",
-        &job,
-    );
-    raw_claim(&fixture.store.connection, &job).unwrap();
+    append(&db, &fixture.tenant, "fixture_intervening", &job);
+    raw_claim(&db, &job).unwrap();
     assert!(
-        !fixture
-            .store
-            .connection
-            .query_row::<bool, _, _>(
-                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap()
+        !db.query_row::<bool, _, _>(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
     );
-    let tx = fixture.store.connection.transaction().unwrap();
+    let tx = db.transaction().unwrap();
     assert_eq!(
         work_history(&tx, &fixture.tenant, &job, "signer")
             .unwrap()
@@ -201,13 +210,11 @@ fn published_schema12_commits_an_orphan_binding_then_consumes_it_after_another_a
 #[test]
 fn audit_insert_requires_exact_successor_and_projects_its_head_atomically() {
     let (mut fixture, job) = prepared();
-    fixture
-        .store
-        .connection
-        .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
+    let db = forensic_connection(&fixture);
+    db.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
         .unwrap();
-    let original_head = audit_head(&fixture.store.connection, &fixture.tenant);
-    let original_events = rows(&fixture.store.connection, "authority_audit");
+    let original_head = audit_head(&db, &fixture.tenant);
+    let original_events = rows(&db, "authority_audit");
     for (sequence, previous) in [
         (original_head.0 + 2, original_head.1.clone()),
         (original_head.0 + 1, vec![7u8; 32]),
@@ -215,7 +222,7 @@ fn audit_insert_requires_exact_successor_and_projects_its_head_atomically() {
     ] {
         assert!(
             append_at(
-                &fixture.store.connection,
+                &db,
                 &fixture.tenant,
                 sequence,
                 &previous,
@@ -224,25 +231,11 @@ fn audit_insert_requires_exact_successor_and_projects_its_head_atomically() {
             )
             .is_err()
         );
-        assert_eq!(
-            audit_head(&fixture.store.connection, &fixture.tenant),
-            original_head
-        );
-        assert_eq!(
-            rows(&fixture.store.connection, "authority_audit"),
-            original_events
-        );
+        assert_eq!(audit_head(&db, &fixture.tenant), original_head);
+        assert_eq!(rows(&db, "authority_audit"), original_events);
     }
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "fixture_exact",
-        &job,
-    );
-    assert_eq!(
-        audit_head(&fixture.store.connection, &fixture.tenant).0,
-        original_head.0 + 1
-    );
+    append(&db, &fixture.tenant, "fixture_exact", &job);
+    assert_eq!(audit_head(&db, &fixture.tenant).0, original_head.0 + 1);
     fixture.reopen();
     fixture
         .store
@@ -253,14 +246,15 @@ fn audit_insert_requires_exact_successor_and_projects_its_head_atomically() {
 
 #[test]
 fn failed_audit_head_projection_rolls_back_the_complete_insert_statement() {
-    let (fixture, job) = prepared();
-    let before_events = rows(&fixture.store.connection, "authority_audit");
-    let before_heads = rows(&fixture.store.connection, "authority_audit_heads");
-    fixture.store.connection.execute_batch("PRAGMA recursive_triggers=OFF; CREATE TRIGGER fixture_reject_audit_head BEFORE UPDATE ON authority_audit_heads BEGIN SELECT RAISE(ABORT,'fixture head failure'); END;").unwrap();
-    let (sequence, previous) = audit_head(&fixture.store.connection, &fixture.tenant);
+    let (mut fixture, job) = prepared();
+    let db = forensic_connection(&fixture);
+    let before_events = rows(&db, "authority_audit");
+    let before_heads = rows(&db, "authority_audit_heads");
+    db.execute_batch("PRAGMA recursive_triggers=OFF; CREATE TRIGGER fixture_reject_audit_head BEFORE UPDATE ON authority_audit_heads BEGIN SELECT RAISE(ABORT,'fixture head failure'); END;").unwrap();
+    let (sequence, previous) = audit_head(&db, &fixture.tenant);
     assert!(
         append_at(
-            &fixture.store.connection,
+            &db,
             &fixture.tenant,
             sequence + 1,
             &previous,
@@ -269,66 +263,52 @@ fn failed_audit_head_projection_rolls_back_the_complete_insert_statement() {
         )
         .is_err()
     );
-    assert_eq!(
-        rows(&fixture.store.connection, "authority_audit"),
-        before_events
-    );
-    assert_eq!(
-        rows(&fixture.store.connection, "authority_audit_heads"),
-        before_heads
-    );
+    assert_eq!(rows(&db, "authority_audit"), before_events);
+    assert_eq!(rows(&db, "authority_audit_heads"), before_heads);
+    assert_public_read_refused(&mut fixture, &job);
 }
 
 #[test]
 fn work_insert_consumes_only_current_audit_and_creates_binding_even_with_foreign_keys_off() {
     let (mut fixture, job) = prepared();
-    fixture
-        .store
-        .connection
-        .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
+    let mut db = forensic_connection(&fixture);
+    db.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
         .unwrap();
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "signing_signer_claimed",
-        &job,
-    );
-    let before = work_rows(&fixture.store.connection);
-    assert!(bind_claim(&fixture.store.connection, &fixture.tenant, &job).is_err());
-    assert_eq!(work_rows(&fixture.store.connection), before);
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "fixture_intervening",
-        &job,
-    );
-    assert!(raw_claim(&fixture.store.connection, &job).is_err());
-    assert_eq!(work_rows(&fixture.store.connection), before);
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "signing_signer_claimed",
-        &job,
-    );
-    let expected = audit_head(&fixture.store.connection, &fixture.tenant);
-    raw_claim(&fixture.store.connection, &job).unwrap();
-    let actual: (Vec<u8>, Vec<u8>) = fixture.store.connection.query_row(
+    let original_work = work_rows(&db);
+    let original_audits = rows(&db, "authority_audit");
+    let original_heads = rows(&db, "authority_audit_heads");
+    let tx = db.transaction().unwrap();
+    append(&tx, &fixture.tenant, "signing_signer_claimed", &job);
+    assert!(bind_claim(&tx, &fixture.tenant, &job).is_err());
+    assert_eq!(work_rows(&tx), original_work);
+    append(&tx, &fixture.tenant, "fixture_intervening", &job);
+    assert!(raw_claim(&tx, &job).is_err());
+    assert_eq!(work_rows(&tx), original_work);
+    // Neither failed attempt may leave a committed work audit behind. Keep
+    // those deliberate transient prefixes in a rolled-back transaction.
+    tx.rollback().unwrap();
+    assert_eq!(rows(&db, "authority_audit"), original_audits);
+    assert_eq!(rows(&db, "authority_audit_heads"), original_heads);
+
+    let tx = db.transaction().unwrap();
+    append(&tx, &fixture.tenant, "signing_signer_claimed", &job);
+    let expected = audit_head(&tx, &fixture.tenant);
+    raw_claim(&tx, &job).unwrap();
+    let actual: (Vec<u8>, Vec<u8>) = tx.query_row(
         "SELECT audit_sequence,audit_hash FROM authority_signing_work_audits WHERE job_id=? AND phase='signer' AND revision=?",
         params![job, 2u64.to_be_bytes().as_slice()], |row| Ok((row.get(0)?, row.get(1)?)),
     ).unwrap();
     assert_eq!(u64::from_be_bytes(actual.0.try_into().unwrap()), expected.0);
     assert_eq!(actual.1, expected.1);
     assert!(
-        !fixture
-            .store
-            .connection
-            .query_row::<bool, _, _>(
-                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap()
+        !tx.query_row::<bool, _, _>(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
     );
+    tx.commit().unwrap();
     fixture.reopen();
     let tx = fixture.store.connection.transaction().unwrap();
     validate_work_histories(&tx).unwrap();
@@ -336,42 +316,34 @@ fn work_insert_consumes_only_current_audit_and_creates_binding_even_with_foreign
 
 #[test]
 fn failed_trigger_created_binding_rolls_back_event_and_work_head_with_recursive_triggers_off() {
-    let (fixture, job) = prepared();
-    fixture
-        .store
-        .connection
-        .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
+    let (mut fixture, job) = prepared();
+    let db = forensic_connection(&fixture);
+    db.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA recursive_triggers=OFF")
         .unwrap();
-    append(
-        &fixture.store.connection,
-        &fixture.tenant,
-        "signing_signer_claimed",
-        &job,
-    );
-    let before = work_rows(&fixture.store.connection);
-    fixture.store.connection.execute_batch("CREATE TRIGGER fixture_reject_work_binding BEFORE INSERT ON authority_signing_work_audits BEGIN SELECT RAISE(ABORT,'fixture binding failure'); END;").unwrap();
-    assert!(raw_claim(&fixture.store.connection, &job).is_err());
-    assert_eq!(work_rows(&fixture.store.connection), before);
+    append(&db, &fixture.tenant, "signing_signer_claimed", &job);
+    let before = work_rows(&db);
+    db.execute_batch("CREATE TRIGGER fixture_reject_work_binding BEFORE INSERT ON authority_signing_work_audits BEGIN SELECT RAISE(ABORT,'fixture binding failure'); END;").unwrap();
+    assert!(raw_claim(&db, &job).is_err());
+    assert_eq!(work_rows(&db), before);
+    assert_public_read_refused(&mut fixture, &job);
 }
 
 #[test]
 fn audit_successor_sql_handles_every_nibble_carry_signed_boundary_and_u64_exhaustion() {
-    let (mut fixture, job) = prepared();
+    let (fixture, job) = prepared();
+    let mut db = forensic_connection(&fixture);
     let guards = [
         "authority_audit_heads_advance",
         "authority_audit_exact_next",
         "authority_audit_project_head",
     ]
     .map(|name| {
-        fixture
-            .store
-            .connection
-            .query_row::<String, _, _>(
-                "SELECT sql FROM sqlite_schema WHERE name=?",
-                [name],
-                |row| row.get(0),
-            )
-            .unwrap()
+        db.query_row::<String, _, _>(
+            "SELECT sql FROM sqlite_schema WHERE name=?",
+            [name],
+            |row| row.get(0),
+        )
+        .unwrap()
     });
     let tenant = AuthorityTenant::new(
         &fixture.tenant.org_id,
@@ -384,7 +356,7 @@ fn audit_successor_sql_handles_every_nibble_carry_signed_boundary_and_u64_exhaus
         // The seed is deliberately not a valid whole chain. It is confined to
         // a rolled-back transaction to exercise unsigned SQL arithmetic that
         // cannot be reached by constructing 2^63 real historical rows.
-        let tx = fixture.store.connection.transaction().unwrap();
+        let tx = db.transaction().unwrap();
         tx.execute(
             "INSERT INTO authority_projects VALUES(?,?,1)",
             params![tenant.org_id, tenant.project_id],
