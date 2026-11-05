@@ -1487,6 +1487,9 @@ mod tests {
     mod retention_tests {
         include!("signing_quota_retention_tests.rs");
     }
+    mod transition_atomicity_tests {
+        include!("signing_transition_atomicity_tests.rs");
+    }
     const NOW: i64 = 1_800_000_000;
     fn id(n: u128) -> String {
         uuid::Uuid::from_u128(n).to_string()
@@ -1805,7 +1808,7 @@ mod tests {
         }
     }
     #[test]
-    fn failed_transition_rolls_back_cancellation_and_issuance_with_work_evidence() {
+    fn schema_trigger_addition_is_refused_before_cancellation_or_issuance() {
         for finalize in [false, true] {
             let (mut f, job, id) = real_reservation("reserved");
             let claim = {
@@ -1827,11 +1830,18 @@ mod tests {
             let events = f.count("authority_signing_work_events");
             let audit = f.count("authority_audit");
             f.store.connection.execute_batch("CREATE TRIGGER reject_quota_transition BEFORE INSERT ON authority_signing_quota_transitions BEGIN SELECT RAISE(ABORT,'injected transition failure'); END").unwrap();
-            if finalize {
-                assert!(signing_intents::test_finalize(&mut f, &claim, NOW).is_err());
+            let error = if finalize {
+                signing_intents::test_finalize(&mut f, &claim, NOW).unwrap_err()
             } else {
-                assert!(f.store.cancel_signing_job(&f.tenant, &job, NOW).is_err());
-            }
+                f.store
+                    .cancel_signing_job(&f.tenant, &job, NOW)
+                    .unwrap_err()
+            };
+            assert!(
+                matches!(error, AuthorityError::Invalid(reason)
+                if reason == "authority live connection schema state changed"),
+                "{error:?}"
+            );
             assert_eq!(f.count("authority_signing_work_events"), events);
             assert_eq!(f.count("authority_audit"), audit);
             assert_eq!(f.count("authority_signing_quota_usage"), 0);

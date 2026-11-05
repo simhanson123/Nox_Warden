@@ -703,6 +703,15 @@ events/bindings; unrelated intent/result/quota audit kinds remain independent.
 Complete validation also checks work audits whose resource has no job. Normal
 audit-first/event-second transaction prefixes are validated only when complete.
 
+Retained signing-clock selection also occurs inside a validated read snapshot.
+The request/intent/latest-job binding is compared again in the final validated
+transaction; a concurrent selection change returns `Conflict` rather than using
+an unobserved job. The private connection wrapper exposes no unchecked row-read
+method. Clock observation still resolves the job's immutable reservation and
+original root, and independently committed clock floors survive later diagnostic
+or protected-authority refusal. Current project scope and historical job scope
+remain distinct after configuration cutover.
+
 Preparing an unsafe local schema/PRAGMA operation permanently invalidates that
 connection's cached evidence; an independently validated reopen is required.
 Production code exposes neither a raw connection nor hook replacement through

@@ -20,133 +20,35 @@
       "Sensitive writes validate in a deferred snapshot, acquire their writer separately and compare its first snapshot marker; up to three attempts preserve typed Conflict on continued healthy contention. Corruption, taint and storage errors are not retried.",
       "Complete recognized work-mutation audit/event/binding correspondence includes audits for missing jobs; unrelated intent/result/quota audits and normal audit-first atomic writes remain valid.",
       "Existing open/current maintenance use consistent read snapshots; initialization and genuine legacy upgrades retain serialized checks and private backups. Prepared statement and validated-record reuse reduce duplicate retained replay without changing schema13 or published SQL001–013.",
-      "New genuine lifecycle projection/index regressions, healthy/corrupt snapshot races, exact work-audit checks and actual late-write fault/rollback tests supplement preserved legacy, quota and native evidence coverage. Full integrated validation status is recorded separately."
+      "New genuine lifecycle projection/index regressions, healthy/corrupt snapshot races, exact work-audit checks and actual late-write fault/rollback tests supplement preserved legacy, quota and native evidence coverage. Full integrated validation status is recorded separately.",
+      "Initial retained signing-intent/latest-job selections now run inside validated read snapshots, with binding comparison in the final transaction and no unchecked production wrapper lookup. Original-root/project clocks and independently committed refusal floors remain intact.",
+      "Precise signature/current-generation tests, actual cancellation/issuance transition faults and 13 approval fault conditions verify semantic reachability, full typed retained rollback and healthy retry/replay. Existing 12 native fault stages are preserved; changed-expiry reference-pin retries are restored."
     ],
-    "next_implementation": "Resolve this retained branch PR and finish any pending authorized GitHub CI/merge/main CI completion first. The R1-R4 implementation and local verification are complete; next continue M03/M04L/M05 core semantic/native/signing integration, one absolute lease window, protected bootstrap/OS accounts/generation and independent signer/authenticated completion, followed by Linux host lifecycle and actual Windows/macOS backends.",
-    "previous_batch_verification": {
-      "status": "passed_fresh_complete_local_validation_after_consolidated_review",
-      "date": "2026-11-03",
-      "commands": [
-        "bash scripts/check.sh",
-        "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
-        "cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority -p fw_authority_service --bins --examples",
-        "All runtime commands in reports/README.md#reproduce"
-      ],
-      "workspace_rust_passed": 873,
-      "ordinary_ignored_fixtures": 2,
-      "explicit_cli_fixture_passed": 1,
-      "reduced_feature_rust_passed": 32,
-      "shared_umask_passed": 478,
-      "ui_passed": 190,
-      "ui_test_files": 10,
-      "ui_builds_passed": 2,
-      "static_checks": "fmt, workspace all-target Clippy -D warnings, spec27, contracts52+28, locale parity, Python diagnostics9/6/14/3",
-      "runtime": {
-        "http": {
-          "status": "PASS",
-          "checks": 24
-        },
-        "cli": {
-          "status": "PASS",
-          "checks": 13
-        },
-        "cli-login": {
-          "status": "PASS",
-          "checks": 5
-        },
-        "enrollment-browser": {
-          "status": "PASS",
-          "checks": 25
-        },
-        "target-metadata": {
-          "status": "PASS",
-          "checks": 41
-        },
-        "catalogue": {
-          "status": "PASS",
-          "checks": 11
-        },
-        "passkeys": {
-          "status": "PASS",
-          "checks": 76
-        },
-        "login-admission": {
-          "status": "PASS",
-          "checks": 14
-        },
-        "audit": {
-          "status": "PASS",
-          "checks": 21
-        },
-        "authority-browser": {
-          "status": "PASS",
-          "checks": 40
-        },
-        "linux": {
-          "status": "PASS",
-          "checks": 66,
-          "packet_tests_executed": 40,
-          "container_removed": true
-        },
-        "signed-linux": {
-          "status": "PASS",
-          "checks": 98,
-          "packet_tests_executed": 43,
-          "container_removed": true
-        },
-        "native-evidence": {
-          "status": "PASS",
-          "checks": 33,
-          "packet_tests_executed": 0,
-          "actual_native_captures": 5,
-          "container_removed": true
-        }
-      },
-      "hash_verification": {
-        "frozen_executable_test_files": 292,
-        "reviewed_crate_files": 28,
-        "reported_hash_entries": 198,
-        "unique_reported_paths": 98,
-        "included_binary_entries": 10,
-        "mismatches": 0,
-        "fresh_json_reports": 12
-      },
-      "historical_d6": {
-        "source": "2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3",
-        "historical_fixture": "actual old schema10 test binary with only appended exporter; two same-second renewals",
-        "baseline_PR22_non_test_migration": "refused as reported;17 preservation/backup checks passed",
-        "current_migration": "10 to13;64 original tables/94 rows preserve rowids/types/BLOB/audit bytes and exact privatebackup;4 ordered bindings",
-        "reproduction": "docs/reviews/pr22-legacy-renewal-repro.md"
-      },
-      "independent_review": "Internal GPT-6.1 Sol ultra consolidated review found no confirmed blocker;38,904 fresh audit-trigger cases,16 non-test refusal probes and write-free recovery reads. Separate peer review of atomic projections and legacy matching. Not Claude execution.",
-      "original_migrations_preserved": "001..012 byte-identical",
-      "prior_attempts": "First canonical and overlapping quota suite deliberately stopped after obsolete arithmetic fixture assumption was identified; ABORTED not PASS. Scoped test-only fixture fix passed then complete final canonical/umask runs passed.",
-      "summary": "reports/README.md",
-      "release_qualification": false
-    },
-    "implementation_base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
-    "implementation_branch": "fix/live-authority-integrity",
+    "next_implementation": "Resolve retained current-batch PR and finish any remaining PR/main CI or merge steps; local implementation, focused/full validation and consolidated independent source review passed. Then resume preserved M03/M04L/M05 core/native/signing production dependencies.",
+    "implementation_base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+    "implementation_branch": "fix/validated-clock-and-rollback-coverage",
     "completed_batch": {
-      "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
-      "branch": "fix/quota-open-integrity",
-      "scope": "D1–D6 full-open/physical/quota/audit/work integrity, schema13, ordered legacy backfill, current-pin recovery CLI, exact HTTP prefixes and test-only metadata expiry repair",
+      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "branch": "fix/live-authority-integrity",
+      "scope": "R1-R4 live snapshot integrity, complete work-audit correspondence, full validation cost and lock behavior",
       "status": "merged_PR_and_main_CI_passed_external_review_received",
-      "schema": 13,
       "next_external_reviewer": "Claude Opus 5.5",
       "external_review_executed": true,
-      "verification": "continuity.previous_batch_verification",
-      "head_resolution": "Resolve retained feature branch and its GitHub PR for exact final head, CI and merge; no self-referential source commit is embedded.",
-      "head": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
-      "pull_request": 23,
-      "merge": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "follow_up": "docs/pr23-follow-up.md",
+      "schema": 13,
+      "completion_record": "Completed PR24 identifiers and successful CI runs are fixed below; PR24 retains the full historical prompt and detailed completion record.",
+      "head": "ac027412c88eade8d3674c75c2ba6203df023ee6",
+      "pull_request": 24,
+      "merge": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
       "pr_ci": {
-        "run": 41580876482,
+        "run": 41819099169,
         "conclusion": "success"
       },
       "main_ci": {
-        "run": 41584624128,
+        "run": 41824170284,
         "conclusion": "success"
-      }
+      },
+      "verification": "continuity.previous_batch_verification"
     },
     "received_external_review": {
       "target": "4c0b65ee4399b500a83011426255be54bdc10654",
@@ -345,17 +247,17 @@
       "portable_probe_recheck": "Exact documented commands were run in a fresh temporary directory and reproduced the same N2, exit0; no old temporary source needed, not an extra passing security test."
     },
     "current_batch": {
-      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
-      "branch": "fix/live-authority-integrity",
-      "scope": "R1-R4 live snapshot integrity, complete work-audit correspondence, full validation cost and lock behavior",
-      "status": "implemented_locally_verified_independently_reviewed_resolve_GitHub_completion_record",
+      "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+      "branch": "fix/validated-clock-and-rollback-coverage",
+      "scope": "Validated retained signing-clock selectors and precise semantic/transition/approval rollback coverage (I1, T1-T3)",
+      "schema": 13,
+      "status": "implementation_and_fresh_local_validation_complete_resolve_PR_for_remote_completion",
       "next_external_reviewer": "Claude Opus 5.5",
       "external_review_executed": false,
-      "follow_up": "docs/pr23-follow-up.md",
-      "schema": 13,
-      "completion_record": "Resolve retained branch PR for exact head, PR CI, main merge, separate main CI and complete fixed Claude-only prompt; source omits a self-referential commit identifier."
+      "follow_up": "docs/pr24-follow-up.md",
+      "completion_record": "Resolve retained branch PR for exact head, PR CI, merge, separate main CI and complete fixed Claude-only prompt; source omits its own future commit identifier."
     },
-    "implementation_pr_lookup": "https://github.com/simhanson123/Nox_Warden/pulls?q=head%3Afix%2Flive-authority-integrity",
+    "implementation_pr_lookup": "https://github.com/simhanson123/Nox_Warden/pulls?q=head%3Afix%2Fvalidated-clock-and-rollback-coverage",
     "received_pr20_external_review": {
       "pull_request": 20,
       "target": "9e021b31171ae19ff8c9e7eba400d8dd4630a001",
@@ -451,6 +353,290 @@
       ]
     },
     "verification": {
+      "status": "passed_fresh_complete_local_validation_after_consolidated_review",
+      "summary": "reports/README.md",
+      "release_qualification": false,
+      "environment": "Pinned Rust1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154 and managed Docker28.4.0/vfs rechecked; full product runtime checks passed.",
+      "focused": {
+        "clock_selectors": 2,
+        "signing_intents": 10,
+        "live_integrity": 6,
+        "rootless_lifecycle": 6,
+        "approval_atomicity": 4,
+        "approval_fault_conditions": 13,
+        "late_transition": 1,
+        "early_schema_refusal": 1,
+        "native_private": 7,
+        "native_pin_retry": 1,
+        "overlap": "Separate precise signature rerun overlaps intents; not summed. Final canonical suite validates the combined frozen snapshot."
+      },
+      "independent_review": {
+        "reviewer": "GPT-6.1 Sol ultra",
+        "scope": "read-only consolidated source and documentation review",
+        "result": "no_confirmed_source_blocker",
+        "input_files": 390,
+        "input_sha256": "dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3",
+        "external_Claude_execution": false
+      },
+      "date": "2026-11-05",
+      "workspace_rust_passed": 905,
+      "ordinary_ignored_fixtures": 3,
+      "explicit_cli_fixture_passed": 1,
+      "reduced_feature_rust_passed": 32,
+      "shared_umask_passed": 510,
+      "ui_passed": 190,
+      "ui_test_files": 10,
+      "ui_builds_passed": 2,
+      "static_checks": "fmt, workspace all-target Clippy -D warnings, spec/contracts/vendor,8 locales with229keys, Python diagnostics9/6/14/3",
+      "input_files": 390,
+      "input_sha256": "dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3",
+      "nested_worker_summaries_excluded_per_full_run": 2,
+      "commands": [
+        "bash scripts/check.sh",
+        "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
+        "cargo build --locked --workspace --bins --examples",
+        "All14 runtime commands in reports/README.md#reproduce"
+      ],
+      "runtime": {
+        "audit-smoke.json": {
+          "status": "PASS",
+          "checks": 21
+        },
+        "authority-browser.json": {
+          "status": "PASS",
+          "checks": 40
+        },
+        "catalogue-browser.json": {
+          "status": "PASS",
+          "checks": 11
+        },
+        "cli-smoke.json": {
+          "status": "PASS",
+          "checks": 13
+        },
+        "enrollment-api.json": {
+          "status": "PASS",
+          "checks": 23
+        },
+        "enrollment-browser.json": {
+          "status": "PASS",
+          "checks": 25
+        },
+        "http-smoke.json": {
+          "status": "PASS",
+          "checks": 24
+        },
+        "linux-lab.json": {
+          "status": "PASS",
+          "checks": 66,
+          "packet_tests_executed": 40,
+          "container_removed": true
+        },
+        "login-admission-smoke.json": {
+          "status": "PASS",
+          "checks": 14
+        },
+        "native-evidence-smoke.json": {
+          "status": "PASS",
+          "checks": 33,
+          "packet_tests_executed": 0,
+          "actual_native_captures": 5,
+          "container_removed": true
+        },
+        "passkey-smoke.json": {
+          "status": "PASS",
+          "checks": 76
+        },
+        "signed-linux-lab.json": {
+          "status": "PASS",
+          "checks": 98,
+          "packet_tests_executed": 43,
+          "container_removed": true
+        },
+        "target-metadata-smoke.json": {
+          "status": "PASS",
+          "checks": 41
+        },
+        "cli_protocol": {
+          "status": "PASS",
+          "checks": 5
+        }
+      },
+      "runtime_report_count": 13,
+      "runtime_source_binary_hash_entries": 216,
+      "runtime_unique_hashed_paths": 107,
+      "cleanup": "All3lab containers removed; managed daemon healthy with0containers and no remaining test service/browser processes.",
+      "limitations": "Recognized optional GLIBC2.39 weak-symbol lab warning retained; no production signing/dispatch, native installation/recovery, Windows/macOS qualification, physical authenticator or external audit anchoring claimed."
+    },
+    "external_review": {
+      "pull_request": 24,
+      "reviewer": "Claude Opus 5.5",
+      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "target": "ac027412c88eade8d3674c75c2ba6203df023ee6",
+      "reports": "docs/reviews/pr24-claude-review.md",
+      "source_kind": "uploaded pasted text preserved byte-for-byte, including CRLF and opening notes",
+      "preserved_bytes": 15585,
+      "preserved_sha256": "ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501",
+      "status": "received_source_assessed_followup_implemented_fresh_local_validation_passed",
+      "reported_conclusion": "Original R1-R4 cases corrected; no confirmed security defect or development blocker. Low test coverage findings T1-T3 and informational I1-I3 are not production qualification.",
+      "private_probes_available": false,
+      "follow_up": "docs/pr24-follow-up.md",
+      "assessment_corrections": [
+        "T3 audit-only statement is overbroad: existing private native suite already covered 12 stages, including actual review-evidence INSERT.",
+        "Removed not_after increment was a NativeReferencePin healthy retry variation, not retained-observation corruption.",
+        "I1 unchecked lookup source is confirmed; no claim that the private transient corrupt/restore wrong-clock scenario or authorization bypass was independently reproduced."
+      ],
+      "findings": [
+        {
+          "id": "I1",
+          "status": "validated_selector_change_implemented_fresh_focused_and_full_validation_passed"
+        },
+        {
+          "id": "T1",
+          "status": "semantic_reachability_correction_implemented_fresh_focused_and_full_validation_passed"
+        },
+        {
+          "id": "T2",
+          "status": "actual_transition_fault_test_implemented_fresh_focused_and_full_validation_passed"
+        },
+        {
+          "id": "T3",
+          "status": "actual_approval_fault_gaps_and_pin_retry_restored_existing_native_coverage_preserved_fresh_focused_and_full_validation_passed"
+        },
+        {
+          "id": "I2",
+          "status": "documented_trusted_local_write_boundary"
+        },
+        {
+          "id": "I3",
+          "status": "documented_database_wide_quarantine_tradeoff"
+        }
+      ]
+    },
+    "pr23_verification": {
+      "status": "passed_fresh_complete_local_validation_after_consolidated_review",
+      "date": "2026-11-03",
+      "commands": [
+        "bash scripts/check.sh",
+        "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
+        "cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority -p fw_authority_service --bins --examples",
+        "All runtime commands in reports/README.md#reproduce"
+      ],
+      "workspace_rust_passed": 873,
+      "ordinary_ignored_fixtures": 2,
+      "explicit_cli_fixture_passed": 1,
+      "reduced_feature_rust_passed": 32,
+      "shared_umask_passed": 478,
+      "ui_passed": 190,
+      "ui_test_files": 10,
+      "ui_builds_passed": 2,
+      "static_checks": "fmt, workspace all-target Clippy -D warnings, spec27, contracts52+28, locale parity, Python diagnostics9/6/14/3",
+      "runtime": {
+        "http": {
+          "status": "PASS",
+          "checks": 24
+        },
+        "cli": {
+          "status": "PASS",
+          "checks": 13
+        },
+        "cli-login": {
+          "status": "PASS",
+          "checks": 5
+        },
+        "enrollment-browser": {
+          "status": "PASS",
+          "checks": 25
+        },
+        "target-metadata": {
+          "status": "PASS",
+          "checks": 41
+        },
+        "catalogue": {
+          "status": "PASS",
+          "checks": 11
+        },
+        "passkeys": {
+          "status": "PASS",
+          "checks": 76
+        },
+        "login-admission": {
+          "status": "PASS",
+          "checks": 14
+        },
+        "audit": {
+          "status": "PASS",
+          "checks": 21
+        },
+        "authority-browser": {
+          "status": "PASS",
+          "checks": 40
+        },
+        "linux": {
+          "status": "PASS",
+          "checks": 66,
+          "packet_tests_executed": 40,
+          "container_removed": true
+        },
+        "signed-linux": {
+          "status": "PASS",
+          "checks": 98,
+          "packet_tests_executed": 43,
+          "container_removed": true
+        },
+        "native-evidence": {
+          "status": "PASS",
+          "checks": 33,
+          "packet_tests_executed": 0,
+          "actual_native_captures": 5,
+          "container_removed": true
+        }
+      },
+      "hash_verification": {
+        "frozen_executable_test_files": 292,
+        "reviewed_crate_files": 28,
+        "reported_hash_entries": 198,
+        "unique_reported_paths": 98,
+        "included_binary_entries": 10,
+        "mismatches": 0,
+        "fresh_json_reports": 12
+      },
+      "historical_d6": {
+        "source": "2219c9ffe64fc0f4a967f3af69e84cdcc15aaff3",
+        "historical_fixture": "actual old schema10 test binary with only appended exporter; two same-second renewals",
+        "baseline_PR22_non_test_migration": "refused as reported;17 preservation/backup checks passed",
+        "current_migration": "10 to13;64 original tables/94 rows preserve rowids/types/BLOB/audit bytes and exact privatebackup;4 ordered bindings",
+        "reproduction": "docs/reviews/pr22-legacy-renewal-repro.md"
+      },
+      "independent_review": "Internal GPT-6.1 Sol ultra consolidated review found no confirmed blocker;38,904 fresh audit-trigger cases,16 non-test refusal probes and write-free recovery reads. Separate peer review of atomic projections and legacy matching. Not Claude execution.",
+      "original_migrations_preserved": "001..012 byte-identical",
+      "prior_attempts": "First canonical and overlapping quota suite deliberately stopped after obsolete arithmetic fixture assumption was identified; ABORTED not PASS. Scoped test-only fixture fix passed then complete final canonical/umask runs passed.",
+      "summary": "reports/README.md",
+      "release_qualification": false
+    },
+    "completed_pr23_batch": {
+      "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
+      "branch": "fix/quota-open-integrity",
+      "scope": "D1–D6 full-open/physical/quota/audit/work integrity, schema13, ordered legacy backfill, current-pin recovery CLI, exact HTTP prefixes and test-only metadata expiry repair",
+      "status": "merged_PR_and_main_CI_passed_external_review_received",
+      "schema": 13,
+      "next_external_reviewer": "Claude Opus 5.5",
+      "external_review_executed": true,
+      "verification": "continuity.pr23_verification",
+      "head_resolution": "Resolve retained feature branch and its GitHub PR for exact final head, CI and merge; no self-referential source commit is embedded.",
+      "head": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
+      "pull_request": 23,
+      "merge": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "pr_ci": {
+        "run": 41580876482,
+        "conclusion": "success"
+      },
+      "main_ci": {
+        "run": 41584624128,
+        "conclusion": "success"
+      }
+    },
+    "previous_batch_verification": {
       "status": "fresh_final_local_suites_passed",
       "date": "2026-11-04",
       "environment": "Rust1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154.0.8037.57, managed Docker28.4.0/vfs; final suites ran on unchanged source. Command-scoped writable BUILDX_CONFIG fixed initial read-only home setup failure; existing Docker/auth/proxy/CA preserved.",
@@ -560,7 +746,7 @@
       },
       "initial_lab_setup": "Initial Linux command failed before packet execution because buildx state directory was read-only; original NOT_RUN packet evidence preserved, corrected environment invocation passed."
     },
-    "external_review": {
+    "received_pr23_external_review": {
       "pull_request": 23,
       "target": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
       "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
@@ -621,7 +807,7 @@
       "dependencies": [
         "M01"
       ],
-      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports. Migration 4 persists local-owner enrollment, private WebAuthn ceremony/proof state, verified credentials, counters, revocations and atomic audit; restart cannot reopen owner bootstrap. Migration 5 adds immutable content-hashed denial summaries and atomic audit references; bounded audit snapshot pages preserve append-only chain checks. Migration 6 atomically maintains bounded catalogue/request/operation/target/enrollment snapshot projections with verified chunked backfill, retention and clock rollback protection. Evidence-bound immutable quota transitions and guarded indexed membership now protect slots; migration rejects inconsistent legacy release/delivery and verifies actual schema on current-version reopen and migration. Authority schema11/12 adds retained history/audit reference integrity and FK-safe nullable quota-root maintenance with exact rowid/BLOB preservation and private backups. Authority schema13 adds physical and full retained-state open validation, independent bounded membership checks and source-integrity-before-rebuild maintenance. Live snapshot-bound integrity validation now detects externally changed projections/indexes on already-open handles; deferred validation avoids holding the writer through retained replay, with bounded acquisition retries and serialized real migrations.",
+      "implemented": "Transactional SQLite, tenant isolation, immutable catalogues, ETag/CAS, idempotency, audit/outbox and local sessions. Migration 3 persists fingerprint-bound token hashes, fixed issuance reservations, atomic certificate completion/revocation and immutable capability reports. Migration 4 persists local-owner enrollment, private WebAuthn ceremony/proof state, verified credentials, counters, revocations and atomic audit; restart cannot reopen owner bootstrap. Migration 5 adds immutable content-hashed denial summaries and atomic audit references; bounded audit snapshot pages preserve append-only chain checks. Migration 6 atomically maintains bounded catalogue/request/operation/target/enrollment snapshot projections with verified chunked backfill, retention and clock rollback protection. Evidence-bound immutable quota transitions and guarded indexed membership now protect slots; migration rejects inconsistent legacy release/delivery and verifies actual schema on current-version reopen and migration. Authority schema11/12 adds retained history/audit reference integrity and FK-safe nullable quota-root maintenance with exact rowid/BLOB preservation and private backups. Authority schema13 adds physical and full retained-state open validation, independent bounded membership checks and source-integrity-before-rebuild maintenance. Live snapshot-bound integrity validation now detects externally changed projections/indexes on already-open handles; deferred validation avoids holding the writer through retained replay, with bounded acquisition retries and serialized real migrations. Initial retained signing selectors also use validated snapshots and final binding comparison; unchecked connection-wrapper reads are removed.",
       "blocker": "PostgreSQL/RLS, OIDC, workload binding, certificate renewal/rotation, enrollment-record retention maintenance and complete worker queue remain."
     },
     {
@@ -630,7 +816,7 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "AuthorityStore retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..13 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement. Schema11 closes PR20 N1–N7 with immutable audit linkage, atomic heads, complete histories, exact metadata and retained reference/time validation. Schema12 adds strict project-only v2 quota sharing old rooted obligations and permanent root anchor CAS, without releasing issued capacity. Schema13 atomically projects exact-next audits and event-owned work bindings; complete ordered legacy audit matching accepts same-second renewals without inventing evidence. Recognized work-mutation audits require complete retained event/binding correspondence, including orphan resources, while normal atomic audit-first writes and separate intent/result/quota audits remain valid.",
+      "implemented": "AuthorityStore retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..13 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement. Schema11 closes PR20 N1–N7 with immutable audit linkage, atomic heads, complete histories, exact metadata and retained reference/time validation. Schema12 adds strict project-only v2 quota sharing old rooted obligations and permanent root anchor CAS, without releasing issued capacity. Schema13 atomically projects exact-next audits and event-owned work bindings; complete ordered legacy audit matching accepts same-second renewals without inventing evidence. Recognized work-mutation audits require complete retained event/binding correspondence, including orphan resources, while normal atomic audit-first writes and separate intent/result/quota audits remain valid. Retained signing-clock selection preserves original root scope and durable refusal floors across validated snapshot boundaries. Expanded rollback coverage checks exact intermediate approval and signing-transition failure reachability without changing production authority.",
       "blocker": "Production authority bootstrap and out-of-band human provisioning; trusted target generation initialization; compiler/validator build identity; qualified management baseline/native observer trust; core access semantic/native/signing profile, single absolute lease window and signed workload/delegation authority; independently deployed signer and authenticated completion receipts, delivery/reconciliation; protected OS accounts; PostgreSQL authority transactions. Lab evidence never grants production signing authority."
     },
     {

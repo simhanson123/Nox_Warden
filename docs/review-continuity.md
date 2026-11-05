@@ -9,6 +9,34 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR24 consolidated review
+
+The user supplied [Claude Opus5.5's PR24 review](reviews/pr24-claude-review.md)
+for `ac027412c88eade8d3674c75c2ba6203df023ee6` against
+`4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`. Its main merge is
+`59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`, with the identical tree.
+PR CI41819099169 and main CI41824170284 both succeeded. Preserve all 15,585
+uploaded bytes, including CRLF and opening notes, SHA256
+`ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501`.
+
+The report confirms R1–R4 corrected under their original reproductions and
+finds no confirmed security defect or development blocker. Claude directly reran
+its old R2 case and a peer D1 variant; other matrices and release measurements
+are attributed to its parallel reviewers. Their private probes are unavailable
+here. External Rust900/CLI1/reduced32/UI190/umask505 are historical results,
+and external Docker checks are NOT_RUN. The external reviewer reports its own
+initial unwrap panics and zero-match filters as harness/brief errors.
+
+The [follow-up assessment](pr24-follow-up.md) addresses unchecked retained-clock
+selection (I1), signature/generation test reachability (T1), actual transition
+fault rollback (T2), and missing intermediate approval faults (T3). Source review
+qualifies T3: the existing native suite already included review-evidence INSERT
+among 12 fault stages. The removed `not_after += 1` changed a reference pin on
+healthy retry; it was not observation corruption. Preserve the original report
+and record this correction separately. I2 trusted local writes and I3 database-
+wide quarantine remain explicit boundaries. New validation belongs in reports;
+no previous or attributed count is a new pass.
+
 ## Received PR23 consolidated review
 
 The user supplied [Claude Opus5.5's PR23 review](reviews/pr23-claude-review.md)

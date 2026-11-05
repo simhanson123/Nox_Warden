@@ -1,15 +1,16 @@
 # Independent review prompts
 
-> Current status: PR23's supplied Claude Opus5.5 report is preserved byte-for-byte
-> in [the uploaded review](reviews/pr23-claude-review.md).
-> The new integrated follow-up addresses R1–R4: live snapshot integrity,
-> work-audit correspondence and full-validation cost/locking.
+> Current status: PR24's supplied Claude Opus5.5 report is preserved byte-for-byte
+> in [the uploaded review](reviews/pr24-claude-review.md).
+> The integrated follow-up addresses I1/T1–T3: validated retained-clock selection
+> and precise semantic/rollback coverage. The assessment distinguishes actual gaps
+> from the native fault coverage already present.
 > Use **Claude Opus5.5 only** for one consolidated external review. The follow-up
 > PR description and user handoff contain the complete prompt with actual fixed
-> base/head; resolve that PR instead of reusing a historical target below.
-> Comparison base: `4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`.
-> Branch: `fix/live-authority-integrity`; resolve its actual PR/head before review.
-> Completed PR22/PR23 reviews must not be requested again for unchanged targets.
+> base/head; resolve that PR instead of reusing historical targets below.
+> Comparison base: `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`.
+> Branch: `fix/validated-clock-and-rollback-coverage`; resolve its actual PR/head.
+> Completed PR22/PR23/PR24 reviews must not be requested again for unchanged targets.
 > Preparing a prompt and internal agent review are not external model execution.
 > Start a development session with [this prompt](session-start-prompt.txt).
 

@@ -366,7 +366,7 @@ fn native_compilation_challenge_and_observation_audit_failures_roll_back() {
 fn native_reference_and_observer_pin_audit_failures_leave_no_partial_trust() {
     for observer in [false, true] {
         let mut f = NativeFixture::new();
-        let references = NativeReferencePin {
+        let mut references = NativeReferencePin {
             target_id: native::TARGET.into(),
             references: f.references.clone(),
             not_before: NOW,
@@ -405,6 +405,11 @@ fn native_reference_and_observer_pin_audit_failures_leave_no_partial_trust() {
         assert_late_failure(result.unwrap_err(), &reached, 1, &changed);
         assert_eq!(f.database.rows(), before);
         f.database.reopen();
+        if !observer {
+            // The failed write must not retain the abandoned expiry or consume
+            // its revision; the changed reference pin still succeeds at CAS 1.
+            references.not_after += 1;
+        }
         let revision = if observer {
             f.database
                 .store

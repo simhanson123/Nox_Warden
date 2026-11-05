@@ -4,6 +4,15 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The [PR24 external review](reviews/pr24-claude-review.md) confirms R1–R4 at
+their original reproduction criteria, without a confirmed new security defect.
+The [current follow-up](pr24-follow-up.md) validates retained job selections
+before clock observation and restores precise semantic/rollback test coverage.
+Some native fault coverage was already present; the assessment distinguishes it
+from actual gaps. Fresh full local verification passed; prior results remain
+historical. Resolve the retained follow-up PR for PR/main CI and merge completion.
+Operational authority gates and schema13 are unchanged.
+
 The [PR23 external review](reviews/pr23-claude-review.md) confirms the previous
 D1–D6 counterexamples corrected and identifies coordinated live quota/index
 corruption, surplus work audits and full-validation cost/locking. The
