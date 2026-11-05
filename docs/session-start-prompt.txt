@@ -5,53 +5,60 @@ Nox_Warden 개발을 이전 대화 없이 저장소에서 이어서 진행하라
 AGENTS.md, docs/session-handoff.md, docs/review-continuity.md,
 reports/task-ledger.json, reports/README.md, docs/implementation.md를 읽어라.
 F00/F01 우선순위와 해당 작업의 F03/F04/F07/F08/F12 원본을 확인하라.
-원본 specs와 외부 검토 원문, 공개 migration001–013을 수정하지 마라.
+원본 specs와 외부 검토 원문, 공개 migration001–014를 수정하지 마라.
 
-완료된 PR24 head: ac027412c88eade8d3674c75c2ba6203df023ee6
-PR24 비교 기준: 4cef6acf7e46289b156fcd56ad0ab2f2920fabd6
-PR24 main 병합: 59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8 (동일 트리)
-PR CI41819099169와 별도 main CI41824170284는 모두 성공했다.
-Claude의 PR24 보고서는 docs/reviews/pr24-claude-review.md에 업로드 바이트 그대로
-보존했다. 15585바이트, SHA256:
-ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501
-R1–R4는 원래 반례 기준 수정됐고, 새 보안 결함이나 개발 blocker는 보고되지 않았다.
+완료된 PR25 head: 89684e055f01a1c87113e4ea4a713ebbff77afe1
+PR25 비교 기준: 59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8
+main 병합: a624a1e684a8fc0065ac4f4609101410f56c50bb (동일 트리)
+PR CI41945354850와 별도 main CI41950760489는 모두 성공했다.
+Claude의 PR25 보고서는 docs/reviews/pr25-claude-review.md에 업로드 그대로
+보존했다. 14448바이트, SHA256:
+64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771
+I1/T1–T3은 보강됐고 새 보안 결함/개발 blocker는 없다고 보고했다.
+명령·문서 정정은 docs/pr25-review-assessment.md를 읽어라.
+올바른 focused 필터는 transition_atomicity다. 포함한 파일명으로 실행하면
+0개에 일치할 수 있으므로 종료코드0만으로 PASS를 주장하지 마라.
+외부 private probe는 없으며 외부의 Docker 검사는 NOT_RUN이었다.
 
-현재 후속 브랜치: fix/validated-clock-and-rollback-coverage
-현재 PR/HEAD/CI와 docs/pr24-follow-up.md를 읽어라.
-현재 묶음의 새 로컬 전체 검증은 완료됐다: workspace905, 별도 CLI1, 축소32,
-UI190, shared umask510, 모든14실행 명령과 격리 lab 통과. 중첩2요약은 제외했다.
-원격 완료 여부는 보존된 브랜치 PR의 정확한 head·PR CI·merge·main CI로 확인하라.
-I1 검증 밖의 retained job/clock 조회, T1 서명/generation 테스트 도달성,
-T2 실제 transition 실패 롤백, T3 누락된 승인 중간 장애 조건을 함께 다룬다.
-T3는 원문과 소스를 구분하라: native12지점과 review-evidence INSERT 장애는
-이미 있었다. 삭제됐던 not_after+=1은 reference pin의 정상 재시도 입력 변경이다.
-이것을 관측값 변조 회귀가 없어졌다는 뜻으로 바꾸지 마라.
-실제 구현/검증 상태는 최신 ledger/reports를 따르며 과거 수치를 재사용하지 마라.
-종료코드0이어도 필터 일치 테스트가0개면 검증으로 세지 마라.
-
-검증된 스냅샷에서 retained job을 선택하고 최종 사용 시 결합을 재확인하라.
-과거 root시계와 독립적으로 보존되는 거절 시 clock floor를 약화하지 마라.
-장애 주입은 실제 목표 단계에 도달했음과 이전 SQL 쓰기, 전체 rowid/type/bytes
-보존, reopen/건전한 재시도/정확한 재생을 입증해야 한다.
-Authorizer는 준비 시점에 거절하므로 거절된 문장이 행을 썼다고 주장하지 마라.
-운영 hook이나 예외를 추가하지 말고 공개 스키마를 테스트 때문에 바꾸지 마라.
-외부 비공개 반례는 확보하지 않았으며 새 로컬 검사와 구분해야 한다.
+현재 브랜치: feat/core-access-enforcement, 기준은 위 main 병합이다.
+현재 묶음은 core 임시 접근의 전체 before/after 의미 검토, 하나의 불변 절대
+임대창, native 컴파일·격리 Linux 실행, CLI/API/UI 증거 연결을 구현했다.
+Schema14와 docs/core-access-enforcement.md를 읽어라. 새 core Linux 실제
+검사72건(패킷24·서명관측2), authority 브라우저43건은 통과했다.
+최종 로컬 검증은 PASS다: bash scripts/check.sh의 workspace Rust943,
+명시적 CLI1, reduced32, UI211/11파일, UI빌드2회와 static/Python검사;
+shared-umask authority/service530, 최신 bins/examples빌드도 통과했다.
+Rust943과530은 각각 ignored3개를 유지하고 nested worker요약2개를 제외했다.
+런타임 HTTP24/CLI13/별도 synthetic CLI protocol5, 등록API23/브라우저25/
+metadata41, catalogue11/passkeys76/login14/audit21도 통과했다.
+기존 Linux66/패킷40, signed98/패킷43, native33/capture5/패킷0이며,
+core를 포함한 lab4개의 컨테이너가 모두 제거됐다.
+최종406개 입력 digest:
+788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf
+통합 독립 내부검토는 source59파일에서 finding0건이며 Claude 실행이 아니다.
+이 로컬 인계는 이 기능의 commit/PR/CI/병합 전에 작성됐다. 이후 실제
+head/tree·PR CI·merge·별도 main CI는 기능 PR완료기록과 전체 Claude프롬프트에
+고정하라. 최신 ledger/reports를 따르고 과거 수치를 새 PASS로 재사용하지 마라.
+기존 일반 정책·provenance v1 바이트와 전체 원본 요청 비용을 보존하라.
+새 migration은 과거 기록의 임대창/승인/완료 증거를 추론해 만들지 마라.
+재시도·재개방·호환 계획으로 원래 절대 만료를 이동하거나 점유를 환급하지 마라.
+Core 구조적 provenance·의미 검토·lab 서명은 운영 workload/delegation 권위나
+보호 bootstrap·signer 자격을 대신하지 못한다. 운영 signer/dispatch는 닫아 둬라.
 
 작업자는 GPT-6.1 Sol ultra로 역할/파일을 나누고 리드는 조율하라.
-큰 묶음을 병렬 구현하고 필요한 국소 검사 후 한 번에 통합 검토하라.
+큰 묶음을 병렬 구현하고 국소 검사 후 한 번에 통합 검토하라.
+공유 target의 Cargo/빌드/실행 검증은 한 조율자가 순차 실행하라.
 검사와 결함수정 후 commit/push/PR/CI/병합과 별도 main CI까지 마무리하라.
 통상 단계마다 확인을 요구하지 말고 원격브랜치 삭제/history 재작성은 하지 마라.
-이미 받은 고정 대상의 외부 검토는 다시 요청하지 마라.
 다음 외부 검토는 Claude Opus5.5 하나에 실제 새 base/head SHA를 고정한
-전체 복사용 프롬프트로 통합 요청하라. 준비는 외부 검토 실행이 아니다.
+전체 복사용 프롬프트로 요청하라. 이미 받은 고정 대상 검토를 반복하지 마라.
 
-이 묶음 뒤에는 M03/M04L/M05 의존성에 따라 core 의미/native/signing 통합,
-단일 절대 임대창과 서명된 workload/delegation 권위, 보호 bootstrap/OS계정,
-독립 signer/초기 generation, 인증 dispatch/완료증명/reconciliation,
-Linux 설치/복구/watchdog과 실제 Windows WFP+callout/macOS NE 구현이 남는다.
-Linux 격리lab은 실제 패킷을 제어하지만 관리앱은 운영호스트를 보호하지 않는다.
-보호경로 완성 전에 운영 signer/dispatch를 열거나 issued/UNKNOWN/미인증 전달
-점유를 환급하지 마라. 감사/작업/완료 증거를 만들어 채우지 마라.
+보호 workload/delegation bootstrap, OS계정/독립 signer/초기 generation,
+인증 dispatch/완료증명/reconciliation, Linux 설치/복구/watchdog과
+실제 Windows WFP+callout/macOS NE 구현은 별도 남은 범위다.
+Linux 격리lab의 실제 패킷 검증을 운영 호스트 보호로 표시하지 마라.
+Pinned nft1.0.6의 multiport ct.proto-dst set readback 제한도 아직 남아 있다.
+현재 lab의 동등한 scalar 포트 정책을 multiport 지원으로 표시하지 마라.
 3OS 네이티브/8locale 영어기본+저장선택/Apache2.0/통계OFF/선택후원/
 AI자기승인금지를 유지하라. 운영망 실험/유료자원/패키지공개/운영배포는 제외다.
 새 Cloud 도구/네트워크/Docker/browser를 확인하고 잠금파일대로 복원하라.

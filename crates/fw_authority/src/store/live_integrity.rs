@@ -147,7 +147,7 @@ impl IntegrityConnection {
             // A failed check never leaves a usable token, including repeated
             // attempts against the same damaged external commit.
             self.validated.set(None);
-            migrations::validate_v13(tx)?;
+            migrations::validate_v14(tx)?;
             self.validated.set(Some(version));
             #[cfg(test)]
             self.validations.set(self.validations.get() + 1);

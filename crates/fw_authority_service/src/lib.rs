@@ -18,7 +18,7 @@ pub use evidence::ReviewEvidence;
 use fw_authority::{
     ApprovalDecision, ApprovalRole, AuthorityStore, AuthorityTenant, ReviewLogin, ReviewProfile,
 };
-use fw_contracts::parse_strict_with_limit;
+use fw_contracts::{canonical_bytes, parse_strict_with_limit};
 use fw_webauthn::{AuthenticationResponse, WebAuthn};
 use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -258,13 +258,27 @@ impl Service {
                 // Retired, expired and unknown configured plans create no trust.
                 // Their existing immutable evidence remains retained in storage.
                 if let Some((tenant, detail)) = subjects.into_values().next() {
-                    store.register_reviewed_plan(
-                        &tenant,
-                        &detail.plan,
-                        &detail.requirements,
-                        &bundle,
-                        now,
-                    )?;
+                    if detail.plan["change_kind"] == "add_access_lease" {
+                        // The legacy source file carries only before/after
+                        // snapshots. It can confirm an existing combined core
+                        // import, never create its original inputs or window.
+                        let retained = store
+                            .policy_review_evidence(&tenant, id, now)?
+                            .ok_or(Failure::ReviewUnavailable)?;
+                        if retained.canonical_bytes()
+                            != canonical_bytes(&bundle).map_err(|_| Failure::Invalid)?
+                        {
+                            return Err(Failure::ReviewUnavailable);
+                        }
+                    } else {
+                        store.register_reviewed_plan(
+                            &tenant,
+                            &detail.plan,
+                            &detail.requirements,
+                            &bundle,
+                            now,
+                        )?;
+                    }
                 }
             }
             Ok(())
@@ -571,6 +585,44 @@ impl Runtime {
         if method == "GET"
             && let Some(plan_id) = path.strip_prefix("/authority/v1/plans/")
         {
+            if let Some(plan_id) = plan_id.strip_suffix("/core-access-evidence") {
+                if uuid::Uuid::parse_str(plan_id).is_err() {
+                    return Err(Failure::Invalid);
+                }
+                let window = self
+                    .store
+                    .read_core_access_lease_window(&tenant, plan_id, now)?;
+                // authenticated() has rechecked the live credential, tenant and
+                // review roles. Retained windows remain readable after the plan
+                // expires, without reviving plan approval or signing authority.
+                let (target_id, plan_hash) = if let Some(status) = &window {
+                    (status.target_id.clone(), status.plan_hash.clone())
+                } else {
+                    let detail =
+                        self.store
+                            .review_plan(&tenant, &identity.principal_id, plan_id, now)?;
+                    (
+                        detail.plan["target_id"]
+                            .as_str()
+                            .ok_or(Failure::Unavailable)?
+                            .to_owned(),
+                        detail.plan_hash,
+                    )
+                };
+                return Ok(json_response(
+                    json!({
+                        "schema_version":"fw.core-access-evidence/v1",
+                        "org_id":identity.org_id,"project_id":identity.project_id,
+                        "target_id":target_id,"plan_id":plan_id,
+                        "plan_hash":plan_hash,
+                        "checked_at":chrono::DateTime::from_timestamp(now,0)
+                            .ok_or(Failure::Unavailable)?.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                        "lease_window":window,"signing_allowed":false,"dispatch_allowed":false,
+                        "gates":["CORE_SIGNING_PROFILE_UNAVAILABLE"]
+                    }),
+                    None,
+                ));
+            }
             if let Some(plan_id) = plan_id.strip_suffix("/signing-readiness") {
                 if uuid::Uuid::parse_str(plan_id).is_err() {
                     return Err(Failure::Invalid);

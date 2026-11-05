@@ -1,17 +1,28 @@
 # Independent review prompts
 
-> Current status: PR24's supplied Claude Opus5.5 report is preserved byte-for-byte
-> in [the uploaded review](reviews/pr24-claude-review.md).
-> The integrated follow-up addresses I1/T1–T3: validated retained-clock selection
-> and precise semantic/rollback coverage. The assessment distinguishes actual gaps
-> from the native fault coverage already present.
-> Use **Claude Opus5.5 only** for one consolidated external review. The follow-up
-> PR description and user handoff contain the complete prompt with actual fixed
-> base/head; resolve that PR instead of reusing historical targets below.
-> Comparison base: `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`.
-> Branch: `fix/validated-clock-and-rollback-coverage`; resolve its actual PR/head.
-> Completed PR22/PR23/PR24 reviews must not be requested again for unchanged targets.
-> Preparing a prompt and internal agent review are not external model execution.
+> Current status: the supplied Claude Opus5.5 PR25 review is preserved in
+> [the uploaded original](reviews/pr25-claude-review.md); no security defect or
+> development blocker was reported. [Accuracy corrections](pr25-review-assessment.md)
+> include the valid focused filter `transition_atomicity`, not the included filename.
+> The current implemented batch adds core semantic review, one absolute lease
+> window, native execution/evidence and connected operator surfaces.
+> Final local validation passed: Rust 943 + explicit CLI 1 + reduced 32, UI 211 in
+> 11 files and both builds, shared-umask 530, binaries/examples and all 14 runtime
+> reports plus the separate synthetic CLI protocol 5. Rust 943/530 each retain 3
+> ignored declarations and exclude 2 nested worker summaries. All 4 labs cleaned up.
+> Consolidated independent internal review covered 59 source files with no findings.
+> Frozen 406-input digest: `788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf`.
+> Use **Claude Opus5.5 only** for one consolidated review of the actual new head.
+> Comparison base: `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
+> Branch: `feat/core-access-enforcement`. This local record precedes its commit,
+> PR, CI and merge. Resolve the later actual head/tree and CI from the feature
+> PR completion record; fix those in the complete prompt and user handoff.
+> Production workload/delegation/signing/dispatch remain closed. Linux installed
+> lifecycle, Windows WFP/callout and macOS NE remain incomplete. Pinned nft 1.0.6
+> anonymous multiport `ct.proto-dst` readback remains unqualified; the scalar lab
+> fixture does not qualify multiport support.
+> Received PR22–PR25 reviews must not be requested again for unchanged targets.
+> Prompt preparation/internal review are not external model execution.
 > Start a development session with [this prompt](session-start-prompt.txt).
 
 > Historical PR #16 prompts below. Historical reservation-integrity review prompts,

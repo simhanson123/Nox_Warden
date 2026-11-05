@@ -4,7 +4,7 @@
 use crate::{PlanError, Relation, Result, StateIr, hash};
 use fw_domain::{Decision, Direction, Family, Flow, Policy, Protocol, evaluate, timestamp};
 use ipnet::IpNet;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -19,6 +19,51 @@ pub struct SemanticDiff {
     pub newly_allowed_region_hash: String,
     pub removed_region_hash: String,
     pub reason: Option<String>,
+}
+
+/// Core Plan's original wire summary. Counts describe the exact normalized
+/// regions in this compiler profile, never packets, sessions or sampled probes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CoreAccessEffectSummary {
+    pub newly_allowed_flow_count: usize,
+    pub removed_flow_count: usize,
+    pub effect_hash: String,
+}
+
+/// Digest profile for the original core Plan's otherwise opaque effect_hash.
+/// The existing SemanticDiff serialization and policy-change hashes stay intact.
+pub const CORE_ACCESS_EFFECT_SCHEMA: &str = "fw.core-access-effect/v1";
+
+pub fn core_access_effect_summary(
+    before: &StateIr,
+    after: &StateIr,
+) -> Result<CoreAccessEffectSummary> {
+    let mut counts = (0, 0);
+    let diff = semantic_diff_with_counts(before, after, DEFAULT_MAX_CELLS, Some(&mut counts))?;
+    if !diff.complete || diff.relation == Relation::Unknown {
+        return Err(PlanError("incomplete core access effect proof"));
+    }
+    #[derive(Serialize)]
+    struct Effect<'a> {
+        schema_version: &'static str,
+        newly_allowed_flow_count: usize,
+        removed_flow_count: usize,
+        newly_allowed_region_hash: &'a str,
+        removed_region_hash: &'a str,
+    }
+    let effect_hash = hash(&Effect {
+        schema_version: CORE_ACCESS_EFFECT_SCHEMA,
+        newly_allowed_flow_count: counts.0,
+        removed_flow_count: counts.1,
+        newly_allowed_region_hash: &diff.newly_allowed_region_hash,
+        removed_region_hash: &diff.removed_region_hash,
+    })?;
+    Ok(CoreAccessEffectSummary {
+        newly_allowed_flow_count: counts.0,
+        removed_flow_count: counts.1,
+        effect_hash,
+    })
 }
 #[derive(Debug, Serialize)]
 struct RegionCell {
@@ -151,6 +196,15 @@ fn times(policies: &[&Policy]) -> Result<Vec<(i64, Option<i64>)>> {
 /// contexts, >128 policy revisions, or excess cells return incomplete UNKNOWN.
 /// `max_cells` is a hard resource bound, never sampling or truncating the proof.
 pub fn semantic_diff(before: &StateIr, after: &StateIr, max_cells: usize) -> Result<SemanticDiff> {
+    semantic_diff_with_counts(before, after, max_cells, None)
+}
+
+fn semantic_diff_with_counts(
+    before: &StateIr,
+    after: &StateIr,
+    max_cells: usize,
+    counts: Option<&mut (usize, usize)>,
+) -> Result<SemanticDiff> {
     before.validate()?;
     after.validate()?;
     if before.target_id != after.target_id
@@ -296,6 +350,9 @@ pub fn semantic_diff(before: &StateIr, after: &StateIr, max_cells: usize) -> Res
                 }
             }
         }
+    }
+    if let Some(counts) = counts {
+        *counts = (added.len(), removed.len());
     }
     Ok(SemanticDiff {
         relation: match (added.is_empty(), removed.is_empty()) {

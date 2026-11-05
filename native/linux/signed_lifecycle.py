@@ -39,6 +39,19 @@ def command(arguments, *, payload=None, expected=0, decode=True, environment=Non
         error_codes = [line for line in result.stderr.splitlines() if re.fullmatch(r'[A-Z][A-Z0-9_]{0,80}', line)]
         if error_codes:
             last_failure['reason_codes'] = error_codes[-4:]
+        for line in result.stderr.splitlines():
+            if not line.startswith('FW_LAB_INSTALL_BUDGET ') or len(line) > 1024:
+                continue
+            try:
+                budget = json.loads(line.removeprefix('FW_LAB_INSTALL_BUDGET '))
+                if (set(budget) == {'stage', 'elapsed_millis', 'budget_millis', 'reserved_process_millis'}
+                        and budget['stage'] in ('apply-after-watch', 'apply-after-current-verification',
+                                                'recovery-after-current-verification', 'native-submit')
+                        and all(type(budget[key]) is int and 0 <= budget[key] <= 9007199254740991
+                                for key in ('elapsed_millis', 'budget_millis', 'reserved_process_millis'))):
+                    last_failure['installation_budget'] = budget
+            except (TypeError, ValueError):
+                pass
         raise AssertionError('unexpected subprocess result: ' + Path(arguments[0]).name)
     if expected != 0:
         return None

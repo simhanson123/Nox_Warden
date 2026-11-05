@@ -37,8 +37,8 @@ verification. New focused runs must require a nonzero executed count.
 | --- | --- |
 | I1 | Three intent/job selections used the private connection's unchecked `query_row` before observing retained quota clocks. They now read validated snapshots and compare bindings again in the final validated transaction. The unchecked wrapper method is removed. Independently committed clock floors, historical root scope and refusal semantics remain required. The report's precisely timed transient wrong-clock observation is a hypothesis, not a confirmed authorization bypass. |
 | T1 | The old combined signature/generation fixture tainted its own connection before reading. Separate genuine lifecycles now mutate through a peer, preserve exact schema, assert the intended signature or current target-head error, and verify healthy repair. Historical signed-intent reads and current generation eligibility have distinct contracts. |
-| T2 | An added transition trigger caused early schema refusal. That test now states its actual scope; a separate unchanged-schema test denies the intended transition INSERT, records preceding writes and checks retained bytes, allowed independent clock floors, healthy retry/replay and held issued capacity. |
-| T3, approval | Actual gaps included credential/challenge UPDATE, evidence/decision writes, approval set/member/head/admission-result writes and audit-head trigger authorization. A 13-condition private fault matrix restores these stages, including two distinct human approvals and the second member insertion. |
+| T2 | An added transition trigger caused early schema refusal. That test now states its actual scope; a separate unchanged-schema test denies the intended transition INSERT, records preceding table mutations and checks retained typed rows and schema, allowed independent clock floors, healthy retry/replay and held issued capacity. |
+| T3, approval | Actual gaps included credential/challenge UPDATE, evidence/decision writes, approval set/member/head/admission-result writes and audit-head trigger authorization. A 13-condition two-human private fault matrix covers these stages, including the second member insertion; the first and second audit-INSERT stages already had single-human coverage. |
 | T3, native | The existing private native suite already covered 12 stages, including a real review-evidence INSERT fault. Preserve that coverage; restore the removed reference-pin expiry change on healthy retry in both the schema-refusal integration case and the genuine late-audit case. |
 
 The external T3 statement that private late faults target only audit INSERT is
@@ -60,6 +60,15 @@ not claim a row was inserted by the denied statement. The earliest credential
 UPDATE has no preceding application writes. Denial of the audit-head UPDATE is
 inside trigger authorization during audit-statement preparation. Separate later
 audit cases prove rollback of previously executed audit/head changes.
+
+SQLite permits one authorizer per connection. Fault hooks temporarily replace
+`IntegrityConnection`'s production schema authorizer. No DDL runs while these
+hooks are installed, and reopening restores the production observer before
+healthy retries. Transition hooks record changed-table sets; approval hooks
+record ordered table/action pairs. Neither records SQL source. Transition
+snapshots compare `sqlite_schema` and typed rows from all application tables;
+approval snapshots compare typed rows from all `authority_*` tables, without a
+schema snapshot.
 
 ## Verification and preserved boundaries
 

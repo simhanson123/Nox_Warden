@@ -7,7 +7,61 @@ Read this file, [startup prompt](session-start-prompt.txt), `AGENTS.md`,
 No previous chat, attachment, temporary file, agent mailbox or cached binary is
 needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
-## Current PR24 review follow-up
+## Current core-access implementation
+
+Comparison base: PR25 merge `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
+Reviewed PR25 head: `89684e055f01a1c87113e4ea4a713ebbff77afe1`;
+both trees are `880986d4b29384cb947b780e32edde75981a5f1d`.
+PR CI41945354850 and main CI41950760489 succeeded. The complete
+[received PR25 review](reviews/pr25-claude-review.md) is preserved as 14,448 bytes,
+SHA256 `64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771`.
+It confirms I1/T1–T3 and reports no security defect or development blocker.
+Its minor accuracy issues are [qualified separately](pr25-review-assessment.md).
+Do not request that unchanged review again or claim its private probes were rerun.
+
+The implemented batch on `feat/core-access-enforcement` adds exact core full-state review,
+one immutable absolute lease window, native compilation and isolated core
+execution, and connected CLI/API/UI evidence. Schema14 and source implementation
+are complete. Final local validation passed: `bash scripts/check.sh` ran 943
+workspace Rust tests, 1 explicit CLI test, 32 reduced-feature tests and 211 UI
+tests in 11 files, plus both UI production builds and static/Python checks.
+The shared-umask authority/service suite passed 530 tests. Both Rust totals
+exclude two nested migration-worker summaries and retain 3 intentionally ignored
+declarations. Fresh workspace binaries/examples also built successfully.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | CLI protocol uses a separate synthetic fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Real services and retained core review |
+| Isolated Linux / signed Linux | 66 / 98 | 40 / 43 actual packet probes |
+| Core-access Linux | 72 | 24 actual packet probes and 2 signed captures |
+| Native evidence | 33 | 5 actual kernel captures; 0 packet probes |
+
+All four lab containers were removed; the final inventory had zero containers
+and no executing test services. The final 406-input source digest is
+`788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf`.
+Consolidated independent internal review covered 59 source files with no findings;
+this is not a new Claude execution. The ignored local summary at
+`/tmp/nox-core-enforcement-verify-xh25ji5c/final-results/verification-summary.json`
+has SHA256 `4214872ce333dcdc47cd0a5a347374f408124bea6b30a9036b1e634582cebced`.
+Reproducible commands and qualifications remain in the ledger/reports.
+
+This local handoff precedes the feature commit, PR, CI and merge; none is claimed
+complete here. Retain their later exact head/tree, PR checks, merge and separate
+main CI in the feature PR completion record and complete Claude prompt.
+These local results do not qualify production enforcement. See
+[the contracts and boundaries](core-access-enforcement.md). Preserve
+published SQL001–013 and old provenance/policy-change bytes. Migration must not
+invent a legacy window or approval. Production workload/delegation/bootstrap
+and signer authority remain unavailable; new evidence cannot open dispatch.
+The pinned nftables 1.0.6 anonymous multiport `ct.proto-dst` readback remains
+unqualified; the lab's equivalent scalar fixture does not establish multiport
+support. Finish the authorized commit/PR/CI/merge and separate main CI, and hand
+off one consolidated Claude review; retain remote branches and shared history.
+
+## Completed PR24 review follow-up (PR25)
 
 PR24 head `ac027412c88eade8d3674c75c2ba6203df023ee6` merged as
 `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`, with tree
@@ -25,8 +79,8 @@ review-evidence fault already existed; restore actual missing coverage rather
 than treating every external statement as established. Implementation, focused
 checks, independent internal review and fresh full local validation are complete
 (905 workspace Rust, 510 shared-umask, 190 UI and all isolated runtime labs).
-Resolve the retained branch PR for exact head/PR CI/merge/separate main CI and
-the complete new Claude prompt; do not stop at pending main CI. The current
+PR25 and its separate main CI succeeded at the exact head/merge above; its PR
+retains the completed record and historical prompt. The current
 ledger/reports preserve detailed evidence. Published
 SQL001–013 and original specs/reviews remain unchanged. Keep operational signing
 and dispatch closed, durable clock floors and issued capacity intact.
@@ -59,7 +113,8 @@ work-audit correspondence and reduced full-validation lock/cost. A change counte
 is not external authentication; quick_check does not prove index membership.
 Production signing/dispatch remain closed and issued capacity is not refunded.
 The PR24 external review was subsequently received and is recorded above. The
-next review uses the actual new I1/T1–T3 head in one Claude-only request.
+I1/T1–T3 review was subsequently received for PR25. The next review targets the
+new core-access batch in one Claude-only request.
 
 ## Completed PR22 review follow-up (PR23)
 
@@ -166,9 +221,9 @@ host traffic. The separate Linux executor actually applies nftables and tests
 packets in disposable labs. Production integration remains unfinished. Observe
 is a startup safety mode, never the final firewall acceptance criterion.
 
-Next work follows F_08 dependencies: complete core semantic-review/native/signing
-integration with a single absolute lease window and signed workload/delegation
-authority; protected bootstrap/accounts, generation initialization and independent
+Next work follows F_08 dependencies: complete production core signing integration
+with signed workload/delegation authority; protected bootstrap/accounts,
+generation initialization and independent
 signer; qualified build/native evidence; authenticated dispatch, completion and
 reconciliation; Linux host lifecycle/watchdog/installer/recovery. Windows/Windows
 Server WFP+callout and macOS Network Extension must be implemented and tested on

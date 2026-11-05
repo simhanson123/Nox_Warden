@@ -202,6 +202,90 @@ fn core_provenance_audit_failure_rolls_back_request_binding_and_security() {
 }
 
 #[test]
+fn reviewed_core_final_audit_failure_rolls_back_window_plan_originals_and_review() {
+    let mut f = Database::new();
+    let (plan, requirements, review, provenance, window) =
+        super::core_access_review_fixture::fixture();
+    let tenant = AuthorityTenant::new(
+        plan["org_id"].as_str().unwrap(),
+        plan["project_id"].as_str().unwrap(),
+    )
+    .unwrap();
+    f.store
+        .provision_principal(
+            &tenant,
+            plan["principal_id"].as_str().unwrap(),
+            "https://identity.example.test",
+            "reviewed-core-user",
+            NOW,
+        )
+        .unwrap();
+    let retained = |f: &Database| {
+        f.rows()
+            .into_iter()
+            .filter(|(name, _)| name != "authority_signing_quota_clocks")
+            .collect::<Vec<_>>()
+    };
+    let before = retained(&f);
+    // plan, provenance and window audits have already executed when the real
+    // final review audit INSERT is refused. No DDL/schema fault is involved.
+    let reached = reject_insert(&f.store, "authority_audit", 4);
+    let error = f
+        .store
+        .register_reviewed_core_access_plan(
+            &tenant,
+            &plan,
+            &requirements,
+            &review,
+            &provenance,
+            &window,
+            NOW + 1,
+        )
+        .unwrap_err();
+    assert_late_failure(
+        error,
+        &reached,
+        4,
+        &[
+            "authority_plans",
+            "authority_core_access_requests",
+            "authority_core_access_plan_bindings",
+            "authority_core_access_lease_windows",
+            "authority_plan_review_evidence",
+            "authority_projects",
+        ],
+    );
+    assert_eq!(retained(&f), before);
+    f.reopen();
+    let admitted = f
+        .store
+        .register_reviewed_core_access_plan(
+            &tenant,
+            &plan,
+            &requirements,
+            &review,
+            &provenance,
+            &window,
+            NOW + 1,
+        )
+        .unwrap();
+    assert!(admitted.current && !admitted.signing_allowed && !admitted.dispatch_allowed);
+    let committed = retained(&f);
+    f.store
+        .register_reviewed_core_access_plan(
+            &tenant,
+            &plan,
+            &requirements,
+            &review,
+            &provenance,
+            &window,
+            NOW + 2,
+        )
+        .unwrap();
+    assert_eq!(retained(&f), committed);
+}
+
+#[test]
 fn reviewed_plan_evidence_and_final_audit_failures_roll_back_the_complete_import() {
     for evidence_write in [true, false] {
         let mut f = Database::new();

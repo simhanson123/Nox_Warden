@@ -356,6 +356,14 @@ pub fn replace(
         || observed.wall_time_unix < binding.wall_time_unix
         || observed.wall_time_unix >= authority_deadline
     {
+        eprintln!(
+            "FW_LAB_INSTALL_BUDGET {}",
+            json!({
+                "stage":"native-submit","elapsed_millis":elapsed,
+                "budget_millis":binding.commit_budget_seconds.saturating_mul(1000),
+                "reserved_process_millis":2000
+            })
+        );
         return Err(Error::new("INSTALLATION_BUDGET_EXPIRED"));
     }
     command_fenced(

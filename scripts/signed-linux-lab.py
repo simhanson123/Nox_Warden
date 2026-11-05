@@ -21,13 +21,18 @@ class StageFailure(RuntimeError):
     pass
 
 
-def main():
+def main(profile='legacy'):
+    core_access = profile == 'core-access'
+    if profile not in ('legacy', 'core-access'):
+        raise ValueError('unsupported isolated profile')
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--report', type=Path, default=ROOT / 'reports/signed-linux-lab.json')
+    parser.add_argument('--report', type=Path, default=ROOT / ('reports/core-access-linux-lab.json' if core_access else 'reports/signed-linux-lab.json'))
     parser.add_argument('--skip-image-build', action='store_true')
     parser.add_argument('--scenario', choices=('all', 'crash', 'recovery-write-crash', 'unsubmitted', 'orphan-writer', 'recovery-prepare-crash', 'recovery-claim-crash', 'recovery-submit-crash'), default='all',
                         help='Run a named crash regression; CI runs the complete default suite.')
     args = parser.parse_args()
+    if core_access and args.scenario != 'all':
+        parser.error('the core-access profile runs its complete separate scenario')
     environment = os.environ.copy()
     for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_TLS', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH'):
         environment.pop(key, None)
@@ -64,6 +69,8 @@ def main():
                         ROOT / 'native/linux/Dockerfile.lab', ROOT / 'native/linux/signed_lifecycle.py',
                         ROOT / 'scripts/signed-linux-lab.py', ROOT / 'target/debug/fw_linux_executor',
                         ROOT / 'target/debug/fw_signed_lab_fixture']
+        if core_access:
+            source_paths.extend([ROOT / 'native/linux/core_access_lifecycle.py', ROOT / 'scripts/core-access-linux-lab.py'])
         for crate in ('fw_linux_executor', 'fw_backend_linux', 'fw_authority', 'fw_executor',
                       'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab',
                       'fw_native_evidence', 'fw_target_evidence'):
@@ -88,9 +95,12 @@ def main():
         transfer_code = ('import os,sys; p="/lab/"+sys.argv[1]; '
                          'f=open(p,"xb"); f.write(sys.stdin.buffer.read()); '
                          'f.close(); os.chmod(p,0o700)')
-        for source, name in [('target/debug/fw_linux_executor', 'fw_linux_executor'),
-                             ('target/debug/fw_signed_lab_fixture', 'fw_signed_lab_fixture'),
-                             ('native/linux/signed_lifecycle.py', 'signed_lifecycle.py')]:
+        transfers = [('target/debug/fw_linux_executor', 'fw_linux_executor'),
+                     ('target/debug/fw_signed_lab_fixture', 'fw_signed_lab_fixture'),
+                     ('native/linux/signed_lifecycle.py', 'signed_lifecycle.py')]
+        if core_access:
+            transfers.append(('native/linux/core_access_lifecycle.py', 'core_access_lifecycle.py'))
+        for source, name in transfers:
             execute(docker + ['exec', '-i', container, 'python3', '-c', transfer_code, name],
                     'fixture transfer', input_bytes=source_bytes[source])
         execute(docker + ['exec', '-i', container, 'python3', '-c', transfer_code,
@@ -100,12 +110,16 @@ def main():
         # The complete suite now waits through several independent signed
         # confirmation/expiry windows and orphan-writer lock contention. This is
         # only the outer test budget; native and signed deadlines are unchanged.
-        completed = subprocess.run(docker + ['exec', container, 'python3', '/lab/signed_lifecycle.py', '--scenario', args.scenario],
+        scenario = ['/lab/core_access_lifecycle.py'] if core_access else ['/lab/signed_lifecycle.py', '--scenario', args.scenario]
+        completed = subprocess.run(docker + ['exec', container, 'python3', *scenario],
                                    cwd=ROOT, env=environment, capture_output=True, text=True, timeout=300)
         result = json.loads(completed.stdout)
         code = completed.returncode
-        if result.get('status') not in ('PASS', 'FAIL') or code not in (0, 1) or (code == 0) != (result['status'] == 'PASS'):
+        expected_schema = 'fw.core-access-linux-lab/v1' if core_access else 'fw.signed-linux-lab/v1'
+        if result.get('schema_version') != expected_schema or result.get('status') not in ('PASS', 'FAIL') or code not in (0, 1) or (code == 0) != (result['status'] == 'PASS'):
             raise StageFailure('unexpected signed lifecycle result')
+        if core_access and result['status'] == 'PASS' and result.get('capture_count') != 2:
+            raise StageFailure('missing core native captures')
         result.update(image_id=image_id, base_image=BASE_IMAGE, commit=commit,
                       working_tree_dirty=dirty, source_sha256=source_hashes,
                       container_configuration={'network': 'none', 'cap_drop': ['ALL'],
@@ -116,7 +130,7 @@ def main():
     except BaseException as error:
         code = 1 if runner_started else 2
         known_packet_count = result.get('packet_tests_executed') if isinstance(result, dict) else None
-        result = {'schema_version': 'fw.signed-linux-lab/v1',
+        result = {'schema_version': 'fw.core-access-linux-lab/v1' if core_access else 'fw.signed-linux-lab/v1',
                   'status': 'FAIL' if runner_started else 'NOT_RUN',
                   'production_supported': False, 'synthetic_fixture_authority': True,
                   'runner_started': runner_started, 'packet_tests_executed': known_packet_count if runner_started else 0,

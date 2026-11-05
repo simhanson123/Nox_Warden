@@ -7,11 +7,14 @@
 //! Decisions can atomically complete a human approval set; they do not create
 //! grants or signing jobs.
 mod access_provenance;
+mod access_window;
 mod admission;
 mod audit_log;
 #[cfg(test)]
-#[path = "../../tests/support/core_access_fixture.rs"]
-mod core_access_fixture;
+#[path = "../../tests/support/core_access_review_fixture.rs"]
+mod core_access_review_fixture;
+#[cfg(test)]
+use core_access_review_fixture::core as core_access_fixture;
 mod live_integrity;
 mod migrations;
 #[cfg(test)]
@@ -40,6 +43,7 @@ pub use signing_quota::*;
 mod subject;
 mod target_metadata;
 pub use access_provenance::*;
+pub use access_window::*;
 pub use audit_log::AuthorityAuditVerification;
 pub use native_evidence::*;
 pub use review::*;
@@ -175,11 +179,12 @@ impl AuthorityStore {
                 migrations::apply_v11(&tx)?;
                 migrations::apply_v12(&tx)?;
                 migrations::apply_v13(&tx)?;
+                migrations::apply_v14(&tx)?;
                 let marker = live_integrity::data_version(&tx)?;
                 tx.commit()?;
                 break Some(marker);
             }
-            if application != APPLICATION_ID || !(1..=13).contains(&version) {
+            if application != APPLICATION_ID || !(1..=14).contains(&version) {
                 return Err(invalid("foreign or unsupported authority database"));
             }
             let identity: Option<String> = tx
@@ -192,13 +197,13 @@ impl AuthorityStore {
             if identity.as_deref() != Some(SCHEMA) {
                 return Err(invalid("authority database identity"));
             }
-            if version < 13 {
+            if version < 14 {
                 return Err(AuthorityError::MigrationRequired {
                     found: version,
-                    required: 13,
+                    required: 14,
                 });
             }
-            migrations::validate_v13(&tx)?;
+            migrations::validate_v14(&tx)?;
             let unchanged = marker == live_integrity::data_version(&tx)?;
             tx.commit()?;
             break unchanged.then_some(marker);

@@ -3,8 +3,9 @@
 #[path = "support/authority_legacy.rs"]
 #[allow(dead_code)]
 mod authority_legacy;
-#[path = "support/core_access_fixture.rs"]
-mod core_access_fixture;
+#[path = "support/core_access_review_fixture.rs"]
+mod core_access_review_fixture;
+use core_access_review_fixture::core as core_access_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 
@@ -594,7 +595,7 @@ fn actual_schema8_migration_preserves_plan_and_audit_without_invented_provenance
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 13), (&backup, 8)] {
+    for (path, version) in [(&fixture.db, 14), (&backup, 8)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -656,7 +657,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 13), (&backup, 9)] {
+    for (path, version) in [(&fixture.db, 14), (&backup, 9)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -680,7 +681,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
     );
     assert_eq!(database_rows(&backup), before);
     let after = database_rows(&fixture.db);
-    assert_eq!(after.len(), before.len() + 1);
+    assert_eq!(after.len(), before.len() + 2);
     assert!(
         after
             .iter()
@@ -693,7 +694,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         let migrated = &after.iter().find(|(table, _)| table == name).unwrap().1;
         if name == "authority_schema_migrations" {
             assert!(migrated.starts_with(rows));
-            assert_eq!(migrated.len(), 13);
+            assert_eq!(migrated.len(), 14);
         } else {
             assert_eq!(migrated, rows, "{name}");
         }
@@ -707,4 +708,161 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
     assert_eq!(fixture.audit(), audit);
     assert_eq!(signing_rows(&fixture.db), signing);
     assert_eq!(database_rows(&fixture.db), after);
+}
+
+fn reviewed_cli_fixture() -> (tempfile::TempDir, PathBuf, AuthorityTenant, Value) {
+    let directory = private_directory::private_directory();
+    let db = directory.path().join("reviewed.sqlite3");
+    let now = chrono::Utc::now().timestamp() - 2;
+    let (plan, requirements, evidence, provenance, window) =
+        core_access_review_fixture::fixture_at(now, 0);
+    let tenant = AuthorityTenant::new(
+        plan["org_id"].as_str().unwrap(),
+        plan["project_id"].as_str().unwrap(),
+    )
+    .unwrap();
+    success(execute(command(&db, "init", &tenant), b"{}"));
+    AuthorityStore::open(&db)
+        .unwrap()
+        .provision_target_metadata_project(&tenant, now)
+        .unwrap();
+    (
+        directory,
+        db,
+        tenant,
+        json!({"schema_version":"fw.reviewed-core-access-plan/v1",
+        "plan":plan,"requirements":requirements,"evidence":evidence,"provenance":provenance,"window":window}),
+    )
+}
+
+fn retained_core_rows(db: &Path) -> Vec<(String, Rows)> {
+    // Bounded reads and exact retries may advance the separately durable clock
+    // floor. They must preserve all retained evidence, capacity and audit rows.
+    database_rows(db)
+        .into_iter()
+        .filter(|(table, _)| table != "authority_signing_quota_clocks")
+        .collect()
+}
+
+#[test]
+fn combined_core_registration_lost_output_recovers_exact_window_without_audit_growth() {
+    for destination in ["full", "read-only", "broken-pipe"] {
+        let (_directory, db, tenant, body) = reviewed_cli_fixture();
+        let mut process = command(&db, "register-reviewed-core-access-plan", &tenant);
+        match destination {
+            "full" => {
+                process.stdout(
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open("/dev/full")
+                        .unwrap(),
+                );
+            }
+            "read-only" => {
+                process.stdout(fs::File::open("/dev/null").unwrap());
+            }
+            _ => {
+                let (reader, writer) = std::io::pipe().unwrap();
+                drop(reader);
+                process.stdout(writer);
+            }
+        }
+        refused(
+            execute(process, &serde_json::to_vec(&body).unwrap()),
+            "OUTPUT_FAILED",
+        );
+        let rows = retained_core_rows(&db);
+        let read = success(execute(
+            command(&db, "read-core-access-lease-window", &tenant),
+            &serde_json::to_vec(&json!({"plan_id":body["plan"]["plan_id"]})).unwrap(),
+        ));
+        assert_eq!(
+            read["schema_version"],
+            "fw.core-access-lease-window-query/v1"
+        );
+        assert_eq!(read["window"]["not_before"], body["window"]["not_before"]);
+        assert_eq!(read["window"]["expires_at"], body["window"]["expires_at"]);
+        assert_eq!(read["window"]["lease_seconds"], 3600);
+        assert_eq!(read["window"]["signing_allowed"], false);
+        let retry = success(execute(
+            command(&db, "register-reviewed-core-access-plan", &tenant),
+            &serde_json::to_vec(&body).unwrap(),
+        ));
+        assert_eq!(stable_status(retry), stable_status(read["window"].clone()));
+        assert_eq!(retained_core_rows(&db), rows);
+    }
+}
+
+#[test]
+fn combined_core_cli_closed_bounded_inputs_and_tenant_claims_cannot_partially_register() {
+    let (_directory, db, tenant, body) = reviewed_cli_fixture();
+    let before = database_rows(&db);
+    let code = "CORE_ACCESS_LEASE_WINDOW_REJECTED";
+    let mut malformed = vec![
+        b"{\"schema_version\":\"fw.reviewed-core-access-plan/v1\",\"schema_version\":\"duplicate\"}".to_vec(),
+        b"{\"plan_id\":\"DO_NOT_PRINT\",\"plan_id\":\"duplicate\"}".to_vec(),
+        vec![0xff], b"{".to_vec(),
+    ];
+    for key in [
+        "private_key",
+        "grant",
+        "production_qualified",
+        "approval_origin",
+    ] {
+        let mut value = body.clone();
+        value[key] = json!("DO_NOT_PRINT_PRIVATE_FIELD");
+        malformed.push(serde_json::to_vec(&value).unwrap());
+    }
+    for key in ["schema_version", "provenance", "window"] {
+        let mut value = body.clone();
+        if key == "schema_version" {
+            value[key] = json!("fw.reviewed-core-access-plan/v2");
+        } else {
+            value[key]["unknown"] = json!("DO_NOT_PRINT_NESTED_FIELD");
+        }
+        malformed.push(serde_json::to_vec(&value).unwrap());
+    }
+    let mut oversized = serde_json::to_vec(&body).unwrap();
+    oversized.resize(512 * 1024 + 1, b' ');
+    malformed.push(oversized);
+    for bytes in malformed {
+        refused(
+            execute(
+                command(&db, "register-reviewed-core-access-plan", &tenant),
+                &bytes,
+            ),
+            code,
+        );
+        assert_eq!(database_rows(&db), before);
+    }
+    let wrong_tenant = AuthorityTenant::new(OTHER, tenant.project_id()).unwrap();
+    refused(
+        execute(
+            command(&db, "register-reviewed-core-access-plan", &wrong_tenant),
+            &serde_json::to_vec(&body).unwrap(),
+        ),
+        code,
+    );
+    assert_eq!(database_rows(&db), before);
+    let mut complete = serde_json::to_vec(&body).unwrap();
+    complete.resize(512 * 1024, b' ');
+    let status = success(execute(
+        command(&db, "register-reviewed-core-access-plan", &tenant),
+        &complete,
+    ));
+    assert_eq!(status["current"], true);
+    let rows = database_rows(&db);
+    for bytes in [
+        b"{\"plan_id\":\"x\",\"plan_id\":\"y\"}".to_vec(),
+        vec![b' '; 128 * 1024 + 1],
+    ] {
+        refused(
+            execute(
+                command(&db, "read-core-access-lease-window", &tenant),
+                &bytes,
+            ),
+            code,
+        );
+    }
+    assert_eq!(database_rows(&db), rows);
 }

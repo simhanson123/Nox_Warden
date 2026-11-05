@@ -519,6 +519,55 @@ def run(args, report):
                       and restarted_signing['latest_intent'] is None
                       and restarted_signing['signing_allowed'] is False
                       and restarted_signing['dispatch_allowed'] is False)
+                page.get_by_role('button', name='Back to plans', exact=True).click()
+                core_id = fixture['core_access_plan_id']
+                core_url = ORIGIN + '/authority/v1/plans/' + core_id + '/core-access-evidence'
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == core_url) as core_response:
+                    core_detail = review(core_id)
+                core_evidence = core_response.value.json()
+                core_window = core_evidence['lease_window']
+                check(report, 'real core plan retains its complete review and fixed original lease window',
+                      core_response.value.status == 200
+                      and core_detail['plan']['change_kind'] == 'add_access_lease'
+                      and core_detail['review']['available'] is True
+                      and core_detail['review']['before']['policies'] == []
+                      and core_detail['review']['after']['policies'] == core_detail['plan']['requested_policies']
+                      and core_evidence['schema_version'] == 'fw.core-access-evidence/v1'
+                      and core_evidence['plan_hash'] == core_detail['plan_hash']
+                      and core_window['lease_seconds'] == 3600 and core_window['current'] is True
+                      and core_evidence['signing_allowed'] is False
+                      and core_evidence['dispatch_allowed'] is False)
+                core_panel = page.get_by_role('region', name='Core access lease window', exact=True)
+                expect(core_panel).to_contain_text('Current at last read')
+                expect(core_panel).to_contain_text('Approval and retries never restart the lease.')
+                expect(page.get_by_role('region', name='Before', exact=True)).to_be_visible()
+                expect(page.get_by_role('region', name='After', exact=True)).to_be_visible()
+                page.get_by_label('Decision role', exact=True).select_option('owner')
+                page.get_by_role('checkbox').check()
+                before_core_decision = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                with page.expect_response(lambda response: response.request.method == 'POST'
+                                          and response.url == ORIGIN + '/authority/v1/approvals/assertions') as core_admission:
+                    page.get_by_role('button', name='Approve plan', exact=True).click()
+                check(report, 'original core review requires its own real virtual-passkey human approval',
+                      core_admission.value.status == 200
+                      and core_admission.value.json()['approval']['decision'] == 'approve'
+                      and cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount'] > before_core_decision)
+                expect(page.get_by_role('region', name='Current authority status', exact=True)).to_contain_text('Current approval set verified')
+                after_core_decision = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
+                with page.expect_response(lambda response: response.request.method == 'GET'
+                                          and response.url == core_url) as refreshed_core:
+                    core_panel.get_by_role('button', name='Refresh lease evidence', exact=True).click()
+                refreshed_core_evidence = refreshed_core.value.json()
+                check(report, 'human core approval and evidence refresh preserve absolute times without deployment authority',
+                      refreshed_core.value.status == 200
+                      and all(refreshed_core_evidence['lease_window'][key] == core_window[key]
+                              for key in ('window_hash', 'not_before', 'expires_at', 'admitted_at'))
+                      and refreshed_core_evidence['signing_allowed'] is False
+                      and refreshed_core_evidence['dispatch_allowed'] is False
+                      and cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount'] == after_core_decision)
+                expect(core_panel).to_contain_text('CORE_SIGNING_PROFILE_UNAVAILABLE')
+                expect(page.get_by_role('region', name='Signing readiness', exact=True)).to_contain_text('Access lease signing is unavailable in this build.')
                 check(report, 'shipped review runs without browser exceptions', not errors)
                 context.close()
         report['stage'] = 'cleanup'

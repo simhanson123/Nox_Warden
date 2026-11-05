@@ -50,85 +50,7 @@ impl AuthorityStore {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        security_revision(&tx, tenant)?;
-        let retained = records::retained_plan(&tx, tenant, plan_id)?;
-        let plan: Value = decode(&retained.subject.plan_bytes)?;
-        let verified = provenance.verify(&plan)?;
-        tenant_binding(tenant, &verified)?;
-        if let Some(existing) = retained_in_tx(&tx, tenant, &retained, now)? {
-            if existing.verified.canonical_bytes() != verified.canonical_bytes() {
-                return Err(AuthorityError::Conflict);
-            }
-            let result = status(tenant, &retained, &existing, now)?;
-            tx.commit()?;
-            return Ok(result);
-        }
-        // New imports need current inputs. Retained evidence stays readable
-        // when its plan or envelope/delegation expires or its plan is retired.
-        if retained.retired {
-            return Err(AuthorityError::Binding);
-        }
-        if now < retained.registered_at
-            || now < retained.subject.created_at
-            || now >= retained.subject.valid_until
-            || now < verified.valid_from()
-            || now >= verified.valid_until()
-        {
-            return Err(AuthorityError::Time);
-        }
-        if let Some(existing) = request_in_tx(&tx, tenant, verified.request_id(), &plan, now)? {
-            if existing.canonical_bytes() != verified.canonical_bytes() {
-                return Err(AuthorityError::Conflict);
-            }
-        } else {
-            let alias: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM authority_core_access_requests WHERE (org_id=? AND lease_id=?) OR (org_id=? AND project_id=? AND idempotency_key=?))",
-                params![tenant.org_id, verified.lease_id(), tenant.org_id, tenant.project_id, verified.idempotency_key()],
-                |r| r.get(0),
-            )?;
-            if alias {
-                return Err(AuthorityError::Conflict);
-            }
-            tx.execute(
-                "INSERT INTO authority_core_access_requests VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                params![
-                    tenant.org_id,
-                    tenant.project_id,
-                    verified.request_id(),
-                    verified.request_revision(),
-                    verified.lease_id(),
-                    verified.root_id(),
-                    verified.idempotency_key(),
-                    hash(verified.request_hash())?,
-                    hash(verified.hash())?,
-                    now,
-                    verified.canonical_bytes()
-                ],
-            )?;
-        }
-        tx.execute(
-            "INSERT INTO authority_core_access_plan_bindings VALUES(?,?,?,?,?,?,?)",
-            params![
-                tenant.org_id,
-                tenant.project_id,
-                plan_id,
-                hash(&retained.subject.plan_hash)?,
-                verified.request_id(),
-                hash(verified.hash())?,
-                now
-            ],
-        )?;
-        // Verify the exact committed projection before audit and visibility.
-        let stored = retained_in_tx(&tx, tenant, &retained, now)?.ok_or(AuthorityError::Binding)?;
-        let result = status(tenant, &retained, &stored, now)?;
-        bump_security(&tx, tenant)?;
-        audit(
-            &tx,
-            tenant,
-            "core_access_provenance_registered",
-            plan_id,
-            now,
-        )?;
+        let result = register_in_tx(&tx, tenant, plan_id, provenance, now)?;
         tx.commit()?;
         Ok(result)
     }
@@ -153,9 +75,98 @@ impl AuthorityStore {
     }
 }
 
-struct StoredProvenance {
-    verified: VerifiedCoreAccessProvenance,
-    admitted_at: i64,
+/// Shared by the atomic reviewed-core import; all writes remain in its transaction.
+pub(super) fn register_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan_id: &str,
+    provenance: &CoreAccessProvenance,
+    now: i64,
+) -> Result<CoreAccessProvenanceStatus> {
+    security_revision(tx, tenant)?;
+    let retained = records::retained_plan(tx, tenant, plan_id)?;
+    let plan: Value = decode(&retained.subject.plan_bytes)?;
+    let verified = provenance.verify(&plan)?;
+    tenant_binding(tenant, &verified)?;
+    if let Some(existing) = retained_in_tx(tx, tenant, &retained, now)? {
+        if existing.verified.canonical_bytes() != verified.canonical_bytes() {
+            return Err(AuthorityError::Conflict);
+        }
+        let result = status(tenant, &retained, &existing, now)?;
+        return Ok(result);
+    }
+    // New imports need current inputs. Retained evidence stays readable
+    // when its plan or envelope/delegation expires or its plan is retired.
+    if retained.retired {
+        return Err(AuthorityError::Binding);
+    }
+    if now < retained.registered_at
+        || now < retained.subject.created_at
+        || now >= retained.subject.valid_until
+        || now < verified.valid_from()
+        || now >= verified.valid_until()
+    {
+        return Err(AuthorityError::Time);
+    }
+    if let Some(existing) = request_in_tx(tx, tenant, verified.request_id(), &plan, now)? {
+        if existing.canonical_bytes() != verified.canonical_bytes() {
+            return Err(AuthorityError::Conflict);
+        }
+    } else {
+        let alias: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM authority_core_access_requests WHERE (org_id=? AND lease_id=?) OR (org_id=? AND project_id=? AND idempotency_key=?))",
+        params![tenant.org_id, verified.lease_id(), tenant.org_id, tenant.project_id, verified.idempotency_key()],
+        |r| r.get(0),
+        )?;
+        if alias {
+            return Err(AuthorityError::Conflict);
+        }
+        tx.execute(
+            "INSERT INTO authority_core_access_requests VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            params![
+                tenant.org_id,
+                tenant.project_id,
+                verified.request_id(),
+                verified.request_revision(),
+                verified.lease_id(),
+                verified.root_id(),
+                verified.idempotency_key(),
+                hash(verified.request_hash())?,
+                hash(verified.hash())?,
+                now,
+                verified.canonical_bytes()
+            ],
+        )?;
+    }
+    tx.execute(
+        "INSERT INTO authority_core_access_plan_bindings VALUES(?,?,?,?,?,?,?)",
+        params![
+            tenant.org_id,
+            tenant.project_id,
+            plan_id,
+            hash(&retained.subject.plan_hash)?,
+            verified.request_id(),
+            hash(verified.hash())?,
+            now
+        ],
+    )?;
+    // Verify the exact committed projection before audit and visibility.
+    let stored = retained_in_tx(tx, tenant, &retained, now)?.ok_or(AuthorityError::Binding)?;
+    let result = status(tenant, &retained, &stored, now)?;
+    bump_security(tx, tenant)?;
+    audit(
+        tx,
+        tenant,
+        "core_access_provenance_registered",
+        plan_id,
+        now,
+    )?;
+    Ok(result)
+}
+
+pub(super) struct StoredProvenance {
+    pub(super) verified: VerifiedCoreAccessProvenance,
+    pub(super) admitted_at: i64,
 }
 
 fn tenant_binding(tenant: &AuthorityTenant, verified: &VerifiedCoreAccessProvenance) -> Result<()> {
@@ -217,7 +228,7 @@ fn request_in_tx(
     Ok(Some(verified))
 }
 
-fn retained_in_tx(
+pub(super) fn retained_in_tx(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     retained: &records::RetainedPlan,

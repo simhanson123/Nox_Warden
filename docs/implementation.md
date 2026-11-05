@@ -4,14 +4,29 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The [received PR25 review](reviews/pr25-claude-review.md) reports no security
+defect or development blocker after I1/T1–T3. Its small documentation/command
+issues are [corrected against source](pr25-review-assessment.md). The current
+integrated batch implements [core full-state review](core-access-enforcement.md),
+a fixed absolute request window, native evidence/isolated execution and operator
+evidence. Schema14 and the connected CLI/API/UI are implemented. Final local
+canonical, shared-umask, binaries/examples and all runtime validation passed;
+the current counts and scope are recorded below and in
+[reports](../reports/README.md). Independent internal review covered 59 source
+files with no findings; it is not an external Claude execution. This local
+record precedes the feature commit/PR/CI/merge. Their later exact head/tree and
+CI results belong in the feature PR completion record and complete Claude prompt.
+Protected workload/delegation bootstrap, generation, signer and dispatch
+authority remain separate blockers.
+
 The [PR24 external review](reviews/pr24-claude-review.md) confirms R1–R4 at
 their original reproduction criteria, without a confirmed new security defect.
-The [current follow-up](pr24-follow-up.md) validates retained job selections
+The [completed PR25 follow-up](pr24-follow-up.md) validates retained job selections
 before clock observation and restores precise semantic/rollback test coverage.
 Some native fault coverage was already present; the assessment distinguishes it
 from actual gaps. Fresh full local verification passed; prior results remain
-historical. Resolve the retained follow-up PR for PR/main CI and merge completion.
-Operational authority gates and schema13 are unchanged.
+historical. PR25 and its separate main CI succeeded, as recorded in the ledger.
+That completed follow-up retained schema13 and operational authority gates.
 
 The [PR23 external review](reviews/pr23-claude-review.md) confirms the previous
 D1–D6 counterexamples corrected and identifies coordinated live quota/index
@@ -50,10 +65,16 @@ meaningful completion percentage.
 | Area | Implemented boundary | Remaining acceptance |
 | --- | --- | --- |
 | Local control and authentication | Real passkeys, browser-authorized CLI, catalogues, audit pagination, device registration and eight locales | Recovery/renewal, remote production identity, complete workflows and accessibility/translation review |
-| Independent approval and evidence | Current distinct-human quorum, immutable review, signed metadata/native observations, durable signing/quota mechanics and retained original core-access cost binding | Production bootstrap, qualified evidence/build identity, complete core signing profile, protected signer and authenticated dispatch |
+| Independent approval and evidence | Current distinct-human quorum, immutable full-state general/core review, fixed original core windows, signed metadata/native observations and durable signing/quota mechanics | Production workload/delegation bootstrap, qualified evidence/build identity, protected core signing authority and authenticated dispatch |
 | Linux enforcement | Actual nftables, packet probes, signed lab execution and conservative recovery in disposable namespaces | Installed-host lifecycle, management connectivity, watchdog, reboot/physical NIC/coexistence and full common-host qualification |
 | Windows and macOS | Preserved design and explicit unsupported boundaries | WFP/callout and Network Extension implementations, supported OS runners, signing and real kernel tests |
 | Distribution and operations | Source, pinned builds and CI | Signed installers, upgrade/uninstall, restore epochs, provider/channel acceptance and production operations |
+
+The new core lab exposed an existing pinned nftables 1.0.6 readback limitation:
+anonymous multiport connection-tracking port sets are emitted with invalid-type
+strings and remain refused. Its equivalent scalar companion policies preserve
+the tested packet scope, but do not qualify multiport native operation. See the
+[core profile boundary](core-access-enforcement.md#native-development-profile).
 
 [Durable signing intent and quota coordination](signing-coordination.md) now
 share the authority transaction. The PR #18 external reports and the confirmed
@@ -77,7 +98,7 @@ remain historical diagnostics and do not prove native activation or resolve
 UNKNOWN. The follow-up's verification is tracked separately from the earlier
 schema 9 checkpoint.
 The public production resolver remains closed. The next dependencies are the
-complete core semantic-review/native/signing profile, protected authority bootstrap and generation initialization, qualified
+protected core workload/delegation/signing authority, bootstrap and generation initialization, qualified
 production evidence and protected signer/dispatch deployment. Passing a lab or
 returning a current evidence summary cannot open policy dispatch.
 
@@ -206,9 +227,11 @@ binding records prevent changed evidence, lease reuse or aliasing the original
 request idempotency key. Reads revalidate the retained bytes and distinguish
 historical evidence from a current binding. Registration, security revision and
 audit commit together; exact retries add no audit event. A successful binding
-does not verify approval signatures or the referenced workload identity. Core
-semantic review, native evidence and grant preparation still need their complete
-profile, shown separately as `CORE_SIGNING_PROFILE_UNAVAILABLE` in readiness.
+does not verify approval signatures or the referenced workload identity.
+Schema14 adds the fixed original window, full-state core semantic review and
+native development evidence described in the [core profile](core-access-enforcement.md).
+Production grant preparation still lacks protected workload/delegation and
+signing authority, so readiness retains `CORE_SIGNING_PROFILE_UNAVAILABLE`.
 
 The separate [target metadata flow](target-metadata.md) lets a trusted local
 operator pin a device key, certificate binding and validity independently of
@@ -247,7 +270,23 @@ Release remains blocked on production native integration and complete platform/l
 ## Verification and evidence retention
 
 The [verification summary](../reports/README.md) records the checked scope,
-reproducible commands and CI links. Browser coverage includes asset lifecycle,
+reproducible commands and historical CI links. Final local `bash scripts/check.sh`
+passed 943 workspace Rust tests, 1 explicit CLI test, 32 reduced-feature tests,
+211 UI tests in 11 files, both UI production builds and static/Python checks.
+Shared-umask authority/service tests passed 530; both Rust totals exclude two
+nested migration-worker summaries and retain 3 ignored declarations. Fresh
+workspace binaries/examples built successfully. The final 406-input source
+digest is `788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf`.
+
+Fresh runtime checks passed: HTTP 24, CLI 13, separate synthetic CLI protocol 5,
+enrollment API 23/browser 25, metadata 41, catalogue 11, passkeys 76, login 14,
+audit 21 and authority browser 43. The isolated Linux lab passed 66 checks with 40
+actual packet probes, signed Linux 98 with 43, core Linux 72 with 24 and 2 signed
+captures, and native evidence 33 with 5 captures and 0 packet probes. All four
+lab containers were removed. These results establish local validation only;
+they do not establish feature CI or installed-host qualification.
+
+Browser coverage includes asset lifecycle,
 immutable revisions, deep links and service prerequisites. CLI smoke checks use
 the real controller for login and authenticated reads. The enrollment smoke uses
 real processes, pinned TLS, client certificates and credential revocation; its
@@ -266,7 +305,7 @@ expressions or a mismatch produce no observed semantic hash. The verifier
 requires a trusted original compiler artifact, trusted observation time and UTC nft capture; it does not authenticate the artifact or
 independently recompute its expected policy hash. A single snapshot does not prove
 historical token refreshes, unrelated tables or authenticated policy dispatch.
-The additional signed execution suite binds that readback to persisted full-state artifacts, native application and actual probe reports; it also checks replay, absolute expiry and authorized restrictive recovery. Its synthetic approval fixture does not satisfy the production approval/capability gates. Full `common-host-v1` qualification and installed host protection remain incomplete. GitHub CI executes both isolated suites.
+The additional signed execution suite binds that readback to persisted full-state artifacts, native application and actual probe reports; it also checks replay, absolute expiry and authorized restrictive recovery. The core suite additionally retains the original core window through replay and restrictive recovery. Their synthetic approval fixtures do not satisfy the production approval/capability gates. Full `common-host-v1` qualification and installed host protection remain incomplete. The CI workflow includes these isolated suites; the final local PASS does not claim a feature CI run.
 
 Generated reports, screenshots and full logs remain ignored local outputs. CI
 retains explicitly selected reports as artifacts for seven days. Routine source

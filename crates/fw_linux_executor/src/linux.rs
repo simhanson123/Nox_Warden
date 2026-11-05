@@ -76,6 +76,11 @@ impl From<fw_authority::AuthorityError> for Error {
         Self("SIGNATURE_OR_BINDING_REJECTED")
     }
 }
+impl From<CoreAccessBundleError> for Error {
+    fn from(_: CoreAccessBundleError) -> Self {
+        Self("CORE_ACCESS_BUNDLE_REJECTED")
+    }
+}
 pub type Result<T> = std::result::Result<T, Error>;
 fn hash<T: Serialize>(value: &T) -> Result<String> {
     canonical_hash(value).map_err(|_| Error::new("CANONICALIZATION"))
@@ -200,6 +205,11 @@ fn verify_bundle(
     trust: &LabTrust,
     recovery: bool,
 ) -> Result<VerifiedGrant> {
+    if bundle.schema_version == CORE_ACCESS_RUNTIME_SCHEMA {
+        probes::validate(&bundle.plan.probes)?;
+        return verify_core_access_execution(bundle, trust, native::now()?, recovery)
+            .map_err(|_| Error::new("CORE_ACCESS_BUNDLE_REJECTED"));
+    }
     let p = &bundle.plan;
     let a = &bundle.approval;
     uuid(&bundle.operation_id)?;
@@ -207,6 +217,7 @@ fn verify_bundle(
     uuid(&a.principal_id)?;
     let now = native::now()?;
     if bundle.schema_version != "fw.isolated-execution-bundle/v1"
+        || bundle.core_access.is_some()
         || p.schema_version != "fw.isolated-lab-plan/v1"
         || a.schema_version != "fw.isolated-lab-approval/v1"
         || a.kind != "synthetic_test_fixture"
@@ -279,6 +290,28 @@ fn verify_bundle(
         return Err(Error::new("SIGNED_PLAN_RECOVERY_BINDING"));
     }
     Ok(verified)
+}
+fn read_bundle(path: &Path) -> Result<ExecutionBundle> {
+    let bytes = files::read_bytes(path, fw_contracts::MAX_INTERNAL_BYTES)?;
+    parse_execution_bundle(&bytes).map_err(|_| {
+        eprintln!("CORE_ACCESS_BUNDLE_PARSE");
+        Error::new("CORE_ACCESS_BUNDLE_REJECTED")
+    })
+}
+fn verify_command_bundle(
+    bundle: &ExecutionBundle,
+    trust: &LabTrust,
+    recovery: bool,
+    core_verifier: Option<&CoreAccessCurrentVerifier<'_>>,
+) -> Result<VerifiedGrant> {
+    if let Some(verify) = core_verifier {
+        if bundle.schema_version != CORE_ACCESS_RUNTIME_SCHEMA {
+            return Err(Error::new("CORE_ACCESS_BUNDLE_REJECTED"));
+        }
+        probes::validate(&bundle.plan.probes)?;
+        return verify(trust, native::now()?, recovery).map_err(Error::from);
+    }
+    verify_bundle(bundle, trust, recovery)
 }
 fn initial(state: &Path, trust: &LabTrust) -> Result<InitialState> {
     files::directory(state)?;
@@ -372,7 +405,10 @@ fn status_value(j: &ExecutorJournal, id: &str, extra: Value) -> Result<Value> {
 }
 fn init(state: &Path, bundle: &ExecutionBundle, trust: &LabTrust) -> Result<Value> {
     verify_bundle(bundle, trust, false)?;
-    if !bundle.previous.tokens.is_empty() {
+    // The legacy fixture starts from business drop. The additive core case
+    // explicitly tests preservation of independently described preexisting
+    // leases; it still requires exact actual readback of the saved installation.
+    if !bundle.previous.tokens.is_empty() && bundle.schema_version != CORE_ACCESS_RUNTIME_SCHEMA {
         return Err(Error::new("INITIAL_BASELINE_MUST_BE_RESTRICTIVE"));
     }
     read_match(&bundle.previous, &bundle.previous_installation)?;
@@ -512,12 +548,44 @@ fn within_commit_budget(installation: &Installation) -> Result<()> {
     }
     Ok(())
 }
+fn within_commit_budget_at(installation: &Installation, stage: &'static str) -> Result<()> {
+    let result = within_commit_budget(installation);
+    if result.is_err()
+        && let Ok(observed) = native::observation()
+    {
+        eprintln!(
+            "FW_LAB_INSTALL_BUDGET {}",
+            json!({
+                "stage":stage,
+                "elapsed_millis":observed.monotonic_millis.saturating_sub(installation.manifest.binding.monotonic_millis),
+                "budget_millis":installation.manifest.binding.commit_budget_seconds.saturating_mul(1000),
+                "reserved_process_millis":2000
+            })
+        );
+    }
+    result
+}
 fn apply(
     state: &Path,
     bundle: &ExecutionBundle,
     trusted: &LabTrust,
     trust_path: &Path,
     crash: Option<&str>,
+) -> Result<Value> {
+    if bundle.schema_version == CORE_ACCESS_RUNTIME_SCHEMA {
+        return with_core_access_verifier(bundle, |verify| {
+            apply_verified(state, bundle, trusted, trust_path, crash, Some(verify))
+        });
+    }
+    apply_verified(state, bundle, trusted, trust_path, crash, None)
+}
+fn apply_verified(
+    state: &Path,
+    bundle: &ExecutionBundle,
+    trusted: &LabTrust,
+    trust_path: &Path,
+    crash: Option<&str>,
+    core_verifier: Option<&CoreAccessCurrentVerifier<'_>>,
 ) -> Result<Value> {
     let mut j = journal(state, trusted, trust_path)?;
     if let Some(operation) = j.operation(&bundle.operation_id)? {
@@ -531,7 +599,7 @@ fn apply(
         // expired. It never creates a fresh installation or touches native state.
         return observe(state, &mut j, &saved);
     }
-    let grant = verify_bundle(bundle, trusted, false)?;
+    let grant = verify_command_bundle(bundle, trusted, false, core_verifier)?;
     let (baseline, previous_installation) = actual_baseline(state, &j, trusted)?;
     if hash(&baseline)? != hash(&bundle.previous)?
         || baseline.desired_state_hash != j.current_state_hash()?
@@ -604,17 +672,17 @@ fn apply(
         return Err(Error::new("RECOVERY_ACK_BINDING"));
     }
     j.arm_watchdog(&bundle.operation_id, &material_hash, &hash(&ack)?)?;
-    within_commit_budget(&saved.installation)?;
+    within_commit_budget_at(&saved.installation, "apply-after-watch")?;
     // Recheck current keys, signed dispatch window and all immutable material
     // immediately before the durable UNKNOWN and bounded native transaction.
     let current_trust = trust(trust_path)?;
     initial(state, &current_trust)?;
-    verify_bundle(bundle, &current_trust, false)?;
+    verify_command_bundle(bundle, &current_trust, false, core_verifier)?;
     j.mark_submitted(&bundle.operation_id, native::now()?)?;
     if crash == Some("--crash-after-submit") {
         crash_self();
     }
-    within_commit_budget(&saved.installation)?;
+    within_commit_budget_at(&saved.installation, "apply-after-current-verification")?;
     native::replace(
         &j,
         &bundle.candidate.table,
@@ -804,6 +872,22 @@ fn recover(
     trust_path: &Path,
     crash: Option<&str>,
 ) -> Result<Value> {
+    if saved.bundle.schema_version == CORE_ACCESS_RUNTIME_SCHEMA {
+        return with_core_access_verifier(&saved.bundle, |verify| {
+            recover_verified(state, j, saved, trusted, trust_path, crash, Some(verify))
+        });
+    }
+    recover_verified(state, j, saved, trusted, trust_path, crash, None)
+}
+fn recover_verified(
+    state: &Path,
+    j: &mut ExecutorJournal,
+    saved: &StoredInstallation,
+    trusted: &LabTrust,
+    trust_path: &Path,
+    crash: Option<&str>,
+    core_verifier: Option<&CoreAccessCurrentVerifier<'_>>,
+) -> Result<Value> {
     let id = &saved.bundle.operation_id;
     let operation = j.operation(id)?.ok_or(Error::new("OPERATION_MISSING"))?;
     if operation.generation != j.highest_generation()?.to_string() {
@@ -823,7 +907,7 @@ fn recover(
             return Ok(observed);
         }
     }
-    let grant = verify_bundle(&saved.bundle, trusted, true)?;
+    let grant = verify_command_bundle(&saved.bundle, trusted, true, core_verifier)?;
     let material_hash = j
         .execution_material_hash(id)?
         .ok_or(Error::new("MATERIAL_MISSING"))?;
@@ -942,8 +1026,11 @@ fn recover(
         }
         let current_trust = trust(trust_path)?;
         initial(state, &current_trust)?;
-        verify_bundle(&saved.bundle, &current_trust, true)?;
-        within_commit_budget(&recovery.installation)?;
+        verify_command_bundle(&saved.bundle, &current_trust, true, core_verifier)?;
+        within_commit_budget_at(
+            &recovery.installation,
+            "recovery-after-current-verification",
+        )?;
         j.mark_recovery_submitted(id, attempt.sequence, native::now()?)?;
         if crash == Some("--crash-after-recovery-submit") {
             crash_self();
@@ -1125,12 +1212,12 @@ fn run() -> Result<Option<Value>> {
     match command.as_str() {
         "init" => Ok(Some(init(
             &state,
-            &files::read(Path::new(required("--bundle")?))?,
+            &read_bundle(Path::new(required("--bundle")?))?,
             &trusted,
         )?)),
         "apply" => Ok(Some(apply(
             &state,
-            &files::read(Path::new(required("--bundle")?))?,
+            &read_bundle(Path::new(required("--bundle")?))?,
             &trusted,
             &trust_path,
             crash_commit.as_deref(),

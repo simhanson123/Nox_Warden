@@ -9,6 +9,31 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR25 consolidated review
+
+The user supplied [Claude Opus5.5's PR25 review](reviews/pr25-claude-review.md)
+for `89684e055f01a1c87113e4ea4a713ebbff77afe1` against
+`59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`. Merge
+`a624a1e684a8fc0065ac4f4609101410f56c50bb` has the same tree.
+PR CI41945354850 and separate main CI41950760489 both succeeded. Preserve all
+14,448 uploaded bytes, including 159 CRLF endings and progress notes, SHA256
+`64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771`.
+
+The report confirms I1/T1–T3 and identifies no security defect or development
+blocker. Its focused/full/browser results are attributed external evidence;
+Docker labs are NOT_RUN there and its private probes are unavailable here.
+[Source-qualified corrections](pr25-review-assessment.md) cover the zero-match
+prompt filter, overlap in the thirteen-condition approval matrix, table-mutation
+rather than SQL-text recording, snapshot scope and temporary test-authorizer
+replacement. The report's blanket final-IMMEDIATE wording is also qualified:
+retained-intent read uses a validated DEFERRED final snapshot. No raw report is
+rewritten. The correct exact transition test freshly passed once; this does not
+validate the next feature.
+
+Proceed with the integrated core-access semantic/native/absolute-window and
+operator evidence batch. Do not repeat external review of unchanged PR25 or
+promote structural provenance/lab evidence into protected production authority.
+
 ## Received PR24 consolidated review
 
 The user supplied [Claude Opus5.5's PR24 review](reviews/pr24-claude-review.md)

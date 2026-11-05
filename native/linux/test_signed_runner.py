@@ -17,12 +17,14 @@ SPEC.loader.exec_module(runner)
 
 
 class SignedOutcomes(unittest.TestCase):
-    def exercise(self, execution=None, cleanup=None, startup=False):
+    def exercise(self, execution=None, cleanup=None, startup=False, profile='legacy'):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             paths = ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'native/linux/Dockerfile.lab',
                      'native/linux/signed_lifecycle.py', 'scripts/signed-linux-lab.py',
                      'target/debug/fw_linux_executor', 'target/debug/fw_signed_lab_fixture']
+            if profile == 'core-access':
+                paths.extend(['native/linux/core_access_lifecycle.py', 'scripts/core-access-linux-lab.py'])
             for crate in ('fw_linux_executor', 'fw_backend_linux', 'fw_authority', 'fw_executor',
                           'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab',
                           'fw_native_evidence', 'fw_target_evidence'):
@@ -41,10 +43,11 @@ class SignedOutcomes(unittest.TestCase):
                     data = b'fixture-commit\n'
                 elif 'run' in command:
                     data = b'a' * 64 + b'\n'
-                elif '/lab/signed_lifecycle.py' in command:
+                elif '/lab/signed_lifecycle.py' in command or '/lab/core_access_lifecycle.py' in command:
                     if isinstance(execution, BaseException):
                         raise execution
-                    code, data = execution or (0, json.dumps({'status': 'PASS', 'packet_tests_executed': 7}))
+                    schema = 'fw.core-access-linux-lab/v1' if profile == 'core-access' else 'fw.signed-linux-lab/v1'
+                    code, data = execution or (0, json.dumps({'schema_version': schema, 'status': 'PASS', 'packet_tests_executed': 7, 'capture_count': 2}))
                     return subprocess.CompletedProcess(command, code, data, '')
                 elif 'rm' in command:
                     if isinstance(cleanup, BaseException):
@@ -56,7 +59,7 @@ class SignedOutcomes(unittest.TestCase):
             with patch.object(runner, 'ROOT', root), patch.object(runner.subprocess, 'run', side_effect=process), \
                  patch.object(sys, 'argv', ['signed-linux-lab.py', '--skip-image-build', '--report', str(report)]), \
                  contextlib.redirect_stdout(io.StringIO()):
-                code = runner.main()
+                code = runner.main(profile=profile)
             return code, json.loads(report.read_text())
 
     def test_unavailable_startup_is_not_run(self):
@@ -85,6 +88,18 @@ class SignedOutcomes(unittest.TestCase):
                 self.assertEqual((code, result['status'], result['packet_tests_executed']), (1, 'FAIL', 7))
                 self.assertFalse(result['container_removed'])
                 self.assertIn('cleanup_error', result)
+
+    def test_core_profile_keeps_separate_schema_and_capture_count(self):
+        code, result = self.exercise(profile='core-access')
+        self.assertEqual((code, result['schema_version'], result['capture_count']),
+                         (0, 'fw.core-access-linux-lab/v1', 2))
+
+    def test_core_profile_rejects_legacy_or_missing_capture_report(self):
+        for report in ({'schema_version': 'fw.signed-linux-lab/v1', 'status': 'PASS', 'packet_tests_executed': 7},
+                       {'schema_version': 'fw.core-access-linux-lab/v1', 'status': 'PASS', 'packet_tests_executed': 7, 'capture_count': 1}):
+            with self.subTest(report=report):
+                code, result = self.exercise(profile='core-access', execution=(0, json.dumps(report)))
+                self.assertEqual((code, result['status'], result['packet_tests_executed']), (1, 'FAIL', 7))
 
 
 if __name__ == '__main__':

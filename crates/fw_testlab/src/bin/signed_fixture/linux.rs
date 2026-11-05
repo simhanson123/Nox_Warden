@@ -1,6 +1,8 @@
 //! Synthetic signing material exclusively for the disposable signed-execution lab.
 //! This binary does not implement WebAuthn, human approval or production authority.
 //! It refuses to generate or use keys outside the explicitly isolated namespace.
+#[path = "core_access.rs"]
+mod core_access;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signer, SigningKey};
@@ -352,6 +354,7 @@ fn prepare(path: &Path, mode: &str) -> Result<Value> {
         candidate,
         recovery,
         previous_installation,
+        core_access: None,
     };
     let lab_key = |name: &str, purpose: &str, key: &SigningKey| LabKey {
         key_id: name.into(),
@@ -603,6 +606,7 @@ fn successor(path: &Path, unapplied: bool) -> Result<Value> {
         candidate,
         recovery,
         previous_installation,
+        core_access: None,
     };
     save(&path.join("bundle-next.json"), &bundle)?;
     let metadata = json!({"operation_id":operation,"table":bundle.candidate.table,"expires_at_unix":expiry,
@@ -614,6 +618,14 @@ fn successor(path: &Path, unapplied: bool) -> Result<Value> {
 fn run() -> Result<Value> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
+        [command, path] if command == "prepare-core" => core_access::prepare(Path::new(path), false),
+        [command, path] if command == "prepare-core-recovery" => core_access::prepare(Path::new(path), true),
+        [command, path] if command == "verify-core-time-model" => core_access::verify_time_model(Path::new(path)),
+        [command, path, purpose] if command == "verify-core-authority" => core_access::verify_authority(Path::new(path), purpose),
+        [command, path, probe, output] if command == "confirm-core" => core_access::confirmation(Path::new(path), Path::new(probe), Path::new(output)),
+        [command, path, role] if command == "challenge-core-observation" => core_access::challenge_observation(Path::new(path), role),
+        [command, path, role, proof] if command == "verify-core-observation" => core_access::verify_observation(Path::new(path), role, Path::new(proof)),
+        [command, path, output] if command == "forge-core-target" => core_access::forge_target(Path::new(path), Path::new(output)),
         [command, path, mode] if command == "prepare" && ["confirmed", "crash", "timeout", "expired-recovery", "recovery-resume"].contains(&mode.as_str()) => prepare(Path::new(path), mode),
         [command, path, probe, output] if command == "confirm" || command == "confirm-next" => confirmation(Path::new(path), Path::new(probe), Path::new(output), if command == "confirm-next" { "bundle-next.json" } else { "bundle.json" }),
         [command, path] if command == "successor" => successor(Path::new(path), false),

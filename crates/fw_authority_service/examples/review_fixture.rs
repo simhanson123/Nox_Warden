@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "../tests/support/authenticator.rs"]
 mod authenticator;
+#[path = "../../fw_authority/tests/support/core_access_review_fixture.rs"]
+mod core_access_review_fixture;
 #[path = "../tests/support/plans.rs"]
 mod plans;
 use authenticator::{Authenticator, PRINCIPAL};
@@ -108,6 +110,42 @@ fn main() {
     store
         .register_plan(&tenant, &plan, &requirements, now)
         .unwrap();
+    let core_id = "88888888-8888-4888-8888-888888888888";
+    let (mut core_plan, mut core_requirements, _, mut provenance, _) =
+        core_access_review_fixture::fixture_at(now, 0);
+    core_plan["plan_id"] = json!(core_id);
+    core_plan["org_id"] = json!(plans::ORG);
+    core_plan["project_id"] = json!(plans::PROJECT);
+    core_plan["principal_id"] = json!(PRINCIPAL);
+    core_plan["valid_until"] = json!(core_access_review_fixture::core::at(now + 3600));
+    core_plan["rollback_authority"]["valid_until"] =
+        json!(core_access_review_fixture::core::at(now + 3660));
+    core_requirements["role_policy_hash"] = requirements["role_policy_hash"].clone();
+    core_plan["approval_requirements_hash"] =
+        json!(fw_contracts::canonical_hash(&core_requirements).unwrap());
+    provenance.envelope.org_id = plans::ORG.into();
+    provenance.envelope.project_id = plans::PROJECT.into();
+    provenance.delegation.org_id = plans::ORG.into();
+    provenance.delegation.project_id = plans::PROJECT.into();
+    provenance.delegation.allowed_principal_ids = vec![PRINCIPAL.into()];
+    for policy in core_plan["requested_policies"].as_array_mut().unwrap() {
+        policy["org_id"] = json!(plans::ORG);
+        policy["project_id"] = json!(plans::PROJECT);
+    }
+    core_access_review_fixture::core::rehash(&mut core_plan, &mut provenance);
+    let core_review = core_access_review_fixture::rebuild(&mut core_plan, &provenance);
+    let window = core_access_review_fixture::window(&core_plan, &provenance);
+    store
+        .register_reviewed_core_access_plan(
+            &tenant,
+            &core_plan,
+            &core_requirements,
+            &core_review,
+            &provenance,
+            &window,
+            now,
+        )
+        .unwrap();
     let reject_id = "55555555-5555-4555-8555-555555555555";
     let missing_id = "66666666-6666-4666-8666-666666666666";
     let stale_id = "77777777-7777-4777-8777-777777777777";
@@ -137,7 +175,7 @@ fn main() {
     let mut session_key = [0; 32];
     openssl::rand::rand_bytes(&mut session_key).unwrap();
     write(&directory.join("session.key"), &session_key);
-    write(&directory.join("fixture.json"),&serde_json::to_vec(&json!({"profile":"owner","plan_id":plans::PLAN,"reject_plan_id":reject_id,"missing_evidence_plan_id":missing_id,"stale_plan_id":stale_id})).unwrap());
+    write(&directory.join("fixture.json"),&serde_json::to_vec(&json!({"profile":"owner","plan_id":plans::PLAN,"reject_plan_id":reject_id,"missing_evidence_plan_id":missing_id,"stale_plan_id":stale_id,"core_access_plan_id":core_id})).unwrap());
     println!(
         "Created isolated authority fixture. No network policy or production authority was changed."
     );

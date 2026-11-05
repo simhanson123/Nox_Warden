@@ -1,5 +1,6 @@
 import { ApiError } from './api';
 import type { JsonRecord } from './api';
+import { readCoreAccessResponse } from './core-access-evidence';
 
 export const authorityOrigin = 'http://localhost:8790';
 export interface AuthoritySession {
@@ -64,7 +65,16 @@ export function parseAuthorityPlan(value: unknown): AuthorityPlan {
 // assertions enter persistent storage, URLs, controller requests or console logs.
 export class AuthorityClient {
   private csrf: string | undefined;
-  clearSession() { this.csrf = undefined; }
+  private coreEvidenceTime: number | undefined;
+  private coreEvidenceSession: string | undefined;
+  clearSession() { this.csrf = undefined; this.coreEvidenceTime = undefined; this.coreEvidenceSession = undefined; }
+  // A display floor for one in-memory authority session. Once core evidence
+  // consumes an absolute deadline, refresh/remount cannot restore its badge.
+  // A new authenticated session can recheck the authority's current evidence.
+  observeCoreEvidenceTime(time: number) {
+    this.coreEvidenceTime = Math.max(this.coreEvidenceTime ?? -Infinity, time);
+    return this.coreEvidenceTime;
+  }
   async request<T>(path: string, body?: unknown, signal?: AbortSignal, version: 'v1' | 'v2' = 'v1'): Promise<T> {
     if (window.location.origin !== authorityOrigin) throw new ApiError(0, 'AUTHORITY_ORIGIN_REQUIRED', '');
     const headers: Record<string, string> = { Accept: 'application/json' };
@@ -78,7 +88,8 @@ export class AuthorityClient {
       if (signal?.aborted) throw error;
       throw new ApiError(0, 'NETWORK_ERROR', '');
     }
-    const value: unknown = await response.json().catch(() => null);
+    const value: unknown = path.endsWith('/core-access-evidence') && response.ok
+      ? await readCoreAccessResponse(response) : await response.json().catch(() => null);
     if (!response.ok) {
       const problem = value && typeof value === 'object' ? value as JsonRecord : {};
       throw new ApiError(response.status, typeof problem.error === 'string' ? problem.error : 'AUTHORITY_REQUEST_FAILED', typeof problem.reason === 'string' ? problem.reason.slice(0, 200) : '');
@@ -90,6 +101,10 @@ export class AuthorityClient {
     if (typeof session.authenticated !== 'boolean' || typeof session.csrf_token !== 'string' || !session.csrf_token) throw new ApiError(0, 'AUTHORITY_SESSION_INVALID', '');
     if (session.authenticated && ![session.principal_id, session.org_id, session.project_id, session.expires_at].every(field => typeof field === 'string' && field)) throw new ApiError(0, 'AUTHORITY_SESSION_INVALID', '');
     this.csrf = session.csrf_token;
+    const binding = session.authenticated
+      ? JSON.stringify([session.csrf_token, session.principal_id, session.org_id, session.project_id, session.expires_at]) : undefined;
+    if (!binding || binding !== this.coreEvidenceSession) this.coreEvidenceTime = undefined;
+    this.coreEvidenceSession = binding;
     return session as unknown as AuthoritySession;
   }
   async session(signal?: AbortSignal) { return this.acceptSession(await this.request('/session', undefined, signal)); }

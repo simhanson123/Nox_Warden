@@ -30,6 +30,14 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   state with a separate observation signature, and retain current versus
   historical results. The authority screen shows this evidence without treating
   lab correspondence as host qualification or policy authorization.
+- [Reviewed core access and fixed lease windows](docs/core-access-enforcement.md):
+  independently recompose the complete before/after state for an original
+  `f.plan/v1` core-access plan and atomically retain its review, original cost
+  provenance and one absolute lease window. Local
+  [administration commands](docs/core-access-provenance-cli.md)
+  and authenticated evidence reads expose current and historical bindings.
+  Approval, retry and journal replay do not refresh that window; production
+  signing and dispatch remain closed.
 - Authenticated local asset and service catalogues with immutable revisions,
   ETags, tenant isolation and transactional audit records. Services can reference
   registered targets with current credentials and reports. Authenticated audit
@@ -145,6 +153,8 @@ python scripts/smoke_audit.py
 # Requires the isolated Docker lab; these commands do not enable host protection.
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+# Reuses the pinned image built by the signed lab.
+python scripts/core-access-linux-lab.py --skip-image-build --report reports/core-access-linux-lab.json
 ```
 
 The [verification summary](reports/README.md) records scope, reproducible commands
@@ -156,7 +166,11 @@ deny, connection expiry and actual rule-tamper detection in an isolated network
 namespace. The [signed execution lab](docs/signed-linux-execution.md) additionally
 connects signature verification, durable preparation, native apply/readback,
 probe confirmation and restrictive timeout/crash recovery. Its authority and
-approval inputs are explicitly synthetic fixtures. Full Linux qualification,
+approval inputs are explicitly synthetic fixtures. The separate
+[core-access profile](docs/core-access-enforcement.md#native-development-profile)
+retains the actual closed core plan, original provenance and fixed window in its
+signed execution and recovery material. It uses explicit synthetic lab trust;
+it does not provision production authority or bootstrap. Full Linux qualification,
 Windows WFP/callout and macOS Network Extension implementations,
 independent authority/watchdog integration, signed installers and production
 identity lifecycle, certificate renewal and remote enrollment remain unfinished.

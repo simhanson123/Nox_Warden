@@ -475,6 +475,7 @@ pub fn restore_v11(path: &std::path::Path) {
 /// retained rows. This is fixture metadata reconstruction, not an old binary.
 #[allow(dead_code)]
 pub fn restore_v12(path: &std::path::Path) {
+    restore_v13(path);
     let mut db = rusqlite::Connection::open(path).unwrap();
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -556,5 +557,41 @@ pub fn restore_v12(path: &std::path::Path) {
     }
     tx.pragma_update(None, "user_version", 12).unwrap();
     tx.commit().unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Reconstruct published schema13 around unchanged legacy rows. Removing a
+/// populated window would erase new authority evidence and is never allowed.
+#[allow(dead_code)]
+pub fn restore_v13(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version <= 13 {
+        return;
+    }
+    assert_eq!(version, 14);
+    assert_eq!(
+        db.query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM authority_core_access_lease_windows",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap(),
+        0,
+        "cannot reconstruct schema13 while new lease-window evidence exists"
+    );
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let guard: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TABLE authority_core_access_lease_windows; DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=14;").unwrap();
+    db.execute_batch(&guard).unwrap();
+    db.pragma_update(None, "user_version", 13).unwrap();
     db.pragma_update(None, "foreign_keys", "ON").unwrap();
 }

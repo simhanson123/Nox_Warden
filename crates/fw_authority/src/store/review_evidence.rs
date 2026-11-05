@@ -15,6 +15,11 @@ impl AuthorityStore {
         now: i64,
     ) -> Result<()> {
         time(now)?;
+        if plan["change_kind"] == "add_access_lease" {
+            return Err(invalid(
+                "core review requires original inputs and lease window",
+            ));
+        }
         let subject =
             subject::validate_subject(&tenant.org_id, &tenant.project_id, plan, requirements, now)?;
         let verified = evidence
@@ -128,5 +133,6 @@ pub(super) fn review_in_tx(
     {
         return Err(AuthorityError::Binding);
     }
+    access_window::validate_review_binding(tx, tenant, subject, &verified, now)?;
     Ok(Some(verified))
 }

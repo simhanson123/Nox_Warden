@@ -2,7 +2,8 @@
 //! Operating-system access to the protected authority database is the trust
 //! boundary. Inputs are public pins/proofs; this program accepts no private key.
 use fw_authority::{
-    AuthorityStore, AuthorityTenant, CoreAccessProvenance, NativeObserverPin, NativeReferencePin,
+    AuthorityStore, AuthorityTenant, CoreAccessPlanRegistration, CoreAccessProvenance,
+    MAX_CORE_ACCESS_PLAN_REGISTRATION_BYTES, NativeObserverPin, NativeReferencePin,
     SigningProjectQuotaPin, SigningRequest, SigningRootQuotaPin, TargetTransportPin,
 };
 use fw_backend_linux::Installation;
@@ -20,7 +21,7 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|read-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Recover a retained project pin revision with read-signing-project-quota using an empty JSON object; the read never authorizes signing. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
+const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-core-access-plan|read-core-access-lease-window|register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|read-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. Register a complete immutable core plan, review, provenance and absolute lease window with schema_version fw.reviewed-core-access-plan/v1. Recover committed registration after lost output with read-core-access-lease-window; its retained window never moves with approval or retry. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Recover a retained project pin revision with read-signing-project-quota using an empty JSON object; the read never authorizes signing. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -62,7 +63,9 @@ impl Arguments {
             | "read-signing-intent"
             | "cancel-signing-job"
             | "register-core-access-provenance"
-            | "read-core-access-provenance" => &["--database", "--org-id", "--project-id"],
+            | "read-core-access-provenance"
+            | "register-reviewed-core-access-plan"
+            | "read-core-access-lease-window" => &["--database", "--org-id", "--project-id"],
             "read-signing-readiness" | "read-signing-readiness-v2" | "request-signing" => &[
                 "--database",
                 "--org-id",
@@ -418,6 +421,43 @@ fn run() -> Result<Value> {
                 )
                 .map_err(|_| "CORE_ACCESS_PROVENANCE_REJECTED")?;
             serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "register-reviewed-core-access-plan" => {
+            // Keep the complete plan/review/provenance/window under one closed,
+            // bounded codec. The clock is sampled only after stdin completes.
+            let mut bytes = Vec::new();
+            std::io::stdin()
+                .lock()
+                .take((MAX_CORE_ACCESS_PLAN_REGISTRATION_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            let input = CoreAccessPlanRegistration::parse(&bytes)
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            let now = chrono::Utc::now().timestamp();
+            let status = store
+                .register_reviewed_core_access_plan(
+                    &tenant,
+                    &input.plan,
+                    &input.requirements,
+                    &input.evidence,
+                    &input.provenance,
+                    &input.window,
+                    now,
+                )
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "read-core-access-lease-window" => {
+            let input: CoreAccessProvenanceReadRequest =
+                request().map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            let now = chrono::Utc::now().timestamp();
+            let window = store
+                .read_core_access_lease_window(&tenant, &input.plan_id, now)
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            Ok(json!({
+                "schema_version":"fw.core-access-lease-window-query/v1",
+                "window":window,"signing_allowed":false,"dispatch_allowed":false
+            }))
         }
         "read-core-access-provenance" => {
             let input: CoreAccessProvenanceReadRequest =

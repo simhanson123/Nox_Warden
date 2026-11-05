@@ -6,9 +6,83 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## PR24 validated clock selection and rollback coverage
+## Current core-access implementation
 
-The current batch starts at `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8` on
+This integrated batch starts at PR25 merge
+`a624a1e684a8fc0065ac4f4609101410f56c50bb` on
+`feat/core-access-enforcement`. The [received PR25 review](../docs/reviews/pr25-claude-review.md)
+reports no security defect or development blocker; [source-qualified corrections](../docs/pr25-review-assessment.md)
+fix the prompt filter and describe the actual fault matrix and hook/snapshot scope.
+Fresh exact baseline-filter verification passed one test. Schema14 and the
+[connected core profile](../docs/core-access-enforcement.md) are implemented.
+Focused planner, window/migration, CLI/API/UI and native-codec tests passed.
+Consolidated source review and the actual new core Linux lab are complete: the
+lab passed **72 checks, 24 actual packet probes and two signed native captures**,
+including the original 60-second expiry and autonomous restrictive recovery after
+normal-plan expiry under the original recovery deadline. The shipped authority
+browser passed **43** checks, including a fresh virtual-passkey core approval,
+unchanged fixed times and closed signing/dispatch. Fresh `bash scripts/check.sh`
+passed **943 workspace Rust tests**, 3 intentionally ignored declarations,
+**1 explicitly executed CLI test**, **32 reduced-feature tests** and **211 UI
+tests in 11 files**, both production UI builds and all static/Python checks.
+The Rust workspace total excludes two nested migration-worker summaries. Shared
+`(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)` also
+passed **530** tests with 3 ignored and two nested worker summaries excluded.
+Fresh `cargo build --locked --workspace --bins --examples` also passed. The
+complete local validation and independent integrated review are finished; fresh
+PR/main CI and merge results belong to this branch's retained PR completion
+record. No new Claude review or production qualification is claimed.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Current binaries; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Restart readiness, fixed core window and virtual-passkey approval |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Core access Linux | 72 | 24 actual packet probes and two signed native captures |
+| Native evidence | 33 | Five actual kernel captures; no packet probes |
+
+Fourteen fresh JSON reports and the separate CLI protocol result passed. Thirteen
+reports are selected for CI; the extra enrollment browser report is local only.
+The final 406 executable/test/spec/CI/toolchain inputs remained at SHA256
+`788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf`.
+Independent review found no remaining finding in the 59 changed source/test/CI
+files (manifest SHA256
+`253240115b1f7c5c66cd859f950e0156992ea92353219ac892deb07a9e46ae88`).
+The independently audited local summary has SHA256
+`4214872ce333dcdc47cd0a5a347374f408124bea6b30a9036b1e634582cebced`.
+Reported binaries were matched to their own execution-stage snapshots; this is
+not a cross-platform reproducible-build claim. The authority browser preceded
+two test-only fixture-module alias changes, independently checked to leave all
+production inputs unchanged. All four lab containers were removed, with zero
+containers and no live test services/processes at final cleanup. The 46 retained
+Chromium entries were confirmed zombies owned by PID 1, not running browsers.
+
+Initial integration failures were corrected before these final passes. Fixes
+kept original absolute windows and the five-second installation budget, bound
+baseline installation immediately before publication, reused only scoped
+immutable material while repeating current trust/signature/time checks, made
+observer journal reads genuinely read-only, and compared naturally aging nft
+tokens without masking static rule changes. Browser response decoding and
+duplicate test-fixture modules were also corrected. Failed attempts are retained
+locally and excluded from passing totals; no unavailable failure predicate is
+presented as independently proven.
+
+Pinned nftables 1.0.6 still emits ambiguous invalid-type text for anonymous
+multiport conntrack sets. The verifier refuses it. The core lab uses equivalent
+scalar-port policies and does **not** qualify that multiport readback path.
+Actual autonomous recovery occurred after the normal plan expired and before
+the original lease ended; lease expiry and recovery-at-expiry model checks are
+separate evidence. Synthetic lab trust does not authenticate production workload,
+delegation or human approval. Protected signing/dispatch, installed Linux
+lifecycle, Windows WFP/callout, macOS Network Extension, authenticated completion
+and external audit anchors remain incomplete.
+
+## Completed PR25: validated clock selection and rollback coverage
+
+The completed batch starts at `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8` on
 `fix/validated-clock-and-rollback-coverage`. The
 [received review](../docs/reviews/pr24-claude-review.md) and
 [qualified assessment](../docs/pr24-follow-up.md) distinguish attributed external
@@ -19,12 +93,13 @@ The implementation moves all three retained intent/job selections into validated
 snapshots and compares selected bindings again before final use. It removes the
 unchecked wrapper read. Separate signature/generation fixtures reach the intended
 semantic checks; genuine transition and intermediate approval failures record
-exact fault reachability, preceding SQL and complete retained rollback/retry.
+exact fault reachability, preceding table mutations and retained-row rollback/retry.
+Approval faults record ordered table/action pairs; transition faults also compare schema.
 The existing 12 native fault stages are preserved, including review-evidence
 INSERT; the original changed-expiry reference-pin retry is restored.
 
 Focused checks passed with nonzero execution: clock selectors2, signing intents10,
-live integrity6, rootless lifecycle6, approval atomicity4 (13 new fault conditions),
+live integrity6, rootless lifecycle6, approval atomicity4 (13 two-human fault conditions, including two existing audit-INSERT stages),
 late transition1, early schema refusal1, native private7 and reference-pin retry1.
 A separate precise signature rerun overlaps the signing-intent count and is not
 added. Independent Sol6.1 ultra source review verified the frozen 390-input
@@ -58,11 +133,11 @@ The native collector recorded its existing narrowly recognized optional
 GLIBC2.39 weak-symbol warning in the pinned lab image; exact refusal diagnostics
 and all capture checks passed. No lab setup failure occurred in this batch.
 
-Local implementation and verification are complete. Resolve the PR for retained
-`fix/validated-clock-and-rollback-coverage` for the exact head, PR CI, merge and
-separate main CI completion record and complete fixed Claude-only prompt. Source
-does not embed its own future commit identifier; neither prompt preparation nor
-internal review is a new external Claude review.
+PR25 completed at head `89684e055f01a1c87113e4ea4a713ebbff77afe1`, merged as
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. PR CI41945354850 and separate main
+CI41950760489 passed, with matching fresh counts and source/artifact audits.
+The retained branch and PR preserve the completion record and historical prompt.
+The subsequently received external PR25 review is recorded above.
 
 Initial targeted attempts caught Rust test-pattern issues and inaccurate fixture
 assumptions: result/outbox hashes must agree before the signature check, neither
@@ -364,6 +439,7 @@ python scripts/smoke_enrollment.py --authority-metadata --report reports/target-
 python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+python scripts/core-access-linux-lab.py --skip-image-build --report reports/core-access-linux-lab.json
 python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json
 ```
 

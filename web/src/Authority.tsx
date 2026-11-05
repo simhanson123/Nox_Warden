@@ -9,6 +9,7 @@ import type { AuthoritySession, AuthorityPlan, AuthorityPlanSummary, AuthorityCh
 import catalog from './authority-locales.json';
 import NativeEvidence from './NativeEvidence';
 import SigningReadiness from './SigningReadiness';
+import CoreAccessEvidence from './CoreAccessEvidence';
 
 type Key = keyof typeof catalog.en;
 const gateIds = ['schema', 'identity', 'scope', 'quota', 'semantic', 'expiry', 'capability', 'baseline'];
@@ -16,7 +17,15 @@ function fullScope(detail: AuthorityPlan) { return !!detail.review; }
 function current(detail: AuthorityPlan) { return Date.parse(String(detail.plan.valid_until)) > Date.now(); }
 function approvalReady(detail: AuthorityPlan) {
   const gates = detail.plan.gates as JsonRecord[];
-  return fullScope(detail) && current(detail) && record(detail.plan.effect_summary).complete === true && gates.length === 8
+  const effect = record(detail.plan.effect_summary);
+  // The original core schema records bounded cell counts and an effect hash;
+  // the policy-change schema records completeness explicitly. In both cases
+  // the authority supplied the recomputed complete before/after review.
+  const complete = detail.plan.change_kind === 'add_access_lease'
+    ? ['newly_allowed_flow_count', 'removed_flow_count'].every(key => Number.isSafeInteger(effect[key]) && Number(effect[key]) >= 0)
+      && typeof effect.effect_hash === 'string' && /^sha256:[0-9a-f]{64}$/.test(effect.effect_hash)
+    : effect.complete === true;
+  return fullScope(detail) && current(detail) && complete && gates.length === 8
     && gateIds.every(id => gates.filter(gate => gate?.gate_id === id && gate.required === true && gate.result === 'PASS').length === 1);
 }
 function context(detail: AuthorityPlan) {
@@ -161,6 +170,7 @@ export default function Authority() {
         <div className="authority-scopes">{detail.review ? <><section className="panel" role="region" aria-label={t('before')}><h3>{t('before')}</h3><Json value={detail.review.before}/></section><section className="panel" role="region" aria-label={t('after')}><h3>{t('after')}</h3><Json value={detail.review.after}/></section></> : <p className="notice warning">{t('missingScope')}</p>}</div>
         <section className="panel authority-section"><h3>{t('gates')}</h3><ul>{(detail.plan.gates as JsonRecord[]).map((gate, i) => <li key={i}><code>{String(gate.gate_id)}: {String(gate.result)} · {String(gate.evidence_hash ?? '')}</code></li>)}</ul></section>
         <NativeEvidence client={client} detail={detail} locale={locale} onUnauthorized={fail}/>
+        {detail.plan.change_kind === 'add_access_lease' && <CoreAccessEvidence client={client} detail={detail} locale={locale} onUnauthorized={fail}/>}
         <SigningReadiness client={client} detail={detail} locale={locale} onUnauthorized={fail}/>
         <section className="panel authority-section"><h3>{t('requirements')}</h3><Json value={detail.requirements}/>{!detail.aggregation && <p className="notice warning">{t(currentStatusError ? 'aggregate.unavailable' : 'quorumUnknown')}</p>}</section>
         {detail.aggregation && aggregateKey && <section className="panel authority-section" role="region" aria-label={t('aggregate.heading')}><h3>{t('aggregate.heading')}</h3><p className="notice"><strong>{t(setExpired ? 'aggregate.expired' : aggregateKey)}</strong></p><p>{t('aggregate.snapshot')}</p>{detail.aggregation.state === 'blocked_by_dissent' && <p>{t('aggregate.dissentHelp')}</p>}{detail.current_approval_set && !setExpired && <><p>{t('aggregate.setHash')}: <code>{detail.current_approval_set.hash}</code></p><p>{t('aggregate.validUntil')}: {formatTime(detail.current_approval_set.valid_until, locale)}</p><p>{t('aggregate.members', { count: (detail.current_approval_set.content.approvals as unknown[]).length })}</p><details><summary>{t('aggregate.content')}</summary><Json value={detail.current_approval_set.content}/></details></>}</section>}

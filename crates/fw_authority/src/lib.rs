@@ -11,6 +11,10 @@ mod access_provenance;
 #[cfg(feature = "approval-proofs")]
 pub use access_provenance::*;
 #[cfg(feature = "approval-proofs")]
+mod access_window;
+#[cfg(feature = "approval-proofs")]
+pub use access_window::*;
+#[cfg(feature = "approval-proofs")]
 mod challenge;
 #[cfg(feature = "approval-proofs")]
 pub use challenge::*;

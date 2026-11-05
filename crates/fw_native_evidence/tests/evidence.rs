@@ -5,7 +5,8 @@ use fw_contracts::{canonical_bytes, canonical_hash, hash_bytes};
 use fw_domain::{Action, Policy};
 use fw_native_evidence::*;
 use fw_planner::{
-    PolicyAssociation, PolicyMutation, PolicyReviewEvidence, StateIr, compose_policy_change,
+    PolicyAssociation, PolicyMutation, PolicyReviewEvidence, StateIr, compose_access_patch,
+    compose_policy_change, core_access_authority_basis_hash, core_access_effect_summary,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -106,6 +107,49 @@ fn fixture() -> (Value, PolicyReviewEvidence, LabReferences) {
         "effect_summary":{"relation":candidate.relation,"complete":true,"newly_allowed_region_hash":candidate.semantic_diff.newly_allowed_region_hash,"removed_region_hash":candidate.semantic_diff.removed_region_hash}});
     (plan, PolicyReviewEvidence { before, after }, refs)
 }
+fn core_fixture() -> (Value, PolicyReviewEvidence, LabReferences) {
+    let (_, general, refs) = fixture();
+    // Both preexisting authority and its deny survive the access-only patch.
+    let before = general.after;
+    let requested = policy("allow", 3);
+    let original: Value = serde_json::from_str(include_str!(
+        "../../../docs/specs/F_기준자료/F_개발계약/F_계약_예제.json"
+    ))
+    .unwrap();
+    let mut plan = original["plan"].clone();
+    plan["org_id"] = ORG.into();
+    plan["project_id"] = PROJECT.into();
+    plan["target_id"] = TARGET.into();
+    plan["created_at"] = timestamp(NOW).unwrap().into();
+    plan["valid_until"] = timestamp(NOW + 60).unwrap().into();
+    plan["workload_binding_valid_until"] = timestamp(NOW + 300).unwrap().into();
+    plan["requested_policies"] = json!([requested]);
+    plan["requested_policy_hashes"] = json!([canonical_hash(&requested).unwrap()]);
+    let association = PolicyAssociation {
+        policy_hash: canonical_hash(&requested).unwrap(),
+        lease_id: Some(TARGET.into()),
+        request_id: plan["request_id"].as_str().unwrap().into(),
+        authority_basis_hash: core_access_authority_basis_hash(&plan).unwrap(),
+    };
+    let composed =
+        compose_access_patch(&before, &[requested], &[association], &BTreeSet::new()).unwrap();
+    let after = composed.state;
+    plan["baseline_hash"] = composed.baseline_hash.into();
+    plan["desired_state_hash"] = composed.desired_state_hash.into();
+    plan["request_patch_hash"] = composed.request_patch_hash.into();
+    plan["source_snapshot_hash"] = before.source_snapshot_hash.clone().into();
+    plan["target_capability_hash"] = before.target_capability_hash.clone().into();
+    plan["effect_summary"] =
+        serde_json::to_value(core_access_effect_summary(&before, &after).unwrap()).unwrap();
+    plan["artifact_hash"] = compile_portable(&after, &refs)
+        .unwrap()
+        .artifact_hash()
+        .unwrap()
+        .into();
+    let review = PolicyReviewEvidence { before, after };
+    assert!(review.verify(&plan).unwrap().core_binding().is_some());
+    (plan, review, refs)
+}
 fn snapshot(native: &Artifact) -> Value {
     let mut entries =
         vec![json!({"metainfo":{"version":"1.0.6","release_name":"test","json_schema_version":1}})];
@@ -134,14 +178,25 @@ fn observation_fixture() -> (
     NativeObservationPayload,
 ) {
     let (plan, review, refs) = fixture();
-    let compilation = compile_evidence(&plan, &review, &refs).unwrap();
+    observation_for(&plan, &review, &refs)
+}
+fn observation_for(
+    plan: &Value,
+    review: &PolicyReviewEvidence,
+    refs: &LabReferences,
+) -> (
+    VerifiedCompilation,
+    NativeObservationChallenge,
+    NativeObservationPayload,
+) {
+    let compilation = compile_evidence(plan, review, refs).unwrap();
     let installation = bind_at(
         compilation.candidate(),
         &BindingContext {
             operation_id: OWNER.into(),
             grant_hash: hash_bytes(b"synthetic grant"),
             boot_id: BOOT.into(),
-            network_namespace: refs.scope.network_namespace,
+            network_namespace: refs.scope.network_namespace.clone(),
             wall_time_unix: NOW,
             monotonic_millis: 10_000,
             clock_uncertainty_seconds: 0,
@@ -203,6 +258,107 @@ fn verify(
         NOW + 1,
         NOW + 200,
     )
+}
+
+#[test]
+fn core_compilation_binds_the_original_closed_plan_and_preserves_full_baseline() {
+    let (plan, review, refs) = core_fixture();
+    let compiled = compile_evidence(&plan, &review, &refs).unwrap();
+    assert_eq!(compiled.plan_hash(), canonical_hash(&plan).unwrap());
+    assert_eq!(
+        compiled.baseline().state.state_hash().unwrap(),
+        review.before.state_hash().unwrap()
+    );
+    assert_eq!(
+        compiled.candidate().state.state_hash().unwrap(),
+        review.after.state_hash().unwrap()
+    );
+    assert_eq!(
+        compiled.candidate().state.policies.len(),
+        review.before.policies.len() + 1
+    );
+    for policy in &review.before.policies {
+        assert!(compiled.candidate().state.policies.contains(policy));
+    }
+    let record: Value = serde_json::from_slice(compiled.canonical_bytes()).unwrap();
+    assert_eq!(record["production_qualified"], false);
+    assert_eq!(record["dispatch_allowed"], false);
+    assert!(plan.get("operations").is_none());
+    assert!(plan.get("candidate_state_ref").is_none());
+}
+
+#[test]
+fn core_native_compilation_refuses_patch_effect_authority_and_state_substitution() {
+    let (plan, review, refs) = core_fixture();
+    for field in [
+        "artifact_hash",
+        "request_patch_hash",
+        "baseline_hash",
+        "desired_state_hash",
+        "envelope_hash",
+    ] {
+        let mut altered = plan.clone();
+        altered[field] = hash_bytes(b"substituted core native binding").into();
+        assert!(
+            compile_evidence(&altered, &review, &refs).is_err(),
+            "{field}"
+        );
+    }
+    let mut altered = plan.clone();
+    altered["effect_summary"]["removed_flow_count"] = json!(1);
+    assert!(compile_evidence(&altered, &review, &refs).is_err());
+    let mut dropped = review.clone();
+    let removed = dropped.after.policies.remove(0);
+    let removed_hash = canonical_hash(&removed).unwrap();
+    dropped
+        .after
+        .associations
+        .retain(|a| a.policy_hash != removed_hash);
+    assert!(compile_evidence(&plan, &dropped, &refs).is_err());
+}
+
+#[test]
+fn core_compilation_keeps_original_absolute_token_deadlines_across_runtime_bindings() {
+    let (plan, review, refs) = core_fixture();
+    let compiled = compile_evidence(&plan, &review, &refs).unwrap();
+    let artifact_hash = compiled.candidate().artifact_hash().unwrap();
+    let original_expiry = compiled.candidate().tokens.last().unwrap().expires_at_unix;
+    let mut binding = BindingContext {
+        operation_id: OWNER.into(),
+        grant_hash: hash_bytes(b"core fixture grant"),
+        boot_id: BOOT.into(),
+        network_namespace: refs.scope.network_namespace.clone(),
+        wall_time_unix: NOW,
+        monotonic_millis: 10_000,
+        clock_uncertainty_seconds: 1,
+        elapsed_seconds: 0,
+        commit_budget_seconds: 2,
+    };
+    let first = bind_at(compiled.candidate(), &binding).unwrap();
+    binding.wall_time_unix += 10;
+    binding.monotonic_millis += 10_000;
+    let later = bind_at(compiled.candidate(), &binding).unwrap();
+    assert_eq!(compiled.candidate().artifact_hash().unwrap(), artifact_hash);
+    for (old, new) in first.manifest.tokens.iter().zip(&later.manifest.tokens) {
+        assert_eq!(old.absolute_expiry_unix, original_expiry);
+        assert_eq!(new.absolute_expiry_unix, old.absolute_expiry_unix);
+        assert_eq!(new.timeout_seconds + 10, old.timeout_seconds);
+    }
+}
+
+#[test]
+fn core_compilation_supports_authenticated_observation_without_production_qualification() {
+    let (plan, review, refs) = core_fixture();
+    let (compiled, challenge, payload) = observation_for(&plan, &review, &refs);
+    let proof = sign_observation(&challenge, &payload, &SEED, NOW + 1).unwrap();
+    let observation = verify(&challenge, &proof, compiled.candidate()).unwrap();
+    assert_eq!(observation.comparison(), Comparison::Match);
+    assert_eq!(
+        observation.observed_state_hash(),
+        Some(compiled.candidate().desired_state_hash.as_str())
+    );
+    assert!(!payload.production_qualified);
+    assert!(verify(&challenge, &proof, compiled.baseline()).is_err());
 }
 
 #[test]
