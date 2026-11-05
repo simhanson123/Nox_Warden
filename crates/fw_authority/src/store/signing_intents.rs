@@ -432,18 +432,23 @@ impl AuthorityStore {
     ) -> Result<SigningIntentOutcome> {
         request_valid(request)?;
         self.observe_signing_plan_time(tenant, &request.plan_id, now)?;
-        let retained_job: Option<String> = self.connection.query_row(
-            "SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND request_id=?",
-            params![tenant.org_id, tenant.project_id, request.request_id], |row| row.get(0),
-        ).optional()?;
-        if let Some(job) = retained_job {
-            self.observe_signing_job_quota_time(tenant, &job, now)?;
+        let retained_job = {
+            let tx = self.connection.transaction()?;
+            let job = request_job(&tx, tenant, &request.request_id)?;
+            tx.commit()?;
+            job
+        };
+        if let Some(job) = &retained_job {
+            self.observe_signing_job_quota_time(tenant, job, now)?;
         } else {
             self.observe_signing_quota_time(tenant, now)?;
         }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if request_job(&tx, tenant, &request.request_id)? != retained_job {
+            return Err(AuthorityError::Conflict);
+        }
         let authority = protected_authority(&tx, tenant, &request.plan_id, now)?;
         let result = prepare_in_tx(&tx, tenant, verifier, request, &authority, now)?;
         tx.commit()?;
@@ -459,16 +464,20 @@ impl AuthorityStore {
     ) -> Result<Option<SigningIntentStatus>> {
         identifier(intent_id)?;
         time(now)?;
-        let job: Option<String> = self.connection.query_row(
-            "SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND intent_id=?",
-            params![tenant.org_id, tenant.project_id, intent_id], |row| row.get(0),
-        ).optional()?;
+        let job = {
+            let tx = self.connection.transaction()?;
+            let job = intent_job(&tx, tenant, intent_id)?;
+            tx.commit()?;
+            job
+        };
         if let Some(job) = &job {
             self.observe_signing_job_quota_time(tenant, job, now)?;
         }
         let tx = self.connection.transaction()?;
-        let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_signing_intents WHERE org_id=? AND project_id=? AND intent_id=?)",params![tenant.org_id,tenant.project_id,intent_id],|r|r.get(0))?;
-        let result = if exists {
+        if intent_job(&tx, tenant, intent_id)? != job {
+            return Err(AuthorityError::Conflict);
+        }
+        let result = if job.is_some() {
             Some(status_in_tx(&tx, tenant, intent_id, now)?)
         } else {
             None
@@ -518,10 +527,12 @@ impl AuthorityStore {
         // Readiness reports current pin configuration as well as historical
         // work, so observe both scopes even when they now refer to different roots.
         self.observe_signing_quota_time(tenant, now)?;
-        let observed_latest: Option<(String, String)> = self.connection.query_row(
-            "SELECT intent_id,job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY created_at DESC,intent_id DESC LIMIT 1",
-            params![tenant.org_id,tenant.project_id,plan_id], |row| Ok((row.get(0)?,row.get(1)?)),
-        ).optional()?;
+        let observed_latest = {
+            let tx = self.connection.transaction()?;
+            let latest = latest_plan_job(&tx, tenant, plan_id)?;
+            tx.commit()?;
+            latest
+        };
         if let Some((_, job)) = &observed_latest {
             // Cutover does not stop an old rooted obligation's clock. Persist
             // that observation before any later diagnostic refusal rolls back.
@@ -620,7 +631,7 @@ impl AuthorityStore {
         if let Some(o) = native.observation.as_ref().filter(|o| o.current) {
             valid_until = valid_until.min(crate::timestamp(&o.valid_until)?);
         }
-        let last:Option<(String,String)>=tx.query_row("SELECT intent_id,job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY created_at DESC,intent_id DESC LIMIT 1",params![tenant.org_id,tenant.project_id,plan_id],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+        let last = latest_plan_job(&tx, tenant, plan_id)?;
         if last != observed_latest {
             return Err(AuthorityError::Conflict);
         }
@@ -660,6 +671,41 @@ impl AuthorityStore {
             latest_dispatch_unknown_seen,
         })
     }
+}
+
+// The initial selection must come from a validated snapshot, even though the
+// quota observer also validates before resolving the retained reservation/root.
+// Released guards make these bindings immutable; the final snapshot comparison
+// additionally refuses a concurrently created intent that has not been observed.
+fn request_job(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    request: &str,
+) -> Result<Option<String>> {
+    Ok(tx.query_row(
+        "SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND request_id=?",
+        params![tenant.org_id, tenant.project_id, request], |row| row.get(0),
+    ).optional()?)
+}
+fn intent_job(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    intent: &str,
+) -> Result<Option<String>> {
+    Ok(tx.query_row(
+        "SELECT job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND intent_id=?",
+        params![tenant.org_id, tenant.project_id, intent], |row| row.get(0),
+    ).optional()?)
+}
+fn latest_plan_job(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan: &str,
+) -> Result<Option<(String, String)>> {
+    Ok(tx.query_row(
+        "SELECT intent_id,job_id FROM authority_signing_intents WHERE org_id=? AND project_id=? AND plan_id=? ORDER BY created_at DESC,intent_id DESC LIMIT 1",
+        params![tenant.org_id, tenant.project_id, plan], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?)
 }
 
 fn prepare_in_tx(
@@ -1203,6 +1249,10 @@ pub(super) fn test_finalize(
 }
 
 #[cfg(test)]
+#[path = "signing_clock_integrity_tests.rs"]
+mod signing_clock_integrity_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use signing_test_support::{Fixture, NOW};
@@ -1650,43 +1700,171 @@ mod tests {
         );
     }
     #[test]
-    fn stored_signature_and_generation_projection_corruption_is_refused() {
+    fn stored_signature_corruption_reaches_signature_verification_with_exact_schema() {
         let mut f = Fixture::new();
         let prepared = test_prepare(&mut f, NOW);
         let claim = claim(&mut f, &prepared.intent.job_id, NOW);
         let result = test_sign(&mut f, &prepared.intent.intent_id, NOW);
         test_finalize_result(&mut f, &claim, &result, NOW).unwrap();
-        f.store
-            .connection
-            .execute_batch("DROP TRIGGER authority_signing_results_no_update;")
+        let healthy = f
+            .store
+            .read_signing_intent(&f.tenant, &prepared.intent.intent_id, NOW)
+            .unwrap()
             .unwrap();
-        let mut corrupt = result;
+        assert!(healthy.grant_hash.is_some());
+        let mut corrupt = result.clone();
         corrupt.signed_grant.dsse.signatures[0].sig =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [0u8; 64]);
-        let encoded = bytes(&corrupt).unwrap();
-        let grant = bytes(&corrupt.signed_grant).unwrap();
-        f.store.connection.execute("UPDATE authority_signing_results SET grant_hash=?,result_hash=?,grant_bytes=?,result_bytes=?",params![hash(&hash_bytes(&grant)).unwrap(),hash(&hash_bytes(&encoded)).unwrap(),grant,encoded]).unwrap();
+        let mut peer = Connection::open(&f.path).unwrap();
+        let rewrite = |peer: &mut Connection, result: &SignerResult| {
+            let guards = [
+                "authority_signing_results_no_update",
+                "authority_signing_outbox_immutable_update",
+            ]
+            .map(|name| {
+                peer.query_row::<String, _, _>(
+                    "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name=?",
+                    [name],
+                    |row| row.get(0),
+                )
+                .unwrap()
+            });
+            let encoded = bytes(result).unwrap();
+            let grant = bytes(&result.signed_grant).unwrap();
+            let tx = peer.transaction().unwrap();
+            tx.execute_batch("DROP TRIGGER authority_signing_results_no_update; DROP TRIGGER authority_signing_outbox_immutable_update;")
+                .unwrap();
+            assert_eq!(tx.execute("UPDATE authority_signing_results SET grant_hash=?,result_hash=?,grant_bytes=?,result_bytes=? WHERE intent_id=?",params![hash(&hash_bytes(&grant)).unwrap(),hash(&hash_bytes(&encoded)).unwrap(),grant,encoded,result.intent_id]).unwrap(), 1);
+            // Keep the issued reservation's result/outbox witness coherent so
+            // full validation reaches signature verification instead of first
+            // refusing mismatched stored hashes in the reference graph.
+            assert_eq!(tx.execute("UPDATE authority_signing_outbox SET grant_hash=?,grant_bytes=? WHERE intent_id=? AND job_id=?",params![hash(&hash_bytes(&grant)).unwrap(),grant,result.intent_id,result.job_id]).unwrap(), 1);
+            for guard in guards {
+                tx.execute_batch(&guard).unwrap();
+            }
+            tx.commit().unwrap();
+        };
+        rewrite(&mut peer, &corrupt);
+        migrations::validate_live_schema(&peer).unwrap();
+        {
+            let tx = peer.transaction().unwrap();
+            let intent = intent_at(&tx, &f.tenant, &prepared.intent.intent_id).unwrap();
+            assert!(matches!(
+                retained_result(&tx, &f.tenant, &intent),
+                Err(AuthorityError::Signature)
+            ));
+        }
+        // Both the live handle and independent reopen must reach the semantic
+        // signature failure, not local taint or a missing/changed schema guard.
+        let live_error =
+            match f
+                .store
+                .read_signing_intent(&f.tenant, &prepared.intent.intent_id, NOW)
+            {
+                Err(error) => error,
+                Ok(_) => panic!("corrupted signature was accepted by the live reader"),
+            };
         assert!(
+            matches!(live_error, AuthorityError::Signature),
+            "live retained-signature refusal: {live_error:?}"
+        );
+        assert!(matches!(
+            AuthorityStore::open(&f.path),
+            Err(AuthorityError::Signature)
+        ));
+        rewrite(&mut peer, &result);
+        assert_eq!(
             f.store
                 .read_signing_intent(&f.tenant, &prepared.intent.intent_id, NOW)
-                .is_err()
+                .unwrap()
+                .unwrap(),
+            healthy
         );
-        f.store
-            .connection
-            .execute(
-                "UPDATE authority_signing_target_heads SET generation=?",
-                [2u64.to_be_bytes().as_slice()],
+        f.reopen();
+        assert_eq!(
+            f.store
+                .read_signing_intent(&f.tenant, &prepared.intent.intent_id, NOW)
+                .unwrap()
+                .unwrap(),
+            healthy
+        );
+    }
+    #[test]
+    fn stored_generation_projection_corruption_reaches_target_head_verification() {
+        let mut f = Fixture::new();
+        let prepared = test_prepare(&mut f, NOW);
+        let claim = claim(&mut f, &prepared.intent.job_id, NOW);
+        let result = test_sign(&mut f, &prepared.intent.intent_id, NOW);
+        test_finalize_result(&mut f, &claim, &result, NOW).unwrap();
+        let target = crate::string(&f.plan, "target_id").unwrap().to_owned();
+        let mut peer = Connection::open(&f.path).unwrap();
+        // This is a mutable projection: no SQL guard is removed, and this case
+        // has an independently valid signature and retained lifecycle.
+        assert_eq!(
+            peer.execute(
+                "UPDATE authority_signing_target_heads SET generation=? WHERE target_id=?",
+                params![2u64.to_be_bytes().as_slice(), target]
+            )
+            .unwrap(),
+            1
+        );
+        migrations::validate_live_schema(&peer).unwrap();
+        {
+            let tx = peer.transaction().unwrap();
+            let intent = intent_at(&tx, &f.tenant, &prepared.intent.intent_id).unwrap();
+            assert!(retained_result(&tx, &f.tenant, &intent).unwrap().is_some());
+            assert!(matches!(
+                target_head(&tx, &f.tenant, &target),
+                Err(AuthorityError::Invalid("signing target head"))
+            ));
+        }
+        assert!(matches!(
+            f.store.signing_readiness(
+                &f.tenant,
+                signing_test_support::native::PLAN,
+                &f.verifier,
+                NOW + 1
+            ),
+            Err(AuthorityError::Invalid("signing target head"))
+        ));
+        assert!(
+            f.store
+                .read_signing_intent(&f.tenant, &prepared.intent.intent_id, NOW + 1)
+                .unwrap()
+                .unwrap()
+                .grant_hash
+                .is_some()
+        );
+        assert_eq!(
+            peer.execute(
+                "UPDATE authority_signing_target_heads SET generation=? WHERE target_id=?",
+                params![1u64.to_be_bytes().as_slice(), target]
+            )
+            .unwrap(),
+            1
+        );
+        let readiness = f
+            .store
+            .signing_readiness(
+                &f.tenant,
+                signing_test_support::native::PLAN,
+                &f.verifier,
+                NOW + 1,
             )
             .unwrap();
+        assert_eq!(readiness.target_generation.as_deref(), Some("1"));
+        assert!(!readiness.signing_allowed);
+        assert!(!readiness.dispatch_allowed);
+        f.reopen();
         assert!(
             f.store
                 .signing_readiness(
                     &f.tenant,
                     signing_test_support::native::PLAN,
                     &f.verifier,
-                    NOW
+                    NOW + 1
                 )
-                .is_err()
+                .is_ok()
         );
     }
     #[test]

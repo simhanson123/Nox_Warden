@@ -7,7 +7,31 @@ Read this file, [startup prompt](session-start-prompt.txt), `AGENTS.md`,
 No previous chat, attachment, temporary file, agent mailbox or cached binary is
 needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
-## Current PR23 review follow-up
+## Current PR24 review follow-up
+
+PR24 head `ac027412c88eade8d3674c75c2ba6203df023ee6` merged as
+`59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`, with tree
+`66f60c567ccabd12acd9af68d1edfefe60498fc5`. PR CI41819099169 and main
+CI41824170284 both succeeded. The received [Claude PR24 review](reviews/pr24-claude-review.md)
+is preserved as 15,585 original bytes, SHA256
+`ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501`.
+It confirms the original R1–R4 cases fixed and reports no development blocker.
+Do not request that unchanged review again or claim its private probes were rerun.
+
+The integrated batch is `fix/validated-clock-and-rollback-coverage`, based
+on that merge. [I1/T1–T3](pr24-follow-up.md) concern verified retained-clock
+selection, semantic-test reachability and precise rollback coverage. The native
+review-evidence fault already existed; restore actual missing coverage rather
+than treating every external statement as established. Implementation, focused
+checks, independent internal review and fresh full local validation are complete
+(905 workspace Rust, 510 shared-umask, 190 UI and all isolated runtime labs).
+Resolve the retained branch PR for exact head/PR CI/merge/separate main CI and
+the complete new Claude prompt; do not stop at pending main CI. The current
+ledger/reports preserve detailed evidence. Published
+SQL001–013 and original specs/reviews remain unchanged. Keep operational signing
+and dispatch closed, durable clock floors and issued capacity intact.
+
+## Completed PR23 review follow-up (PR24)
 
 PR23 head `8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f` merged as
 `4cef6acf7e46289b156fcd56ad0ab2f2920fabd6`, with the same tree.
@@ -17,25 +41,25 @@ PR CI41580876482 and main CI41584624128 both succeeded. The user supplied
 `9a3f3072a976beef60d158906d493a41bbe464e97f176406cef77719a282657e`.
 Do not request that fixed review again. Its temporary private probes are absent.
 
-The current correction batch is `fix/live-authority-integrity`, based on that
+The completed correction batch is `fix/live-authority-integrity`, based on that
 merge. [R1–R4](pr23-follow-up.md) concern coordinated live quota/index hiding,
 surplus work audits, and complete validation cost/write-lock duration. New
 independent baseline fixtures reproduce R1–R3; the initial separate R4 harness
 failed before runtime and supplies no measurements. Source and commands are in
 [the local reproduction](reviews/pr23-local-repro.md). Implementation, focused
 regressions, independent internal review and fresh canonical/shared-umask/runtime/
-browser/Linux checks are complete. Resolve this retained branch's PR for its exact
-fixed head, PR CI, main merge and separate main CI result; the PR body is the
-GitHub completion record and carries the next Claude-only prompt. The current
-ledger and reports preserve local results. Do not reuse previous counts. Keep
+browser/Linux checks are complete. PR24 head, merge and both successful CI runs
+are fixed in the current section above; its PR body preserves the completion
+record and historical Claude prompt. The ledger and reports preserve local
+results, separately from the new follow-up. Do not reuse previous counts. Keep
 published SQL001–013 and original reports/specs.
 
 The correction combines snapshot-bound conditional validation, complete relevant
 work-audit correspondence and reduced full-validation lock/cost. A change counter
 is not external authentication; quick_check does not prove index membership.
 Production signing/dispatch remain closed and issued capacity is not refunded.
-The next external review uses one Claude Opus5.5 request for the actual new fixed
-base/head after this integrated batch and independent internal review.
+The PR24 external review was subsequently received and is recorded above. The
+next review uses the actual new I1/T1–T3 head in one Claude-only request.
 
 ## Completed PR22 review follow-up (PR23)
 

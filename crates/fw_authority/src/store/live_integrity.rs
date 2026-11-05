@@ -214,14 +214,6 @@ impl IntegrityConnection {
         Ok(tx)
     }
 
-    pub(super) fn query_row<T, P, F>(&self, sql: &str, params: P, map: F) -> rusqlite::Result<T>
-    where
-        P: rusqlite::Params,
-        F: FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
-    {
-        self.connection.query_row(sql, params, map)
-    }
-
     /// Only the preexisting arithmetic-only fixture omits intent/job witnesses
     /// and temporarily removes an evidence trigger to model slot transitions.
     /// Its connection is not evidence for retained/live-integrity tests.

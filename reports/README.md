@@ -6,9 +6,82 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## PR23 live integrity and validation cost follow-up
+## PR24 validated clock selection and rollback coverage
 
-The current batch begins at PR23 merge
+The current batch starts at `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8` on
+`fix/validated-clock-and-rollback-coverage`. The
+[received review](../docs/reviews/pr24-claude-review.md) and
+[qualified assessment](../docs/pr24-follow-up.md) distinguish attributed external
+results, existing coverage and new corrections. PR24's PR CI41819099169 and
+main CI41824170284 succeeded; neither validates this new batch.
+
+The implementation moves all three retained intent/job selections into validated
+snapshots and compares selected bindings again before final use. It removes the
+unchecked wrapper read. Separate signature/generation fixtures reach the intended
+semantic checks; genuine transition and intermediate approval failures record
+exact fault reachability, preceding SQL and complete retained rollback/retry.
+The existing 12 native fault stages are preserved, including review-evidence
+INSERT; the original changed-expiry reference-pin retry is restored.
+
+Focused checks passed with nonzero execution: clock selectors2, signing intents10,
+live integrity6, rootless lifecycle6, approval atomicity4 (13 new fault conditions),
+late transition1, early schema refusal1, native private7 and reference-pin retry1.
+A separate precise signature rerun overlaps the signing-intent count and is not
+added. Independent Sol6.1 ultra source review verified the frozen 390-input
+snapshot and found no confirmed blocker; this is not a new Claude execution.
+Fresh final `bash scripts/check.sh` passed on 2026-11-05: **905 workspace
+Rust tests**, 3 intentionally ignored declarations, **1 explicitly executed
+cancellation CLI test**, **32 reduced-feature tests**, **190 UI tests in 10
+files**, both UI production builds and all static/Python checks. Shared
+`(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)`
+passed **510** tests with 3 ignored. Both Rust totals exclude the two nested
+migration worker summaries. `cargo build --locked --workspace --bins --examples`
+also passed. The 390-file executable/test/spec/toolchain input digest remained
+`dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3`
+through final validation.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Current binaries; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 40 | Services, restart and strict readiness |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Native evidence | 33 | 5 actual kernel captures |
+
+Thirteen fresh successful JSON reports and the stdout-only CLI protocol result
+were checked. All 216 reported source/binary hash entries across 107 unique
+paths match the verified bytes. All three lab containers were removed; the
+managed daemon remained healthy with no containers or leftover test services.
+The native collector recorded its existing narrowly recognized optional
+GLIBC2.39 weak-symbol warning in the pinned lab image; exact refusal diagnostics
+and all capture checks passed. No lab setup failure occurred in this batch.
+
+Local implementation and verification are complete. Resolve the PR for retained
+`fix/validated-clock-and-rollback-coverage` for the exact head, PR CI, merge and
+separate main CI completion record and complete fixed Claude-only prompt. Source
+does not embed its own future commit identifier; neither prompt preparation nor
+internal review is a new external Claude review.
+
+Initial targeted attempts caught Rust test-pattern issues and inaccurate fixture
+assumptions: result/outbox hashes must agree before the signature check, neither
+transition path writes the project security row, and the development signing
+helper must use the retained payload's original issuance time. These were fixed
+without weakening exact errors, pending-write/rollback checks or production
+authentication. The transition test separately records previously committed
+clock observations and pending writes. Earlier failures are retained locally;
+they are not passing checks.
+
+The new environment was checked again against README pins: Rust1.99.1, Node24.19.0/npm11.9.0,
+Python3.12.14/jsonschema4.26.0, Playwright1.62.0, system Chromium154 and managed
+Docker28.4.0/vfs. Browser launch and daemon readiness are environment checks,
+not product suite passes. Docker commands use the explicit managed socket and
+private command-scoped buildx state while retaining Docker/auth/proxy/CA settings.
+
+## Completed PR24: live integrity and validation cost
+
+The completed PR24 batch began at PR23 merge
 `4cef6acf7e46289b156fcd56ad0ab2f2920fabd6` on
 `fix/live-authority-integrity`. The received
 [complete report](../docs/reviews/pr23-claude-review.md) and
@@ -80,11 +153,12 @@ collector recorded its existing narrowly recognized optional GLIBC2.39 weak-symb
 warning when using the host-built executor in the pinned bookworm image; its
 fixed refusal diagnostics and all actual capture checks still passed.
 
-Implementation, local verification and independent internal review are complete.
-Resolve the retained `fix/live-authority-integrity` branch and its GitHub PR for
-the exact fixed head, PR CI, main merge and separate main CI completion record.
-The PR body also carries the complete next Claude-only review prompt; preparing
-it is not a new external review.
+PR24 completed at head `ac027412c88eade8d3674c75c2ba6203df023ee6`, merged as
+`59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`. PR CI41819099169 and separate main
+CI41824170284 passed with the same counts and matching source/artifact audits.
+The retained `fix/live-authority-integrity` branch and PR24 preserve this completed
+batch and its historical prompt. The subsequently received external review is
+recorded in the current follow-up section above.
 
 Preliminary attempts exposed two lint issues and older fixture assumptions about
 schema corruption, global quarantine, clock advancement and healthy contention.
@@ -275,7 +349,8 @@ Run from the repository root:
 source scripts/dev-env.sh
 umask 0022
 bash scripts/check.sh
-cargo build --locked -p fw_control -p fw_cli -p fw_agent -p fw_authority -p fw_authority_service --bins --examples
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
 python scripts/smoke_control.py
 python scripts/smoke_cli.py
 python crates/fw_cli/tests/smoke_login.py
@@ -283,12 +358,13 @@ python scripts/smoke_passkeys.py
 python scripts/smoke_login_admission.py
 python scripts/smoke_audit.py
 python scripts/smoke_catalogue_navigation.py --controller-binary target/debug/fw_control
-python scripts/smoke_enrollment.py --browser
+python scripts/smoke_enrollment.py --report reports/enrollment-api.json
+python scripts/smoke_enrollment.py --browser --report reports/enrollment-browser.json
 python scripts/smoke_enrollment.py --authority-metadata --report reports/target-metadata-smoke.json
 python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
-python scripts/smoke_native_evidence.py --report reports/native-evidence-smoke.json
+python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json
 ```
 
 Browser suites start actual loopback services and use Chromium CDP virtual CTAP2

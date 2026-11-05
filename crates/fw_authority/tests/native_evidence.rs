@@ -746,7 +746,7 @@ fn altered_audit_schema_refuses_reference_and_observer_pins_without_partial_trus
     let keys = f.count("authority_native_observer_keys");
     db.execute_batch("CREATE TRIGGER fail_pin_audit BEFORE INSERT ON authority_audit WHEN NEW.kind IN ('native_references_pinned','native_observer_pinned') BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     let before = integrity_fixture::rows(&f.path);
-    let pin = NativeReferencePin {
+    let mut pin = NativeReferencePin {
         target_id: TARGET.into(),
         references: f.refs.clone(),
         not_before: NOW,
@@ -775,6 +775,8 @@ fn altered_audit_schema_refuses_reference_and_observer_pins_without_partial_trus
     assert_eq!(f.count("authority_native_observer_revocations"), 0);
     assert_eq!(integrity_fixture::rows(&f.path), before);
     db.execute_batch("DROP TRIGGER fail_pin_audit;").unwrap();
+    // Retain the pre-PR24 changed-expiry retry as well as the schema refusal.
+    pin.not_after += 1;
     assert_eq!(
         f.store
             .pin_native_references(&f.tenant, &pin, Some(1), NOW)
