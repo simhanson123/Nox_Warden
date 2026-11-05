@@ -549,7 +549,7 @@
         "Actual autonomous recovery follows normal-plan expiry before original lease E; lease expiry and recovery-at-E model checks are separate evidence.",
         "Synthetic lab trust is not production workload/delegation or human approval; protected signing/dispatch and all three OS installation/lifecycle qualification remain incomplete."
       ],
-      "initial_failures": "Eighteen retained failed attempts are excluded from passing counts. Final corrections preserve original windows, fresh trust/signature/time checks, read-only observation and existing installation budgets. See reports/README.md; raw logs remain outside Git."
+      "initial_failures": "Earlier unsuccessful attempts and a separately qualified source-provenance warning are retained outside Git, not added to final passing counts. Final corrections preserve original windows, fresh trust/signature/time checks, read-only observation and existing installation budgets. See reports/README.md; raw logs remain outside Git."
     },
     "external_review": {
       "pull_request": 25,
