@@ -7,7 +7,46 @@ Read this file, [startup prompt](session-start-prompt.txt), `AGENTS.md`,
 No previous chat, attachment, temporary file, agent mailbox or cached binary is
 needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
-## Current core-access implementation
+## Current PR26 review follow-up
+
+PR26 remains on `feat/core-access-enforcement`. The supplied
+[Claude review](reviews/pr26-claude-review.md) targets
+`3866ceaa2b86da3ea3653da338d433a23a02b283`, tree
+`7f349ae2b22d1c19464454bcec8eb079d15614ef`, against
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. It is preserved byte-for-byte:
+15,748 bytes, 162 CRLF endings, SHA256
+`7f82e555c1c734c9592b7ec3ddf96a4c65891b18815a02e00b45c0c6a1cba37d`.
+Read [the follow-up contract](pr26-follow-up.md). Its private probe sources were
+not supplied or rerun; its native Docker suites were NOT_RUN. The reported
+old-binary migration is external evidence, separate from repository fixtures.
+
+The current batch fixes F1 in both registration orders, adds strict current
+window eligibility without changing historical accounting, validates closed
+input shape before F2 clock observation, preserves F3's explicit strict upgrade
+and clarifies F4's protected-storage boundary. Native work adds an independent
+reference pin, exact refusal-stage assertions, a correctly sized forged signature
+and positive/negative expiry checks with independent token lifetime lower bounds.
+Published SQL001–014, specifications and old evidence bytes remain unchanged.
+No missing window/approval/completion is invented and no issued capacity refunded.
+
+New baseline regressions independently reproduced F1 (both orders) and F2 against
+the reviewed production source. Final local follow-up verification passed:
+workspace Rust957, separate CLI1, reduced32, UI211/11 files and both builds;
+shared-umask541, each full Rust total excluding two nested worker summaries and
+retaining three ignored declarations. All runtime reports passed, including
+Linux66/40 packets, signed98/43, core85/26/two captures, native33/five captures,
+authority browser43 and the actual old-API incompatible DB refusal/byte-preservation
+probe. The frozen 406-input digest is
+`c533bbc57909184dc29fe3a1bbed2574a5c230f0e7be006644806a2409015302`.
+Independent source and evidence review found no remaining finding in this scope.
+Read the current ledger/reports for detailed qualifications; the checkpoint
+counts below are historical. PR26's initial CI42036443828 attempt1 was blocked before any execution by
+an account billing lock (zero steps/artifacts), and it remains unmerged at this
+checkpoint. The retained PR completion record must pin the corrected head/tree,
+new PR CI and, after merge, separate main CI. Preserve the remote branch/history;
+do not change billing or bypass CI to claim completion.
+
+## Reviewed PR26 core-access checkpoint
 
 Comparison base: PR25 merge `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
 Reviewed PR25 head: `89684e055f01a1c87113e4ea4a713ebbff77afe1`;

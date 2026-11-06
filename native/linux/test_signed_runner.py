@@ -1,5 +1,6 @@
 """Signed lifecycle runner failure handling; these tests do not invoke Docker."""
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -14,6 +15,24 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('signed_lab_runner', ROOT / 'scripts/signed-linux-lab.py')
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
+
+
+def core_report():
+    digest = 'sha256:' + '1' * 64
+    captures = [{'artifact_role': role, 'reference_source': 'separate-trusted-lab-input',
+                 'reference_revision': '1', **{field: digest for field in
+                    ('reference_pin_hash', 'references_hash', 'expected_artifact_hash', 'submitted_artifact_hash',
+                     'compilation_hash', 'challenge_hash', 'proof_hash', 'readback_hash', 'observed_state_hash')}}
+                for role in ('baseline', 'candidate')]
+    return {'schema_version': 'fw.core-access-linux-lab/v1', 'status': 'PASS',
+            'packet_tests_executed': 7, 'capture_count': 2, 'native_captures': captures,
+            'original_lease_window': {'expires_at_unix': 160},
+            'original_expiry_boundary_observations': [
+                {'kind': 'positive', 'original_expires_at_unix': 160, 'target_unix': 152,
+                 'started_at_unix': 152.01, 'finished_at_unix': 152.05,
+                 'minimum_remaining_seconds': 1, 'actual_remaining_seconds': {'token': 2}},
+                {'kind': 'negative', 'original_expires_at_unix': 160, 'sampled_at_unix': 161.01,
+                 'core_tokens_absent': True, 'new_and_established_tcp_blocked': True}]}
 
 
 class SignedOutcomes(unittest.TestCase):
@@ -47,7 +66,9 @@ class SignedOutcomes(unittest.TestCase):
                     if isinstance(execution, BaseException):
                         raise execution
                     schema = 'fw.core-access-linux-lab/v1' if profile == 'core-access' else 'fw.signed-linux-lab/v1'
-                    code, data = execution or (0, json.dumps({'schema_version': schema, 'status': 'PASS', 'packet_tests_executed': 7, 'capture_count': 2}))
+                    report = (core_report() if profile == 'core-access' else
+                              {'schema_version': schema, 'status': 'PASS', 'packet_tests_executed': 7})
+                    code, data = execution or (0, json.dumps(report))
                     return subprocess.CompletedProcess(command, code, data, '')
                 elif 'rm' in command:
                     if isinstance(cleanup, BaseException):
@@ -100,6 +121,21 @@ class SignedOutcomes(unittest.TestCase):
             with self.subTest(report=report):
                 code, result = self.exercise(profile='core-access', execution=(0, json.dumps(report)))
                 self.assertEqual((code, result['status'], result['packet_tests_executed']), (1, 'FAIL', 7))
+
+    def test_old_pass_or_missing_pin_and_positive_boundary_cannot_satisfy_core_profile(self):
+        mutations = (
+            lambda value: value.pop('original_expiry_boundary_observations'),
+            lambda value: value['native_captures'][0].pop('reference_pin_hash'),
+            lambda value: value['native_captures'][1].update(submitted_artifact_hash='sha256:' + '2' * 64),
+            lambda value: value['original_expiry_boundary_observations'][0].update(minimum_remaining_seconds=0),
+            lambda value: value['original_expiry_boundary_observations'][0].update(finished_at_unix=161),
+            lambda value: value['original_expiry_boundary_observations'][1].update(sampled_at_unix=159),
+        )
+        for mutate in mutations:
+            report = copy.deepcopy(core_report())
+            mutate(report)
+            with self.assertRaises(runner.StageFailure):
+                runner.validate_core_evidence(report)
 
 
 if __name__ == '__main__':

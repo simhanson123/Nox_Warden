@@ -38,6 +38,9 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   and authenticated evidence reads expose current and historical bindings.
   Approval, retry and journal replay do not refresh that window; production
   signing and dispatch remain closed.
+  Legacy bindings must fit an existing window, and adopting a first window checks
+  earlier bindings. New cost/readiness eligibility requires a full reviewed
+  window while retained historical costs and occupied capacity remain intact.
 - Authenticated local asset and service catalogues with immutable revisions,
   ETags, tenant isolation and transactional audit records. Services can reference
   registered targets with current credentials and reports. Authenticated audit

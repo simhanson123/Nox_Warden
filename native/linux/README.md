@@ -102,3 +102,42 @@ These tests simulate startup failures, transport timeouts, malformed reports,
 exit/status mismatches and cleanup failure. They do not count as native packet
 probes. Consult the [verification summary](../../reports/README.md) for confirmed
 suite counts and CI results.
+
+## Original core-access window
+
+The separate `core-access-linux-lab.py` scenario keeps the original sixty-second
+`[S,E)` and all original dispatch, confirmation and recovery caps. Its positive
+boundary is `E - uncertainty - elapsed - commit_budget - 2 seconds` (the current
+fixture is `E-8`). The final two seconds are a packet sampling margin, separate
+from the native process reserve within the unchanged five-second installation
+budget. The conservative binding already deducts one second of clock uncertainty
+and the full five-second commit budget from the kernel timeout; an `E-3`
+positive would therefore exceed the current guaranteed live interval.
+
+Both an established TCP flow and a new TCP connection must return fresh nonces
+at that positive boundary. Initial and boundary token captures independently
+recompute a positive minimum remaining lifetime from original `E`, the accepted
+binding and the capture's ending monotonic sample, allowing one second for nft's
+integer representation. They reject shortened timers, missing tokens, changed
+manifest timeouts and late samples. Original `E+1` must block both flows and show
+the core tokens gone. Retry/reopen never bind a new lifetime.
+
+Each bundle negative requires its exact bounded `CORE_BUNDLE_*` reason and
+unchanged journal identity, generation, operations, material and owned native
+state (only natural token aging is allowed). The forged signature decodes to
+exactly 64 bytes and must fail cryptographic verification with
+`CORE_BUNDLE_GRANT_SIGNATURE`. The `production_authorized=true` input instead
+must fail trust loading with `LAB_TRUST_BINDING`; it is reported separately from
+bundle cryptography.
+
+The synthetic lab administrator saves a closed `reference-pin.json` separately
+before building artifacts. Challenge creation and proof verification both
+recompile the complete baseline and candidate against that pin and compare exact
+submitted artifacts. Captures retain pin/reference hashes, revision and expected
+versus submitted artifact hashes. A coherent bundle carrying replacement
+references cannot choose its own trusted pin. This remains explicit synthetic
+lab input, with no production authorization, authority admission or native
+qualification or claim of OS-protected deployment authority. The independent
+reference pin is checked by the observation workflow; driver init/apply/replay
+retain their existing signed-material and trust-scope checks. Ambiguous multiport
+nftables 1.0.6 readback remains refused.

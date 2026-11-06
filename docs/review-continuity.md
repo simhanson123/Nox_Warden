@@ -9,6 +9,34 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR26 consolidated review
+
+The complete [Claude Opus5.5 PR26 report](reviews/pr26-claude-review.md) covers
+head `3866ceaa2b86da3ea3653da338d433a23a02b283`, tree
+`7f349ae2b22d1c19464454bcec8eb079d15614ef`, against
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. Its uploaded bytes, including
+progress notes and CRLF, are preserved: 15,748 bytes, SHA256
+`7f82e555c1c734c9592b7ec3ddf96a4c65891b18815a02e00b45c0c6a1cba37d`.
+The report identifies Low F1/F2, informational F3, existing storage-boundary
+limitation F4 and four native lab verification gaps; it reports no Medium-or-higher
+issue or immediate development blocker. Its private probes were not supplied or
+rerun. Its actual old-binary migration and other local checks remain attributed
+external evidence; all four Docker/native suites were NOT_RUN there.
+
+The [integrated follow-up](pr26-follow-up.md) independently reproduces F1 in both
+registration orders and F2 using new tests against the exact reviewed production
+source, then corrects the implementation and lab coverage together. Current
+results belong in the ledger and reports; the prior feature's passing local
+counts do not validate these corrections. F3 retains full explicit strict
+upgrade validation. F4 is an explicit trusted-storage limit, not a claimed fix
+against an attacker able to rewrite all local storage and restore its guards.
+
+PR26 remains open at this checkpoint. Its initial CI42036443828 attempt1 failed
+before execution because GitHub reported an account billing lock: zero steps,
+zero artifacts. That is not an executed product-test failure or a CI PASS.
+Resolve later corrected-head PR/main CI from the retained PR completion record.
+Do not repeat the completed external review of the unchanged target.
+
 ## Received PR25 consolidated review
 
 The user supplied [Claude Opus5.5's PR25 review](reviews/pr25-claude-review.md)

@@ -28,8 +28,8 @@
       "The explicit isolated core profile preserves original f.plan/v1 material/window/recovery authority through actual native application, two signed captures, original absolute expiry and autonomous restrictive recovery. Scoped immutable-material reuse keeps fresh current trust/DSSE/time checks and original installation budgets; synthetic lab approval is not production workload/delegation authentication.",
       "Bounded trusted CLI registration/history reads, authenticated no-store core evidence GET and full-state review/window UI share retained evidence across eight locales; session-local conservative UI time survives refresh/remount without changing authority gates."
     ],
-    "next_implementation": "Finish authorized commit/push/PR/CI/merge and separate main CI for the locally validated core-access batch. Then continue protected workload/delegation bootstrap authority, signer/generation/account deployment and required three-OS lifecycle qualification; production signing/dispatch remain closed.",
-    "implementation_base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+    "next_implementation": "Publish the completed PR26 correction commit, verify exact-head PR CI and merge plus separate main CI when available; do not bypass billing or CI. Then begin the protected initial authority/core signing integration described in next_product_batch. Production signing/dispatch remain closed until all prerequisites are met.",
+    "implementation_base": "3866ceaa2b86da3ea3653da338d433a23a02b283",
     "implementation_branch": "feat/core-access-enforcement",
     "completed_batch": {
       "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
@@ -252,16 +252,17 @@
       "portable_probe_recheck": "Exact documented commands were run in a fresh temporary directory and reproduced the same N2, exit0; no old temporary source needed, not an extra passing security test."
     },
     "current_batch": {
-      "base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "base": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "pr_base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
       "branch": "feat/core-access-enforcement",
-      "scope": "Core full-state semantic review, immutable absolute lease window, native compilation and isolated core execution, connected CLI/API/UI evidence",
-      "status": "implemented_final_local_validation_and_independent_review_passed_pending_PR_main_CI",
+      "pull_request": 26,
+      "scope": "Enforce fixed core windows across legacy/live paths, validate shape before clock observation, strengthen native expiry/crypto/refusal/reference evidence and clarify review/storage boundaries",
+      "status": "implemented_final_local_validation_and_independent_review_passed_pending_remote_workflow",
       "schema": 14,
       "next_external_reviewer": "Claude Opus 5.5",
       "external_review_executed": false,
-      "review_receipt": "docs/pr25-review-assessment.md",
-      "design": "docs/core-access-enforcement.md",
-      "completion_record": "The retained feat/core-access-enforcement PR records exact committed head/tree, PR and separate main CI, artifact audits and the full Claude Opus 5.5 prompt. Source summaries record local evidence only; resolve that PR before claiming remote completion."
+      "follow_up": "docs/pr26-follow-up.md",
+      "completion_record": "PR26 retains the reviewed checkpoint and will record final corrected head/tree and exact PR/main CI; no remote completion inferred from local checks."
     },
     "implementation_pr_lookup": "Resolve retained feat/core-access-enforcement PR for actual target/head/checks; do not reuse PR25 target.",
     "received_pr20_external_review": {
@@ -359,79 +360,78 @@
       ]
     },
     "verification": {
-      "status": "fresh_final_local_suites_and_independent_integrated_review_passed",
+      "status": "fresh_final_local_validation_and_independent_source_evidence_review_passed",
       "summary": "reports/README.md",
       "release_qualification": false,
-      "environment": "Current environment rechecked: sourced pinned Rust/Cargo1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0/Chromium154, managed Docker28.4.0/vfs. Browser launch passed and0containers.163 installed npm packages match lock.",
-      "baseline_filter_verification": {
-        "command": "cargo test --locked -p fw_authority --lib store::signing_quota::tests::transition_atomicity_tests::failed_transition_rolls_back_cancellation_and_issuance_with_work_evidence -- --exact",
-        "passed": 1,
-        "failed": 0,
-        "ignored": 0,
-        "source_inputs": 390,
-        "source_sha256": "ebecb46ec54a13107aa9762753717e4625e12f951d763ae0bf9bfcf2f1924d54",
-        "scope": "Existing baseline/filter check after comment correction; not new core feature validation."
-      },
-      "focused": {
-        "planner": 27,
-        "window": 11,
-        "final_audit_rollback": 1,
-        "authority_store_and_provenance": 30,
-        "migration": {
-          "passed": 28,
-          "ignored": 1,
-          "nested_worker_summaries_excluded": 2,
-          "new_populated_schema13_cases_included": 2,
-          "fixture": "Reconstructed released schema13 around genuine old-API rows; not actual old-binary execution."
-        },
-        "cli": 12,
-        "http_core_filter": 4,
-        "ui": {
-          "passed": 57,
-          "files": 3,
-          "main_and_authority_builds": "passed"
-        },
-        "note": "Separate selected commands overlap; do not sum these as a workspace total. Mock runner diagnostics are not packet evidence. Focused final source scopes and resolved harness/provenance warnings retained outside Git.",
-        "executor_native_testlab_selected": 32,
-        "all_native_runner_diagnostics": 16
+      "ci_pass_claim": false,
+      "baseline_reproduction": {
+        "base": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+        "new_tests": 3,
+        "expected_regression_failures": 3,
+        "compile_errors": 0,
+        "cases": [
+          "F1 window-before-legacy accepted out-of-window binding",
+          "F1 legacy-before-window accepted inconsistent history",
+          "F2 malformed plan committed clock observation"
+        ],
+        "scope": "Independent private copy of exact old production source with newly authored regressions. Expected failing tests establish baseline defects; they are not corrected-code PASS results."
       },
       "source_freeze": {
         "files": 406,
-        "sha256": "788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf",
-        "scope": "Final executable/test/spec/CI/toolchain inputs; documentation/report summaries are outside this source freeze."
+        "sha256": "c533bbc57909184dc29fe3a1bbed2574a5c230f0e7be006644806a2409015302",
+        "scope": "Final executable/test/spec/CI/toolchain inputs; docs/report summaries outside freeze."
       },
-      "independent_source_review": {
-        "reviewer": "GPT-6.1 Sol ultra",
-        "files": 59,
-        "manifest_sha256": "253240115b1f7c5c66cd859f950e0156992ea92353219ac892deb07a9e46ae88",
-        "status": "Final integrated source and evidence review passed with no remaining findings. All 59 reviewed files unchanged; this is not a new Claude execution."
+      "focused": {
+        "core_access_window": 19,
+        "core_access_cost_tests": 7,
+        "retained_v1_primitive_accounting": 1,
+        "concurrent_first_window": {
+          "tests": 1,
+          "actual_peer_paths": 3
+        },
+        "reference_pin": 3,
+        "final_python_core_runner": 27,
+        "qualification": "Focused commands overlap and are not summed as a workspace total. Earlier native-package17 execution preceded final Python diagnostic changes and had a documentation-only source-map difference; final canonical/runtime must establish full frozen-input verification."
       },
       "actual_core_linux": {
-        "checks": 72,
-        "packet_probes": 24,
+        "checks": 85,
+        "packet_probes": 26,
         "signed_captures": 2,
-        "lease_seconds": 60,
-        "autonomous_recovery_after_normal_plan_expiry": true,
-        "original_recovery_deadline_preserved": true,
-        "window_rebound": false,
+        "report_sha256": "35d339d488b0b7c617d8a5fc16a0374f7394c0ad55c2f5ec44f4369c83c42425",
+        "source_inputs_unchanged": true,
         "container_removed": true,
-        "report_sha256": "0059674892653f84bde5fbcec1c81c69686853d9d8b8a780a9ff96f3f26a2f29",
-        "production_qualified": false,
-        "human_approval_tested": false,
-        "workload_delegation_authority_verified": false,
-        "multiport_conntrack_set_readback_qualified": false
+        "positive_at_original_E_minus_seconds": 8,
+        "positive_new_and_established_tcp": true,
+        "positive_actual_token_seconds": [
+          4,
+          4
+        ],
+        "positive_independent_minimum_token_seconds": 1,
+        "negative_after_original_E": true,
+        "exact_refusal_cases": 6,
+        "forged_signature_bytes": 64,
+        "independent_observation_reference_pin": true,
+        "driver_external_reference_pin_added": false,
+        "production_qualified": false
       },
-      "actual_authority_browser": {
-        "checks": 43,
-        "fresh_virtual_passkey_core_approval": true,
-        "original_window_preserved": true,
-        "signing_allowed": false,
-        "dispatch_allowed": false
+      "independent_review": {
+        "reviewer": "GPT-6.1 Sol ultra",
+        "status": "Final source, all local counts/artifacts and source/own-stage binary evidence reviewed; no remaining findings within this correction scope. This is not a new Claude execution.",
+        "external_Claude_execution": false,
+        "additional_finding": "Initial absent window followed by concurrent first-window publication could skip time observation. Fixed by comparing initial and final selection and returning Conflict in three paths."
+      },
+      "initial_native_attempt": {
+        "status": "FAIL_preserved_excluded_from_passing_totals",
+        "checks_before_failure": 21,
+        "packet_probes": 6,
+        "signed_captures": 1,
+        "container_removed": true,
+        "qualification": "Specific signature and generic wrapper codes were expected; original child raw stderr was not preserved. Separate same-binary/pinned-image no-NET_ADMIN help probe confirmed the exact leading GLIBC2.39 warning. Existing narrow warning classification was applied, exact application chains strengthened, and the subsequent actual core run passed all six intended refusals."
       },
       "canonical": {
         "command": "bash scripts/check.sh",
         "exit_code": 0,
-        "workspace_rust_passed": 943,
+        "workspace_rust_passed": 957,
         "workspace_ignored": 3,
         "nested_worker_summaries_excluded": 2,
         "explicit_cli_passed": 1,
@@ -440,18 +440,23 @@
         "ui_files": 11,
         "both_production_ui_builds": "passed",
         "static_and_python_checks": "passed",
+        "python_diagnostics": [
+          27,
+          6,
+          14,
+          3
+        ],
         "source_inputs_unchanged": true
       },
       "shared_umask": {
         "command": "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
         "exit_code": 0,
-        "passed": 530,
+        "passed": 541,
         "failed": 0,
         "ignored": 3,
         "nested_worker_summaries_excluded": 2,
         "source_inputs_unchanged": true
       },
-      "ci_pass_claim": false,
       "bins_examples": {
         "command": "cargo build --locked --workspace --bins --examples",
         "exit_code": 0,
@@ -460,117 +465,132 @@
       "runtime": {
         "audit-smoke.json": {
           "status": "PASS",
-          "checks": 21,
-          "report_sha256": "ae646ddb874acc7ebeabfa0e4e61acb748017d088e4cbd464db72b8a3c557d66"
+          "checks": 21
         },
         "authority-browser.json": {
           "status": "PASS",
-          "checks": 43,
-          "report_sha256": "01ec58f1f84b95fe987195f4b9f75ee3eaeff52e55d49a41a00dee1bd2f73003"
+          "checks": 43
         },
         "catalogue-browser.json": {
           "status": "PASS",
-          "checks": 11,
-          "report_sha256": "4598c08aabb278c071a2290c3403d1991fd2d7713904fc2ec196b0676f2a7912"
+          "checks": 11
         },
         "cli-smoke.json": {
           "status": "PASS",
-          "checks": 13,
-          "report_sha256": "66005ce019033bed8d21642cc661de8e3e8507deb31b301c2252d189bcd6c272"
+          "checks": 13
         },
         "core-access-linux-lab.json": {
           "status": "PASS",
-          "checks": 72,
-          "packets": 24,
           "captures": 2,
-          "report_sha256": "0059674892653f84bde5fbcec1c81c69686853d9d8b8a780a9ff96f3f26a2f29"
+          "checks": 85,
+          "packets": 26
         },
-        "enrollment-api.json": {
+        "enrollment-smoke.json": {
           "status": "PASS",
-          "checks": 23,
-          "report_sha256": "e4fdafbd212b59acfefdaf45576a99aad1931bae0d85fadb63f1c35a8b75e3ab"
-        },
-        "enrollment-browser.json": {
-          "status": "PASS",
-          "checks": 25,
-          "report_sha256": "12c89da265107c4e9cefe591126cec8312db1184fd50f6ca147f42c906b246db"
+          "checks": 23
         },
         "http-smoke.json": {
           "status": "PASS",
-          "checks": 24,
-          "report_sha256": "04d108d8049adc53e01b27b2aa3e8c3e80454e1c58c362f3a05022bd0c576640"
+          "checks": 24
         },
         "linux-lab.json": {
           "status": "PASS",
           "checks": 66,
-          "packets": 40,
-          "report_sha256": "2142ce01437bf8ab2174376bec7611acb3470800fb8337d983bc3f1ff456f28f"
+          "packets": 40
         },
         "login-admission-smoke.json": {
           "status": "PASS",
-          "checks": 14,
-          "report_sha256": "5d5a71612b6cfe645f7f59b7b8ad7af44ee3168790ce90c23b393810fe447b03"
+          "checks": 14
         },
         "native-evidence-smoke.json": {
           "status": "PASS",
-          "checks": 33,
-          "packets": 0,
           "captures": 5,
-          "report_sha256": "3f49816abd8a0c37fb630424ab378cba15ebfd98405fc8667d58fac70eab7766"
+          "checks": 33,
+          "packets": 0
         },
         "passkey-smoke.json": {
           "status": "PASS",
-          "checks": 76,
-          "report_sha256": "5604260967300b66609611d80cd6f286649235519bb36617ece2c2d07f55d40b"
+          "checks": 76
         },
         "signed-linux-lab.json": {
           "status": "PASS",
           "checks": 98,
-          "packets": 43,
-          "report_sha256": "f90ee5237dbd7e0a36c6efbc0d7c24184569141b23a2595a872c9d765e859340"
+          "packets": 43
         },
         "target-metadata-smoke.json": {
           "status": "PASS",
-          "checks": 41,
-          "report_sha256": "0c0b74d648326e1cd237a9185035753d919b03ddfaa573a1ae95617071cae949"
+          "checks": 41
         },
-        "separate_cli_protocol": {
+        "enrollment-browser.json": {
           "status": "PASS",
-          "checks": 5
+          "checks": 25
         }
+      },
+      "separate_cli_protocol": {
+        "status": "PASS",
+        "checks": 5
+      },
+      "old_api_database_refusal": {
+        "status": "PASS",
+        "checks": 4,
+        "fixture": "Actual reviewed3866cea public API executed by the old implementation test binary, not reconstructed rows or external private probes.",
+        "admin_exit_code": 1,
+        "diagnostic": "DATABASE_REJECTED",
+        "successful_output": false,
+        "database_bytes_unchanged": true,
+        "database_sha256": "158cf760b443876ea2877c572c532cca75731326686cba779dcde9892695e0d8"
       },
       "runtime_report_count": 14,
       "ci_reference_report_count": 13,
-      "provenance": "All final 406 inputs unchanged; reported executables verified against their own execution-stage snapshots, not cross-platform reproducibility. Authority browser preceded two independently verified test-only fixture aliases; production inputs unchanged.",
-      "cleanup": "All four lab containers removed; zero containers and no live test processes. All 46 retained Chromium entries independently confirmed Z zombies under PID1.",
-      "summary_sha256": "4214872ce333dcdc47cd0a5a347374f408124bea6b30a9036b1e634582cebced",
-      "known_limits": [
-        "Pinned nftables1.0.6 anonymous multiport conntrack-set readback remains unqualified; scalar fixture retains equivalent port union and original lease/request/basis/window.",
-        "Actual autonomous recovery follows normal-plan expiry before original lease E; lease expiry and recovery-at-E model checks are separate evidence.",
-        "Synthetic lab trust is not production workload/delegation or human approval; protected signing/dispatch and all three OS installation/lifecycle qualification remain incomplete."
-      ],
-      "initial_failures": "Earlier unsuccessful attempts and a separately qualified source-provenance warning are retained outside Git, not added to final passing counts. Final corrections preserve original windows, fresh trust/signature/time checks, read-only observation and existing installation budgets. See reports/README.md; raw logs remain outside Git."
+      "summary_sha256": "771c38ffef7123e348fb18bb6d6b7dc73d746f9f00e8bf0a13603105f36b260c",
+      "cleanup": {
+        "containers": 0,
+        "live_test_services_and_browsers": 0,
+        "all_four_lab_containers_removed": true,
+        "retained_zombies": 93,
+        "qualification": "All retained Chromium/crashpad entries confirmed Z under PID1; not executing browsers."
+      },
+      "other_attempt_qualifications": [
+        "Initial unsigned Linux attempt NOT_RUN before packets because Docker buildx metadata path was read-only; private writable BUILDX_CONFIG fixed the environment while keeping Docker/auth/proxy settings. Fresh retry passed without source changes.",
+        "Catalogue command and11 checks passed on first execution. Private collector metadata was corrected for its existing passed:true schema; original report/metadata preserved, no product rerun claimed."
+      ]
     },
     "external_review": {
-      "pull_request": 25,
+      "pull_request": 26,
       "reviewer": "Claude Opus 5.5",
-      "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
-      "target": "89684e055f01a1c87113e4ea4a713ebbff77afe1",
-      "reports": "docs/reviews/pr25-claude-review.md",
-      "assessment": "docs/pr25-review-assessment.md",
-      "preserved_bytes": 14448,
-      "preserved_crlf": 159,
-      "preserved_sha256": "64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771",
-      "source_kind": "uploaded complete pasted text preserved byte-for-byte with progress notes",
-      "status": "received_no_security_defect_or_development_blocker_accuracy_corrections_confirmed",
-      "private_probes_available": false,
-      "reported_conclusion": "I1 and T1-T3 corrected or strengthened; only minor document/command inaccuracies remain. External Docker labs NOT_RUN; attributed external counts are not new local validation.",
-      "accuracy_corrections": [
-        "Use transition_atomicity or exact compiled test path; filename filter matched0 externally.",
-        "13 two-human conditions include2 previously existing audit INSERT stages.",
-        "Hooks record table mutations, not SQL source; approval snapshots compare rows, transition snapshots also compare schema.",
-        "Fault authorizer temporarily replaces production schema authorizer; no DDL and reopen restores it.",
-        "Only retained-intent read uses a Deferred final snapshot; prepare and readiness use Immediate."
+      "base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "target": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "tree": "7f349ae2b22d1c19464454bcec8eb079d15614ef",
+      "reports": "docs/reviews/pr26-claude-review.md",
+      "assessment": "docs/pr26-follow-up.md",
+      "preserved_bytes": 15748,
+      "preserved_crlf": 162,
+      "preserved_sha256": "7f82e555c1c734c9592b7ec3ddf96a4c65891b18815a02e00b45c0c6a1cba37d",
+      "source_kind": "complete uploaded pasted text preserved byte-for-byte including progress notes",
+      "status": "received_F1_F2_corrected_lab_gaps_verified_F3_clarified_F4_documented_trust_limit",
+      "private_probe_sources_available": false,
+      "reported_conclusion": "No Medium-or-higher issue or immediate development blocker. Low F1/F2, informational F3, pre-existing trusted-storage limitation F4 and four lab gaps. External Docker/native labs NOT_RUN; attributed tests are not new local verification.",
+      "findings": [
+        {
+          "id": "F1",
+          "status": "independently_reproduced_both_orders_corrected_live_eligibility_and_preserved_history_verified"
+        },
+        {
+          "id": "F2",
+          "status": "independently_reproduced_structural_validation_precedes_observation_verified"
+        },
+        {
+          "id": "F3",
+          "status": "explicit_full_strict_legacy_upgrade_preserved_and_documented"
+        },
+        {
+          "id": "F4",
+          "status": "existing_privileged_storage_rewrite_limit_documented_not_claimed_fixed"
+        },
+        {
+          "id": "lab_gaps_1_4",
+          "status": "new_actual_core85_packets26_captures2_passed_observation_pin_scope_explicit"
+        }
       ]
     },
     "pr23_verification": {
@@ -1026,6 +1046,103 @@
           "status": "documented_database_wide_quarantine_tradeoff"
         }
       ]
+    },
+    "pr26_reviewed_checkpoint": {
+      "pull_request": 26,
+      "head": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "tree": "7f349ae2b22d1c19464454bcec8eb079d15614ef",
+      "pr_base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "batch": {
+        "base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+        "branch": "feat/core-access-enforcement",
+        "scope": "Core full-state semantic review, immutable absolute lease window, native compilation and isolated core execution, connected CLI/API/UI evidence",
+        "status": "implemented_final_local_validation_and_independent_review_passed_pending_PR_main_CI",
+        "schema": 14,
+        "next_external_reviewer": "Claude Opus 5.5",
+        "external_review_executed": false,
+        "review_receipt": "docs/pr25-review-assessment.md",
+        "design": "docs/core-access-enforcement.md",
+        "completion_record": "The retained feat/core-access-enforcement PR records exact committed head/tree, PR and separate main CI, artifact audits and the full Claude Opus 5.5 prompt. Source summaries record local evidence only; resolve that PR before claiming remote completion."
+      },
+      "verification": {
+        "status": "historical_final_local_PASS_not_followup_validation",
+        "details": "reports/README.md#reviewed-pr26-core-access-checkpoint",
+        "original_ledger": "https://github.com/simhanson123/Nox_Warden/blob/3866ceaa2b86da3ea3653da338d433a23a02b283/reports/task-ledger.json",
+        "workspace_rust_passed": 943,
+        "explicit_cli_passed": 1,
+        "reduced_feature_passed": 32,
+        "ui_passed": 211,
+        "shared_umask_passed": 530,
+        "ignored_per_full_rust_run": 3,
+        "nested_worker_summaries_excluded_per_full_rust_run": 2,
+        "core_linux": {
+          "checks": 72,
+          "packet_probes": 24,
+          "signed_captures": 2
+        },
+        "runtime_report_count": 14,
+        "source_freeze": {
+          "files": 406,
+          "sha256": "788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf",
+          "scope": "Final executable/test/spec/CI/toolchain inputs; documentation/report summaries are outside this source freeze."
+        },
+        "summary_sha256": "4214872ce333dcdc47cd0a5a347374f408124bea6b30a9036b1e634582cebced",
+        "production_qualified": false
+      },
+      "remote_status": "open_unmerged",
+      "pr_ci": {
+        "run": 42036443828,
+        "attempt": 1,
+        "conclusion": "failure",
+        "executed_steps": 0,
+        "artifacts": 0,
+        "reason": "The job was not started because your account is locked due to a billing issue."
+      },
+      "main_ci": "NOT_RUN_unmerged"
+    },
+    "received_pr25_external_review": {
+      "pull_request": 25,
+      "reviewer": "Claude Opus 5.5",
+      "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+      "target": "89684e055f01a1c87113e4ea4a713ebbff77afe1",
+      "reports": "docs/reviews/pr25-claude-review.md",
+      "assessment": "docs/pr25-review-assessment.md",
+      "preserved_bytes": 14448,
+      "preserved_crlf": 159,
+      "preserved_sha256": "64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771",
+      "source_kind": "uploaded complete pasted text preserved byte-for-byte with progress notes",
+      "status": "received_no_security_defect_or_development_blocker_accuracy_corrections_confirmed",
+      "private_probes_available": false,
+      "reported_conclusion": "I1 and T1-T3 corrected or strengthened; only minor document/command inaccuracies remain. External Docker labs NOT_RUN; attributed external counts are not new local validation.",
+      "accuracy_corrections": [
+        "Use transition_atomicity or exact compiled test path; filename filter matched0 externally.",
+        "13 two-human conditions include2 previously existing audit INSERT stages.",
+        "Hooks record table mutations, not SQL source; approval snapshots compare rows, transition snapshots also compare schema.",
+        "Fault authorizer temporarily replaces production schema authorizer; no DDL and reopen restores it.",
+        "Only retained-intent read uses a Deferred final snapshot; prepare and readiness use Immediate."
+      ]
+    },
+    "next_product_batch": {
+      "scope": "Protected initial authority and core signing integration",
+      "tasks": [
+        "M03",
+        "M05"
+      ],
+      "reuse": "Existing credentials/roles/pins, bootstrap-subject WebAuthn challenges, distinct-human approvals, DSSE, quota/intents/results/outbox, worker claims and generation fencing. Do not rebuild these mechanics as if absent.",
+      "implement": [
+        "Authenticate signed workload/envelope/delegation authority rather than treating structural provenance as authorization.",
+        "Bind, authorize and atomically retain AuthorityBootstrapManifest with owner proof; establish trusted initial target epoch/generation.",
+        "Connect core grant production/verification to existing prepare/finalize and independently authenticated signer.",
+        "Demonstrate OS-account/ACL and peer-authenticated IPC separation so controller cannot read signer keys or rewrite protected authority schema."
+      ],
+      "acceptance": "Exact-once healthy bootstrap/signing; reject self-approval, wrong tenant, stale epoch/generation and forged/revoked/expired authority. Output loss, restart and concurrency preserve exact retries, original [S,E) and quota occupancy.",
+      "production_opening_prerequisites": [
+        "Protected storage and authenticated IPC",
+        "Qualified compiler/validator build identity",
+        "Qualified operational observer, management baseline and native enforcement evidence"
+      ],
+      "remaining_afterwards": "Authenticated delivery/completion/reconciliation; installed Linux lifecycle/watchdog/native qualification; actual Windows WFP/callout and macOS Network Extension implementations and OS qualification; signed install/update/uninstall, remaining product workflows and release acceptance.",
+      "qualification": "Planning boundary only; no new implementation or production authorization claimed. The protected_authority resolver must remain closed wherever prerequisites are unmet."
     }
   },
   "tasks": [

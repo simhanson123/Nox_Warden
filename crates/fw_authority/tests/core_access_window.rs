@@ -466,3 +466,319 @@ fn observed_expiry_survives_backward_read_retry_and_reopen_without_current_resur
         .unwrap();
     assert_eq!(floor, NOW + 7200);
 }
+
+#[test]
+fn legacy_import_cannot_escape_an_existing_fixed_request_window() {
+    let mut f = Fixture::new();
+    f.register(NOW + 1).unwrap();
+    let (mut shifted, _, _, provenance, _) = support::fixture_at(NOW, 600);
+    shifted["plan_id"] = OTHER.into();
+    f.store
+        .register_plan(&f.tenant, &shifted, &f.requirements, NOW + 2)
+        .unwrap();
+    let before = integrity::rows(&f.path);
+    let result = f
+        .store
+        .register_core_access_provenance(&f.tenant, OTHER, &provenance, NOW + 2);
+    assert!(
+        result.is_err(),
+        "legacy binding escaped the fixed window: {result:?}"
+    );
+    assert_eq!(integrity::rows(&f.path), before);
+    assert_eq!(count(&f.path, "authority_core_access_lease_windows"), 1);
+    assert_eq!(count(&f.path, "authority_core_access_plan_bindings"), 1);
+    assert_eq!(count(&f.path, "authority_signing_quota_reservations"), 0);
+    AuthorityStore::open(&f.path).unwrap();
+}
+
+#[test]
+fn first_window_refuses_preexisting_outside_legacy_history_atomically() {
+    let mut f = Fixture::new();
+    let (mut shifted, _, _, provenance, _) = support::fixture_at(NOW, 600);
+    shifted["plan_id"] = OTHER.into();
+    f.store
+        .register_plan(&f.tenant, &shifted, &f.requirements, NOW)
+        .unwrap();
+    f.store
+        .register_core_access_provenance(&f.tenant, OTHER, &provenance, NOW)
+        .unwrap();
+    let before = immutable_rows(&f.path);
+    assert!(
+        f.register(NOW + 1).is_err(),
+        "window hid conflicting legacy history"
+    );
+    assert_eq!(immutable_rows(&f.path), before);
+    assert_eq!(count(&f.path, "authority_core_access_lease_windows"), 0);
+    assert_eq!(count(&f.path, "authority_plan_review_evidence"), 0);
+    AuthorityStore::open(&f.path).unwrap();
+}
+
+#[test]
+fn malformed_closed_plan_never_commits_a_clock_observation() {
+    let mut f = Fixture::new();
+    f.plan["zz_unknown"] = json!(1);
+    let before = integrity::rows(&f.path);
+    assert!(f.register(NOW + 1).is_err());
+    assert_eq!(
+        integrity::rows(&f.path),
+        before,
+        "malformed input advanced a durable authority clock"
+    );
+}
+
+#[test]
+fn malformed_requirements_never_observe_time_but_expired_valid_attempts_do() {
+    for scenario in 0..3 {
+        let mut f = Fixture::new();
+        match scenario {
+            0 => f.requirements["zz_unknown"] = json!(1),
+            1 => f.plan["rollback_authority"]["zz_unknown"] = json!(1),
+            _ => f.plan["requested_policies"][0]["lifetime"]["zz_unknown"] = json!(1),
+        }
+        let before = integrity::rows(&f.path);
+        assert!(f.register(NOW + 1).is_err(), "scenario {scenario}");
+        assert_eq!(integrity::rows(&f.path), before, "scenario {scenario}");
+    }
+    let mut f = Fixture::new();
+    let before = immutable_rows(&f.path);
+    assert!(matches!(f.register(NOW + 3600), Err(AuthorityError::Time)));
+    assert_eq!(immutable_rows(&f.path), before);
+    assert_eq!(count(&f.path, "authority_signing_quota_clocks"), 1);
+    let db = Connection::open(&f.path).unwrap();
+    let floor: i64 = db
+        .query_row(
+            "SELECT observed_at FROM authority_signing_quota_clocks WHERE bucket_kind='project'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(floor, NOW + 3600);
+    assert!(f.register(NOW + 1).is_err());
+    AuthorityStore::open(&f.path).unwrap();
+}
+
+#[test]
+fn contained_legacy_binding_preserves_bytes_and_cannot_gain_fresh_signing_readiness() {
+    let mut f = Fixture::new();
+    f.register(NOW + 1).unwrap();
+    let (mut legacy, provenance) = support::core::fixture();
+    legacy["plan_id"] = OTHER.into();
+    let original = canonical_bytes(&provenance).unwrap();
+    f.store
+        .register_plan(&f.tenant, &legacy, &f.requirements, NOW + 2)
+        .unwrap();
+    let imported = f
+        .store
+        .register_core_access_provenance(&f.tenant, OTHER, &provenance, NOW + 2)
+        .unwrap();
+    assert!(imported.current);
+    assert_eq!(imported.lease_seconds, 3600);
+    assert_eq!(
+        imported.provenance_hash,
+        fw_contracts::hash_bytes(&original)
+    );
+    assert!(!imported.signing_allowed && !imported.dispatch_allowed);
+    let ready = f
+        .store
+        .signing_readiness(
+            &f.tenant,
+            OTHER,
+            &fw_webauthn::WebAuthn::new("http://localhost:8787").unwrap(),
+            NOW + 2,
+        )
+        .unwrap();
+    assert!(
+        ready
+            .reasons
+            .iter()
+            .any(|reason| reason == "CORE_REQUEST_BINDING_UNAVAILABLE")
+    );
+    assert!(!ready.signing_allowed && !ready.dispatch_allowed);
+    let before = immutable_rows(&f.path);
+    assert!(
+        !f.store
+            .read_core_access_provenance(&f.tenant, OTHER, NOW + 3600)
+            .unwrap()
+            .unwrap()
+            .current
+    );
+    let rolled_back = f
+        .store
+        .read_core_access_provenance(&f.tenant, OTHER, NOW + 2)
+        .unwrap()
+        .unwrap();
+    assert!(!rolled_back.current);
+    assert!(
+        rolled_back
+            .gates
+            .iter()
+            .any(|gate| gate == "CORE_ACCESS_WINDOW_NOT_CURRENT")
+    );
+    assert!(
+        !f.store
+            .register_core_access_provenance(&f.tenant, OTHER, &provenance, NOW + 2)
+            .unwrap()
+            .current
+    );
+    f.store = AuthorityStore::open(&f.path).unwrap();
+    assert!(
+        !f.store
+            .read_core_access_provenance(&f.tenant, OTHER, NOW + 2)
+            .unwrap()
+            .unwrap()
+            .current
+    );
+    assert_eq!(immutable_rows(&f.path), before);
+    let db = Connection::open(&f.path).unwrap();
+    let retained: Vec<u8> = db
+        .query_row(
+            "SELECT canonical_bytes FROM authority_core_access_requests",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained, original);
+}
+
+#[test]
+fn compatible_legacy_can_upgrade_only_through_full_combined_review_validation() {
+    let mut f = Fixture::new();
+    f.store
+        .register_plan(&f.tenant, &f.plan, &f.requirements, NOW)
+        .unwrap();
+    f.store
+        .register_core_access_provenance(
+            &f.tenant,
+            f.plan["plan_id"].as_str().unwrap(),
+            &f.provenance,
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(count(&f.path, "authority_core_access_lease_windows"), 0);
+    let original = canonical_bytes(&f.provenance).unwrap();
+    assert!(f.register(NOW + 1).unwrap().current);
+    assert_eq!(count(&f.path, "authority_core_access_requests"), 1);
+    assert_eq!(count(&f.path, "authority_core_access_plan_bindings"), 1);
+    assert_eq!(count(&f.path, "authority_core_access_lease_windows"), 1);
+    let db = Connection::open(&f.path).unwrap();
+    let retained: Vec<u8> = db
+        .query_row(
+            "SELECT canonical_bytes FROM authority_core_access_requests",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained, original);
+    AuthorityStore::open(&f.path).unwrap();
+}
+
+#[test]
+fn restored_guards_cannot_hide_previously_accepted_outside_legacy_history() {
+    let mut f = Fixture::new();
+    f.register(NOW + 1).unwrap();
+    let mut compatible = f.plan.clone();
+    compatible["plan_id"] = OTHER.into();
+    f.store
+        .register_plan(&f.tenant, &compatible, &f.requirements, NOW + 2)
+        .unwrap();
+    f.store
+        .register_core_access_provenance(&f.tenant, OTHER, &f.provenance, NOW + 2)
+        .unwrap();
+    let (mut outside, _, _, provenance, _) = support::fixture_at(NOW, 600);
+    outside["plan_id"] = OTHER.into();
+    provenance.verify(&outside).unwrap();
+    let digest = canonical_hash(&outside).unwrap();
+    let hash_bytes: Vec<u8> = (7..digest.len())
+        .step_by(2)
+        .map(|offset| u8::from_str_radix(&digest[offset..offset + 2], 16).unwrap())
+        .collect();
+    let db = Connection::open(&f.path).unwrap();
+    let guards = [
+        "authority_plans_no_update",
+        "authority_core_access_plan_bindings_no_update",
+    ]
+    .map(|name| integrity::trigger_sql(&db, name));
+    db.execute_batch("DROP TRIGGER authority_plans_no_update; DROP TRIGGER authority_core_access_plan_bindings_no_update").unwrap();
+    db.execute(
+        "UPDATE authority_plans SET plan_hash=?1,canonical_bytes=?2 WHERE plan_id=?3",
+        rusqlite::params![hash_bytes, canonical_bytes(&outside).unwrap(), OTHER],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE authority_core_access_plan_bindings SET plan_hash=?1 WHERE plan_id=?2",
+        rusqlite::params![hash_bytes, OTHER],
+    )
+    .unwrap();
+    for guard in guards {
+        db.execute_batch(&guard).unwrap();
+    }
+    assert_eq!(
+        db.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert!(
+        !db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get::<_, bool>(0)
+        )
+        .unwrap()
+    );
+    let before = integrity::rows(&f.path);
+    assert!(
+        f.store
+            .read_core_access_provenance(&f.tenant, OTHER, NOW + 3)
+            .is_err()
+    );
+    assert!(
+        f.read(NOW + 3).is_err(),
+        "healthy reviewed plan hid another binding outside its window"
+    );
+    assert!(AuthorityStore::open(&f.path).is_err());
+    assert_eq!(
+        integrity::rows(&f.path),
+        before,
+        "validation repaired or rewrote old history"
+    );
+}
+
+#[test]
+fn fixed_window_keeps_original_request_revision_lease_and_alias_identity_closed() {
+    for scenario in 0..4 {
+        let mut f = Fixture::new();
+        f.register(NOW + 1).unwrap();
+        let mut plan = f.plan.clone();
+        let mut provenance = f.provenance.clone();
+        plan["plan_id"] = OTHER.into();
+        match scenario {
+            0 => provenance.lease_id = OTHER.into(),
+            1 => {
+                provenance.request_revision += 1;
+                plan["request_revision"] = provenance.request_revision.into();
+            }
+            2 => {
+                provenance.request_id = OTHER.into();
+                provenance.request.idempotency_key = OTHER.into();
+                plan["request_id"] = OTHER.into();
+            }
+            _ => {
+                provenance.request_id = OTHER.into();
+                provenance.lease_id = OTHER.into();
+                plan["request_id"] = OTHER.into();
+            }
+        }
+        support::core::rehash(&mut plan, &mut provenance);
+        f.store
+            .register_plan(&f.tenant, &plan, &f.requirements, NOW + 2)
+            .unwrap();
+        let before = immutable_rows(&f.path);
+        assert!(
+            f.store
+                .register_core_access_provenance(&f.tenant, OTHER, &provenance, NOW + 3)
+                .is_err(),
+            "scenario {scenario}"
+        );
+        assert_eq!(immutable_rows(&f.path), before, "scenario {scenario}");
+    }
+}

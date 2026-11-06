@@ -4,20 +4,45 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The [received PR26 review](reviews/pr26-claude-review.md) now covers the core
+checkpoint. Its [integrated follow-up](pr26-follow-up.md) tightens fixed-window
+binding across legacy paths, validates shape before clock observation and
+strengthens native lab evidence. Their fresh final local validation passed:
+Rust957 + explicit CLI1 + reduced32, UI211, shared-umask541, all runtime suites
+and four isolated labs (core85 checks/26 packets/two captures), plus actual
+old-API incompatible DB refusal with preserved bytes. Independent source and
+evidence review found no remaining finding within scope. Detailed qualifications
+belong in [reports](../reports/README.md); historical counts below are not reused.
+PR26's initial remote CI was blocked before execution by an account billing lock,
+so that checkpoint remains unmerged. F4's arbitrary local-storage rewrite is an
+explicit trust-boundary limitation; it is not solved by local checksums or SQL
+guards. Production authority and three-OS acceptance remain incomplete.
+
 The [received PR25 review](reviews/pr25-claude-review.md) reports no security
 defect or development blocker after I1/T1–T3. Its small documentation/command
-issues are [corrected against source](pr25-review-assessment.md). The current
-integrated batch implements [core full-state review](core-access-enforcement.md),
+issues are [corrected against source](pr25-review-assessment.md). The reviewed
+PR26 checkpoint implements [core full-state review](core-access-enforcement.md),
 a fixed absolute request window, native evidence/isolated execution and operator
-evidence. Schema14 and the connected CLI/API/UI are implemented. Final local
+evidence. Schema14 and the connected CLI/API/UI are implemented. That checkpoint's local
 canonical, shared-umask, binaries/examples and all runtime validation passed;
-the current counts and scope are recorded below and in
+historical counts and scope are recorded below and in
 [reports](../reports/README.md). Independent internal review covered 59 source
-files with no findings; it is not an external Claude execution. This local
-record precedes the feature commit/PR/CI/merge. Their later exact head/tree and
-CI results belong in the feature PR completion record and complete Claude prompt.
+files with no findings at that checkpoint. The later external PR26 findings and
+new corrections are recorded above. Exact corrected head/tree and remote CI
+results belong in PR26's completion record and the complete new Claude prompt.
 Protected workload/delegation bootstrap, generation, signer and dispatch
 authority remain separate blockers.
+
+The next coherent product batch is protected initial authority and core signing
+integration (M03/M05), reusing existing WebAuthn/bootstrap-subject challenges,
+DSSE, quota/intent/result/outbox, claim and generation-fencing mechanics. Missing
+connections are authenticated workload/delegation authority, owner-authorized
+bootstrap manifest admission, trusted initial epoch/generation, the core grant
+adapter and independently authenticated signer/IPC. These need OS-account/ACL
+separation and qualified build/observer/management-baseline/native evidence;
+removing the closed resolver before those conditions hold is not implementation.
+Authenticated completion, installed Linux lifecycle, real Windows WFP/callout
+and macOS Network Extension, and release acceptance remain subsequent work.
 
 The [PR24 external review](reviews/pr24-claude-review.md) confirms R1–R4 at
 their original reproduction criteria, without a confirmed new security defect.

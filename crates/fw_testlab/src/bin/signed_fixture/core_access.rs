@@ -18,6 +18,67 @@ const LEASE_SECONDS: i64 = 60;
 const BASELINE_LEASE: &str = "99999999-9999-4999-8999-999999999991";
 const BASELINE_REQUEST: &str = "99999999-9999-4999-8999-999999999992";
 
+/// Independently provisioned local lab input, never copied from submitted
+/// artifact references while challenging or verifying an observation.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CoreLabReferencePin {
+    schema_version: String,
+    reference_revision: String,
+    production_authorized: bool,
+    references: LabReferences,
+}
+
+impl CoreLabReferencePin {
+    fn bind_artifacts(
+        &self,
+        previous: &fw_backend_linux::PortableArtifact,
+        candidate: &fw_backend_linux::PortableArtifact,
+    ) -> Result<()> {
+        let revision = self.reference_revision.parse::<u64>()?;
+        if self.schema_version != "fw.core-lab-reference-pin/v1"
+            || self.production_authorized
+            || revision == 0
+            || revision.to_string() != self.reference_revision
+        {
+            return Err("invalid synthetic reference pin".into());
+        }
+        for artifact in [previous, candidate] {
+            let independently_compiled = compile_portable(&artifact.state, &self.references)?;
+            if artifact.references != self.references || h(artifact)? != h(&independently_compiled)?
+            {
+                return Err("artifact differs from independently pinned references".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+fn pinned_compilation(
+    path: &Path,
+    bundle: &CoreAccessExecutionBundle,
+) -> Result<(CoreLabReferencePin, fw_native_evidence::VerifiedCompilation)> {
+    let pin: CoreLabReferencePin = checked_stage(
+        read(&path.join("reference-pin.json")),
+        "CORE_OBS_REFERENCE_PIN_READ",
+    )?;
+    checked_stage(
+        pin.bind_artifacts(&bundle.previous, &bundle.candidate),
+        "CORE_OBS_REFERENCE_PIN_BINDING",
+    )?;
+    let compilation = checked_stage(
+        fw_native_evidence::compile_evidence(&bundle.plan, &bundle.review, &pin.references),
+        "CORE_OBS_PINNED_COMPILATION",
+    )?;
+    if h(compilation.baseline())? != h(&bundle.previous)?
+        || h(compilation.candidate())? != h(&bundle.candidate)?
+        || bundle.recovery.references != pin.references
+    {
+        return Err("pinned compilation differs from submitted artifacts".into());
+    }
+    Ok((pin, compilation))
+}
+
 // Fixed stage codes identify a failed fixture obligation without printing raw
 // objects, keys, paths or arbitrary underlying diagnostics.
 fn checked_stage<T, E>(
@@ -174,6 +235,17 @@ pub(super) fn prepare(path: &Path, recovery_profile: bool) -> Result<Value> {
         "source_snapshot":{"schema_version":"fw.isolated-lab-snapshot/v1","scope_hash":scope_hash,"assets":[{"asset_id":SOURCE,"cidrs":["127.0.0.1/32"]},{"asset_id":DESTINATION,"cidrs":["127.0.0.1/32"]}]},
         "capability":{"schema_version":"fw.isolated-lab-capability/v1","scope_hash":scope_hash,"platform":"linux","profile":"host-tcp-udp-lab","production_qualified":false}
     }))?;
+    // The lab administrator's scope/reference input is saved before artifact
+    // construction. Observation commands must load this separate closed file.
+    save(
+        &path.join("reference-pin.json"),
+        &CoreLabReferencePin {
+            schema_version: "fw.core-lab-reference-pin/v1".into(),
+            reference_revision: "1".into(),
+            production_authorized: false,
+            references: refs.clone(),
+        },
+    )?;
 
     // Loopback traverses both OUTPUT and INPUT. These explicit old fixture
     // policies provide the companion traversal and independent positive control;
@@ -806,15 +878,12 @@ pub(super) fn challenge_observation(path: &Path, role: &str) -> Result<Value> {
     guard()?;
     directory(path, false)?;
     let (bundle, artifact_role, installation) = observation_objects(path, role)?;
-    let compilation = checked_stage(
-        fw_native_evidence::compile_evidence(
-            &bundle.plan,
-            &bundle.review,
-            &bundle.candidate.references,
-        ),
-        "CORE_OBS_COMPILATION",
-    )?;
+    let (pin, compilation) = pinned_compilation(path, &bundle)?;
     let artifact = compilation.artifact(artifact_role);
+    let submitted_artifact_hash = match artifact_role {
+        ArtifactRole::Baseline => bundle.previous.artifact_hash()?,
+        ArtifactRole::Candidate => bundle.candidate.artifact_hash()?,
+    };
     let public: [u8; 32] = read(&path.join("observer-public.json"))?;
     let at = now();
     let synthetic_metadata = h(&json!({"synthetic_fixture_metadata":true,"target_id":TARGET}))?;
@@ -826,7 +895,7 @@ pub(super) fn challenge_observation(path: &Path, role: &str) -> Result<Value> {
         target_id: TARGET.into(),
         observer_revision: "1".into(),
         observer_key_fingerprint: fw_native_evidence::fingerprint(&public)?,
-        reference_revision: "1".into(),
+        reference_revision: pin.reference_revision.clone(),
         compilation_hash: compilation.evidence_hash().into(),
         metadata_receipt_hash: synthetic_metadata.clone(),
         metadata_report_hash: synthetic_metadata,
@@ -858,7 +927,11 @@ pub(super) fn challenge_observation(path: &Path, role: &str) -> Result<Value> {
         "CORE_OBS_CHALLENGE_SAVE",
     )?;
     Ok(
-        json!({"compilation_hash":compilation.evidence_hash(),"challenge_hash":challenge.hash()?,"synthetic_observer_trust":true,"authority_admission_performed":false,"production_authorized":false}),
+        json!({"compilation_hash":compilation.evidence_hash(),"challenge_hash":challenge.hash()?,
+            "reference_pin_hash":h(&pin)?,"references_hash":compilation.references_hash(),
+            "expected_artifact_hash":challenge.artifact_hash,"submitted_artifact_hash":submitted_artifact_hash,
+            "reference_revision":pin.reference_revision,"reference_source":"separate-trusted-lab-input",
+            "synthetic_observer_trust":true,"authority_admission_performed":false,"production_authorized":false}),
     )
 }
 
@@ -866,11 +939,11 @@ pub(super) fn verify_observation(path: &Path, role: &str, proof_path: &Path) -> 
     guard()?;
     directory(path, false)?;
     let (bundle, artifact_role, _) = observation_objects(path, role)?;
-    let compilation = fw_native_evidence::compile_evidence(
-        &bundle.plan,
-        &bundle.review,
-        &bundle.candidate.references,
-    )?;
+    let (pin, compilation) = pinned_compilation(path, &bundle)?;
+    let submitted_artifact_hash = match artifact_role {
+        ArtifactRole::Baseline => bundle.previous.artifact_hash()?,
+        ArtifactRole::Candidate => bundle.candidate.artifact_hash()?,
+    };
     let challenge: NativeObservationChallenge = read(&path.join(format!("challenge-{role}.json")))?;
     let proof: SignedNativeObservation = read(proof_path)?;
     let public: [u8; 32] = read(&path.join("observer-public.json"))?;
@@ -878,6 +951,7 @@ pub(super) fn verify_observation(path: &Path, role: &str, proof_path: &Path) -> 
     let trust_until = metadata["not_before_unix"].as_i64().ok_or("fixture time")? + 3600;
     if challenge.artifact_role != artifact_role
         || challenge.compilation_hash != compilation.evidence_hash()
+        || challenge.reference_revision != pin.reference_revision
     {
         return Err("core observation binding".into());
     }
@@ -901,7 +975,11 @@ pub(super) fn verify_observation(path: &Path, role: &str, proof_path: &Path) -> 
         return Err("core native observation mismatch".into());
     }
     Ok(
-        json!({"comparison":"match","observed_state_hash":verified.observed_state_hash(),"readback_hash":verified.readback_hash(),"proof_hash":h(&proof)?,"synthetic_observer_trust":true,"authority_admission_performed":false,"production_authorized":false}),
+        json!({"comparison":"match","observed_state_hash":verified.observed_state_hash(),"readback_hash":verified.readback_hash(),"proof_hash":h(&proof)?,
+            "reference_pin_hash":h(&pin)?,"references_hash":compilation.references_hash(),
+            "expected_artifact_hash":challenge.artifact_hash,"submitted_artifact_hash":submitted_artifact_hash,
+            "reference_revision":pin.reference_revision,"reference_source":"separate-trusted-lab-input",
+            "synthetic_observer_trust":true,"authority_admission_performed":false,"production_authorized":false}),
     )
 }
 
@@ -973,4 +1051,83 @@ pub(super) fn confirmation(path: &Path, probe_path: &Path, output: &Path) -> Res
         },
     )?;
     Ok(json!({"synthetic_confirmation_authority":true,"production_authorized":false}))
+}
+
+#[cfg(test)]
+mod reference_pin_tests {
+    use super::*;
+
+    fn fixture() -> (CoreLabReferencePin, fw_backend_linux::PortableArtifact) {
+        let scope = json!({"schema_version":"fw.isolated-lab-scope/v1","org_id":ORG,
+            "project_id":PROJECT,"target_id":TARGET,"network_namespace":"net:[12345]",
+            "interfaces":["lo"],"conntrack_zone":0});
+        let scope_hash = h(&scope).unwrap();
+        let refs: LabReferences = serde_json::from_value(json!({"scope":scope,
+            "baseline":{"schema_version":"fw.isolated-lab-baseline/v1","scope_hash":scope_hash,"management_paths":[],"default_action":"drop"},
+            "source_snapshot":{"schema_version":"fw.isolated-lab-snapshot/v1","scope_hash":scope_hash,"assets":[]},
+            "capability":{"schema_version":"fw.isolated-lab-capability/v1","scope_hash":scope_hash,"platform":"linux","profile":"host-tcp-udp-lab","production_qualified":false}})).unwrap();
+        let state = state_for(&refs);
+        let artifact = compile_portable(&state, &refs).unwrap();
+        (
+            CoreLabReferencePin {
+                schema_version: "fw.core-lab-reference-pin/v1".into(),
+                reference_revision: "1".into(),
+                production_authorized: false,
+                references: refs,
+            },
+            artifact,
+        )
+    }
+
+    fn state_for(refs: &LabReferences) -> StateIr {
+        serde_json::from_value(json!({"schema_version":"f.state-ir/v1","target_id":TARGET,
+            "platform":"linux","profile":"lab","policies":[],"associations":[],"tombstone_hashes":[],
+            "management_baseline_hash":h(&refs.baseline).unwrap(),
+            "source_snapshot_hash":h(&refs.source_snapshot).unwrap(),
+            "target_capability_hash":h(&refs.capability).unwrap(),"normalization_version":"f.normalize/nfc-v1"})).unwrap()
+    }
+
+    #[test]
+    fn separate_reference_pin_binds_both_artifacts_and_is_closed_lab_only_input() {
+        let (pin, artifact) = fixture();
+        pin.bind_artifacts(&artifact, &artifact).unwrap();
+        let mut production = pin.clone();
+        production.production_authorized = true;
+        assert!(production.bind_artifacts(&artifact, &artifact).is_err());
+        for revision in ["0", "01", "", "18446744073709551616"] {
+            let mut invalid = pin.clone();
+            invalid.reference_revision = revision.into();
+            assert!(invalid.bind_artifacts(&artifact, &artifact).is_err());
+        }
+        let mut extra = serde_json::to_value(&pin).unwrap();
+        extra["trust_submitted_references"] = json!(true);
+        assert!(serde_json::from_value::<CoreLabReferencePin>(extra).is_err());
+    }
+
+    #[test]
+    fn coherent_submitted_reference_replacement_cannot_supply_its_own_pin() {
+        let (pin, original) = fixture();
+        let mut untrusted = pin.references.clone();
+        untrusted.scope.network_namespace = "net:[54321]".into();
+        let changed_scope_hash = h(&untrusted.scope).unwrap();
+        untrusted.baseline.scope_hash = changed_scope_hash.clone();
+        untrusted.source_snapshot.scope_hash = changed_scope_hash.clone();
+        untrusted.capability.scope_hash = changed_scope_hash;
+        let replacement = compile_portable(&state_for(&untrusted), &untrusted).unwrap();
+        // The old self-reference path validates this coherent artifact. Its
+        // independent original pin must reject either role's substitution.
+        replacement.validate().unwrap();
+        assert!(pin.bind_artifacts(&original, &replacement).is_err());
+        assert!(pin.bind_artifacts(&replacement, &original).is_err());
+        assert!(pin.bind_artifacts(&replacement, &replacement).is_err());
+    }
+
+    #[test]
+    fn matching_references_do_not_hide_changed_native_artifact_bytes() {
+        let (pin, original) = fixture();
+        let mut changed = original.clone();
+        changed.nft_template = json!({"nftables":[{"flush":{"ruleset":null}}]});
+        assert!(pin.bind_artifacts(&original, &changed).is_err());
+        assert!(pin.bind_artifacts(&changed, &original).is_err());
+    }
 }

@@ -1,29 +1,22 @@
 # Independent review prompts
 
-> Current status: the supplied Claude Opus5.5 PR25 review is preserved in
-> [the uploaded original](reviews/pr25-claude-review.md); no security defect or
-> development blocker was reported. [Accuracy corrections](pr25-review-assessment.md)
-> include the valid focused filter `transition_atomicity`, not the included filename.
-> The current implemented batch adds core semantic review, one absolute lease
-> window, native execution/evidence and connected operator surfaces.
-> Final local validation passed: Rust 943 + explicit CLI 1 + reduced 32, UI 211 in
-> 11 files and both builds, shared-umask 530, binaries/examples and all 14 runtime
-> reports plus the separate synthetic CLI protocol 5. Rust 943/530 each retain 3
-> ignored declarations and exclude 2 nested worker summaries. All 4 labs cleaned up.
-> Consolidated independent internal review covered 59 source files with no findings.
-> Frozen 406-input digest: `788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf`.
-> Use **Claude Opus5.5 only** for one consolidated review of the actual new head.
-> Comparison base: `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
-> Branch: `feat/core-access-enforcement`. This local record precedes its commit,
-> PR, CI and merge. Resolve the later actual head/tree and CI from the feature
-> PR completion record; fix those in the complete prompt and user handoff.
-> Production workload/delegation/signing/dispatch remain closed. Linux installed
-> lifecycle, Windows WFP/callout and macOS NE remain incomplete. Pinned nft 1.0.6
-> anonymous multiport `ct.proto-dst` readback remains unqualified; the scalar lab
-> fixture does not qualify multiport support.
-> Received PR22–PR25 reviews must not be requested again for unchanged targets.
-> Prompt preparation/internal review are not external model execution.
-> Start a development session with [this prompt](session-start-prompt.txt).
+> The supplied [Claude Opus5.5 PR26 review](reviews/pr26-claude-review.md) is received.
+> Its target is `3866ceaa2b86da3ea3653da338d433a23a02b283`; do not request another
+> review of that unchanged target. Read [the follow-up](pr26-follow-up.md).
+> The current correction batch addresses F1/F2, strict legacy upgrade and storage
+> boundary wording, and four native lab verification gaps. Use **Claude Opus5.5
+> only** for one consolidated review of the actual corrected head.
+> Final local checks and independent source/evidence review passed; the exact
+> new counts and qualifications are in [reports](../reports/README.md).
+> Next comparison base: `3866ceaa2b86da3ea3653da338d433a23a02b283`.
+> Original PR base: `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
+> Branch: `feat/core-access-enforcement`, PR26. Resolve the final target/tree and
+> CI from the retained PR completion record. Its initial CI was blocked before
+> execution by billing; local results never replace remote CI success.
+> The full prompt with actual new SHAs must be printed in the conversation and
+> retained in PR26. Prompt preparation/internal review is not Claude execution.
+> Published SQL001–014 and original reviews/specs remain preserved; operational
+> signing/dispatch remain closed. Start with [the session prompt](session-start-prompt.txt).
 
 > Historical PR #16 prompts below. Historical reservation-integrity review prompts,
 > exact base and target are in [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).

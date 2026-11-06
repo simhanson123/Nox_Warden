@@ -30,6 +30,19 @@ actual probe evidence and the limits of the separate recovery process. Unknown
 state, expired recovery authority and unsupported bootstrap/clock cases do not
 acquire new write authority. The product remains observe-only.
 
+The core-access lab additionally pins compilation inputs in a separate closed
+`reference-pin.json` (`fw.core-lab-reference-pin/v1`), carrying a positive decimal
+revision, `production_authorized:false` and exact `LabReferences`. The synthetic
+fixture administrator creates it before artifact construction. Both observation
+challenge creation and proof verification read that file independently of bundle
+references, rebuild both artifacts and compare their complete bytes. Capture
+provenance records the pin and reference hashes plus expected/submitted artifact
+hashes. The file belongs to the isolated evidence workflow, not the executor's
+production trust registry. It is synthetic fixture input and does not establish
+an OS-protected deployment authority. Driver initialization, apply and replay
+retain their existing signed-material and trust-scope checks; this pin qualifies
+neither those paths nor production execution.
+
 ## Read-only native evidence collector
 
 Inside the same guarded disposable namespace, a separate purpose-scoped observer

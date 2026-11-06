@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import uuid
 
@@ -19,6 +20,40 @@ IMAGE = 'nox-linux-loopback-lab:local'
 
 class StageFailure(RuntimeError):
     pass
+
+
+def validate_core_evidence(result):
+    """A prior two-capture PASS cannot stand in for the strengthened profile."""
+    captures = result.get('native_captures', [])
+    boundaries = result.get('original_expiry_boundary_observations', [])
+    original_end = result.get('original_lease_window', {}).get('expires_at_unix')
+    valid_hash = lambda value: isinstance(value, str) and re.fullmatch(r'sha256:[0-9a-f]{64}', value)
+    if (result.get('capture_count') != 2 or len(captures) != 2
+            or [capture.get('artifact_role') for capture in captures] != ['baseline', 'candidate']
+            or len(boundaries) != 2 or [entry.get('kind') for entry in boundaries] != ['positive', 'negative']
+            or type(original_end) is not int):
+        raise StageFailure('missing core native capture or original expiry boundary evidence')
+    for capture in captures:
+        if (capture.get('reference_source') != 'separate-trusted-lab-input'
+                or capture.get('reference_revision') != '1'
+                or any(not valid_hash(capture.get(field)) for field in
+                       ('reference_pin_hash', 'references_hash', 'expected_artifact_hash', 'submitted_artifact_hash',
+                        'compilation_hash', 'challenge_hash', 'proof_hash', 'readback_hash', 'observed_state_hash'))
+                or capture['expected_artifact_hash'] != capture['submitted_artifact_hash']):
+            raise StageFailure('missing independently pinned core capture provenance')
+    if any(captures[0][field] != captures[1][field] for field in
+           ('reference_pin_hash', 'references_hash', 'reference_revision', 'compilation_hash')):
+        raise StageFailure('core capture reference pin changed')
+    positive, negative = boundaries
+    if (positive.get('original_expires_at_unix') != original_end
+            or negative.get('original_expires_at_unix') != original_end
+            or not positive.get('minimum_remaining_seconds', 0) > 0
+            or not positive.get('actual_remaining_seconds')
+            or not positive['target_unix'] <= positive['started_at_unix'] <= positive['finished_at_unix'] < original_end
+            or not negative.get('sampled_at_unix', 0) >= original_end + 1
+            or negative.get('core_tokens_absent') is not True
+            or negative.get('new_and_established_tcp_blocked') is not True):
+        raise StageFailure('invalid original core expiry boundary evidence')
 
 
 def main(profile='legacy'):
@@ -118,8 +153,8 @@ def main(profile='legacy'):
         expected_schema = 'fw.core-access-linux-lab/v1' if core_access else 'fw.signed-linux-lab/v1'
         if result.get('schema_version') != expected_schema or result.get('status') not in ('PASS', 'FAIL') or code not in (0, 1) or (code == 0) != (result['status'] == 'PASS'):
             raise StageFailure('unexpected signed lifecycle result')
-        if core_access and result['status'] == 'PASS' and result.get('capture_count') != 2:
-            raise StageFailure('missing core native captures')
+        if core_access and result['status'] == 'PASS':
+            validate_core_evidence(result)
         result.update(image_id=image_id, base_image=BASE_IMAGE, commit=commit,
                       working_tree_dirty=dirty, source_sha256=source_hashes,
                       container_configuration={'network': 'none', 'cap_drop': ['ALL'],

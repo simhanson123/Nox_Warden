@@ -47,9 +47,32 @@ impl AuthorityStore {
     ) -> Result<CoreAccessProvenanceStatus> {
         identifier(plan_id)?;
         time(now)?;
+        let selected = {
+            let tx = self.connection.transaction()?;
+            let retained = records::retained_plan(&tx, tenant, plan_id)?;
+            let plan: Value = decode(&retained.subject.plan_bytes)?;
+            let verified = provenance.verify(&plan)?;
+            tenant_binding(tenant, &verified)?;
+            let selected = access_window::provenance_window_in_tx(&tx, tenant, &plan, &verified)?
+                .map(|_| {
+                    (
+                        verified.target_id().to_owned(),
+                        verified.root_id().to_owned(),
+                    )
+                });
+            tx.commit()?;
+            selected
+        };
+        if let Some((target, root)) = &selected {
+            self.observe_core_window_time(tenant, target, root, now)?;
+        }
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let window_exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_core_access_lease_windows WHERE org_id=? AND project_id=? AND request_id=?)", params![tenant.org_id,tenant.project_id,provenance.request_id], |row| row.get(0))?;
+        if window_exists != selected.is_some() {
+            return Err(AuthorityError::Conflict);
+        }
         let result = register_in_tx(&tx, tenant, plan_id, provenance, now)?;
         tx.commit()?;
         Ok(result)
@@ -65,10 +88,42 @@ impl AuthorityStore {
     ) -> Result<Option<CoreAccessProvenanceStatus>> {
         identifier(plan_id)?;
         time(now)?;
+        let selected = {
+            let tx = self.connection.transaction()?;
+            let retained = records::retained_plan(&tx, tenant, plan_id)?;
+            let historical_at = access_window::historical_verification_time(&tx, tenant, now)?;
+            let selected = retained_in_tx(&tx, tenant, &retained, historical_at)?
+                .filter(|stored| stored.window.is_some())
+                .map(|stored| {
+                    (
+                        stored.verified.target_id().to_owned(),
+                        stored.verified.root_id().to_owned(),
+                    )
+                });
+            tx.commit()?;
+            selected
+        };
+        if let Some((target, root)) = &selected {
+            self.observe_core_window_time(tenant, target, root, now)?;
+        }
         let tx = self.connection.transaction()?;
         let retained = records::retained_plan(&tx, tenant, plan_id)?;
-        let result = retained_in_tx(&tx, tenant, &retained, now)?
-            .map(|stored| status(tenant, &retained, &stored, now))
+        let historical_at = access_window::historical_verification_time(&tx, tenant, now)?;
+        let stored = retained_in_tx(&tx, tenant, &retained, historical_at)?;
+        let final_selected = stored
+            .as_ref()
+            .filter(|stored| stored.window.is_some())
+            .map(|stored| {
+                (
+                    stored.verified.target_id().to_owned(),
+                    stored.verified.root_id().to_owned(),
+                )
+            });
+        if selected != final_selected {
+            return Err(AuthorityError::Conflict);
+        }
+        let result = stored
+            .map(|stored| status(&tx, tenant, &retained, &stored, now))
             .transpose()?;
         tx.commit()?;
         Ok(result)
@@ -88,11 +143,13 @@ pub(super) fn register_in_tx(
     let plan: Value = decode(&retained.subject.plan_bytes)?;
     let verified = provenance.verify(&plan)?;
     tenant_binding(tenant, &verified)?;
-    if let Some(existing) = retained_in_tx(tx, tenant, &retained, now)? {
+    access_window::provenance_window_in_tx(tx, tenant, &plan, &verified)?;
+    let historical_at = access_window::historical_verification_time(tx, tenant, now)?;
+    if let Some(existing) = retained_in_tx(tx, tenant, &retained, historical_at)? {
         if existing.verified.canonical_bytes() != verified.canonical_bytes() {
             return Err(AuthorityError::Conflict);
         }
-        let result = status(tenant, &retained, &existing, now)?;
+        let result = status(tx, tenant, &retained, &existing, now)?;
         return Ok(result);
     }
     // New imports need current inputs. Retained evidence stays readable
@@ -152,7 +209,7 @@ pub(super) fn register_in_tx(
     )?;
     // Verify the exact committed projection before audit and visibility.
     let stored = retained_in_tx(tx, tenant, &retained, now)?.ok_or(AuthorityError::Binding)?;
-    let result = status(tenant, &retained, &stored, now)?;
+    let result = status(tx, tenant, &retained, &stored, now)?;
     bump_security(tx, tenant)?;
     audit(
         tx,
@@ -167,6 +224,7 @@ pub(super) fn register_in_tx(
 pub(super) struct StoredProvenance {
     pub(super) verified: VerifiedCoreAccessProvenance,
     pub(super) admitted_at: i64,
+    pub(super) window: Option<access_window::StoredRequestWindow>,
 }
 
 fn tenant_binding(tenant: &AuthorityTenant, verified: &VerifiedCoreAccessProvenance) -> Result<()> {
@@ -263,9 +321,11 @@ pub(super) fn retained_in_tx(
     {
         return Err(AuthorityError::Binding);
     }
+    let window = access_window::provenance_window_in_tx(tx, tenant, &plan, &verified)?;
     Ok(Some(StoredProvenance {
         verified,
         admitted_at,
+        window,
     }))
 }
 
@@ -296,6 +356,7 @@ pub(super) fn provenance_in_tx(
 }
 
 fn status(
+    tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     retained: &records::RetainedPlan,
     stored: &StoredProvenance,
@@ -311,6 +372,14 @@ fn status(
     }
     if now >= verified.valid_until() {
         gates.push("CORE_ACCESS_PROVENANCE_EXPIRED".into());
+    }
+    if now < stored.admitted_at || now < verified.valid_from() {
+        gates.push("CORE_ACCESS_PROVENANCE_NOT_CURRENT".into());
+    }
+    if let Some(window) = &stored.window
+        && !window.current(tx, tenant, verified, now)?
+    {
+        gates.push("CORE_ACCESS_WINDOW_NOT_CURRENT".into());
     }
     Ok(CoreAccessProvenanceStatus {
         schema_version: "fw.core-access-provenance-status/v1".into(),

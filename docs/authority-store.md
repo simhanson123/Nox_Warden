@@ -39,6 +39,17 @@ not establish an independent security boundary. Protected ownership and ACLs,
 separate accounts/processes, authenticated IPC and a signer inaccessible to the
 controller remain required. The library does not protect against an attacker
 who can replace the authority database or execute privileged provisioning calls.
+As specified in [F_01 section 3](specs/F_01_제품_구현_기준.md), compromise of the
+host administrator/root or authority trust root is outside this boundary. A
+schema-capable writer can remove clock guards, rewind a retained floor and
+restore the exact schema. Local integrity
+checks can then accept that coherent state; neither SQL guards nor a local audit
+hash chain prove monotonicity against the same writer. Protected authority
+deployment and independently protected external anchors remain required work.
+Protected authority storage is a precondition, and OS-account/ACL separation
+remains unfinished. A deployment in which the controller can rewrite the
+authority schema does not satisfy that precondition. The root-compromise
+exclusion does not establish protection from every SQL writer.
 The independent review daemon exposes possession proofs and decisions, never
 these privileged provisioning methods. Its explicit isolated example provisioner
 is test-only machinery, not a production initial-owner bootstrap ceremony.
@@ -303,7 +314,20 @@ sorted destination set, and independently checks that the configured quota root
 matches the delegation root. A shorter remaining plan window cannot lower that
 cost. This existing provenance-v1 behavior also permits compatible shifted policy
 windows within the original inputs' validity. Those records remain valid cost
-history; they do not qualify for the stricter reviewed-core profile below.
+history. Once a request has a retained fixed window, every provenance-only plan
+binding for that request must stay within it. Before the first window is admitted,
+all existing bindings are checked; an out-of-window legacy binding rejects the
+whole combined admission without rewriting that history. Provenance-only plans
+may use a shorter interval inside the window, but are not reviewed plans merely
+because they share its original evidence.
+
+New live cost derivation and readiness require the plan's complete retained core
+review and fixed window. Legacy evidence without them remains readable with its
+original full-duration cost, and existing reservation snapshots and accounting
+remain unchanged. Issued, UNKNOWN and unsigned-delivered work keeps its capacity.
+An existing legacy plan can be upgraded through combined registration when all
+strict plan, requirements, full-state review, provenance and exact-window checks
+pass; migration or provenance import alone never grants that qualification.
 Import does not authenticate envelope/delegation approval hashes or the
 referenced workload, and does not create quota pins, native qualification,
 approval sets or grants. Complete core signing and protected production authority
@@ -341,16 +365,29 @@ also rejects missing references or altered projections. Migration infers no
 window or review for legacy cost-only provenance. Existing accounting retains
 one reservation per lease and unchanged issued/UNKNOWN/unsigned-delivered capacity.
 
+Closed structural plan and requirements validation precedes admission's clock
+observation. Malformed objects cannot advance the floor. A well-formed attempt
+can still persist conservative time before later current-time, conflict or
+admission refusal; exact historical retries retain their original admission time.
 Window reads and admission independently persist the existing durable project
 quota-clock floor, including before a quota pin exists, and respect relevant
 original-root and target floors. This clock observation can commit before a
 later admission refusal; it creates no quota pin, capacity, reservation, job or
-executor generation. Once expiry has been observed, backward samples cannot
+executor generation. Under the protected-database boundary, once expiry has been
+observed, backward wall-clock samples cannot
 make retained evidence current again, including after reopening. Historical
 verification uses the durable floor, while `checked_at` reports the actual
 sample. `read_core_access_lease_window` returns verified historical status after
 plan expiry or retirement, or `None` if that plan has no retained reviewed
-window. `current` concerns only structural window/plan/time state.
+window. This durable floor does not detect a privileged coherent database rewind
+or restore; local expiry persistence is not external rollback protection.
+`current` concerns only structural window/plan/time state.
+
+Provenance registration/read and window read compare the window selected for
+clock observation with the final transaction's selection. If a peer creates the
+first window in between, the operation returns `Conflict` for retry rather than
+using a window whose clock was never observed. This preserves durable expiry
+across that concurrent transition; a retry does not move the original window.
 
 The [administration guide](core-access-provenance-cli.md) describes combined
 registration and output-loss recovery. The authenticated

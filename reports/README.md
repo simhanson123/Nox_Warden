@@ -6,7 +6,101 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## Current core-access implementation
+## Current PR26 review follow-up
+
+The [received PR26 review](../docs/reviews/pr26-claude-review.md) targets
+`3866ceaa2b86da3ea3653da338d433a23a02b283`.
+[The follow-up](../docs/pr26-follow-up.md) addresses legacy fixed-window binding,
+malformed-input clock observations, strict legacy upgrades and stronger native
+expiry/signature/refusal/reference verification. The raw report is preserved;
+its private probes were not supplied and its Docker suites were NOT_RUN.
+
+New tests against an isolated copy of that exact production source independently
+reproduced F1 in both registration orders and F2: three matching regression tests
+failed at the expected assertions, without compilation errors. Those failures
+prove the baseline defects; the corrected-code results are recorded below.
+Implementation, focused checks and independent source review are complete.
+Fresh canonical `bash scripts/check.sh` passed **957 workspace Rust tests**
+(3 ignored; two nested worker summaries excluded), **1 explicit CLI test**,
+**32 reduced-feature tests**, **211 UI tests in 11 files**, both UI builds and
+static/Python checks. Python diagnostic suites passed 27/6/14/3 tests.
+The final 406-input digest is
+`c533bbc57909184dc29fe3a1bbed2574a5c230f0e7be006644806a2409015302`.
+Fresh shared-umask authority/service tests passed **541** tests, with 3 ignored
+and two nested worker summaries excluded. The workspace binaries/examples build
+and all runtime verification also passed on unchanged inputs.
+
+The new actual core Linux run passed **85 checks, 26 actual packet probes and
+two signed captures**, with unchanged inputs and container cleanup. Original
+`E−8` new and established TCP observations succeeded within a 6.7 ms clock
+bracket; the independently computed minimum token lifetime was 1 second and
+both actual tokens retained 4 seconds. Post-`E` traffic was blocked and core
+tokens expired. All six exact refusal cases preserved journal/generation/native
+state, including a 64-byte forged signature reaching signature verification.
+Both captures bind the separate observation reference pin and independently
+recompiled artifacts. Driver init/apply/replay gained no new external-pin gate.
+
+Focused authority window19, live-cost7, primitive v1 accounting1, first-window
+concurrency1 (three real-peer paths), reference-pin3 and final Python runner27
+passed. These commands overlap and are not summed as a workspace total. The
+v1 regression covers retained full-duration charge and primitive occupancy,
+not a newly exercised complete legacy core signing lifecycle. An earlier
+native-package focused execution preceded the final Python diagnostic change
+and had a documentation-only source-map change; final canonical/core evidence
+above binds the final source instead.
+
+The first new core attempt failed its diagnostic assertion after 21 checks,
+6 packets and one capture; cleanup succeeded. Its child raw stderr was not
+retained. A separate same-binary/pinned-image help probe confirmed the existing
+exact leading GLIBC2.39 loader warning. The corrected parser classifies only
+that one known leading warning separately and requires an exact application
+primary/wrapper chain, rejecting other output. The subsequent actual core run
+passed every intended refusal. The failed attempt is preserved privately and
+excluded from passing totals. Prior checkpoint counts below are historical.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Real processes; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Services, restart and retained review |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Core access Linux | 85 | 26 actual packet probes and two signed captures |
+| Native evidence | 33 | Five actual captures; zero packet probes |
+
+An additional old-implementation compatibility probe passed four checks: a real
+`3866cea` public-API-created incompatible schema14 database is rejected by the
+new admin executable with exact `DATABASE_REJECTED`, no successful output and
+unchanged database bytes. Expected admin exit1 is the successful refusal result.
+This is distinct from the external review's schema13 migration experiment.
+
+Fourteen fresh runtime JSON reports, the separate CLI protocol and old-database
+probe were verified; thirteen reports are selected for CI. The independently
+checked final local summary has SHA256
+`771c38ffef7123e348fb18bb6d6b7dc73d746f9f00e8bf0a13603105f36b260c`.
+Reported source hashes and each executable's own execution-stage hash match;
+binary reproducibility across hosts is not claimed. All four lab containers
+were removed, with zero containers and zero live test services/browsers. The
+93 remaining Chromium/crashpad entries were confirmed PID1-owned zombies.
+
+The first unsigned Linux attempt was NOT_RUN before packets because buildx's
+metadata directory was read-only. A private writable `BUILDX_CONFIG` corrected
+that environment issue while retaining Docker/auth/proxy settings; the same
+product command then passed. The catalogue command and all 11 assertions passed
+on first execution; the private collector was corrected to understand its
+existing `passed:true` report schema, preserving the original report/metadata.
+Neither adjustment changed product source or reused previous passing reports.
+No production qualification, external rollback protection or multiport readback
+qualification is claimed. Independent source/evidence review found no remaining
+finding within this correction scope; it is not a new Claude execution.
+
+The PR's original CI42036443828 attempt1 never started a runner/test step because
+GitHub reported a billing lock; it produced no artifacts. No remote CI PASS or
+merge is inferred from local validation. The retained PR completion record holds
+subsequent exact-head remote status.
+
+## Reviewed PR26 core-access checkpoint
 
 This integrated batch starts at PR25 merge
 `a624a1e684a8fc0065ac4f4609101410f56c50bb` on

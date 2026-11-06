@@ -17,8 +17,16 @@ part of a lease still carries the original duration as its cost. For example, a
 cover only the final 1,800 seconds. Destination IDs are retained as a sorted,
 unique set. Callers cannot supply a reduced duration or independent quota total.
 That existing provenance-v1 behavior permits compatible shorter or shifted
-policy windows. It remains unchanged; the combined reviewed profile below
+policy windows while no fixed window has been retained. Once there is a window,
+provenance-only policy intervals must stay inside it. First-window admission also
+checks every existing binding; an out-of-window legacy binding rejects the whole
+admission and preserves the old rows. The combined reviewed profile below
 requires every requested policy to use the same full-duration fixed interval.
+New live cost/readiness requires the plan's retained full review and window;
+legacy full-duration cost history and existing reservation accounting remain
+readable and unchanged. Issued, UNKNOWN and unsigned-delivered work still holds
+capacity. A legacy plan can gain the reviewed profile through the full combined
+validation; provenance import alone does not qualify it.
 
 This checks immutable object binding and bounded scope and time consistency.
 It does not verify the envelope or delegation's approval signatures, authenticate
@@ -115,12 +123,31 @@ original evidence without renewing it.
 Window observation durably advances the project's existing quota-clock floor,
 even before a quota pin exists, and respects relevant original-root and target
 floors. It creates no quota pin, reservation, job or generation. A clock
-observation may commit before a later admission refusal. After observed expiry,
+observation follows closed structural plan and requirements validation, so a
+malformed plan or requirements object does not advance it. A well-formed attempt
+may commit observation before later current-time, conflict or admission refusal.
+Within the protected-database boundary, after observed expiry,
 backward wall-clock samples cannot make the window current again, including
 after reopening; `checked_at` still reports the actual sample.
+Provenance registration/read and window read also compare the window selected
+for observation with the final transaction. A concurrent first-window admission
+can cause a conflict refusal; retry the same operation to observe the retained
+window. This never renews its original interval.
 
-These two commands take no `--approval-origin`. Input is closed and bounded
-before the clock is sampled. Malformed input or rejected bindings use status 1
+This guarantee assumes the authority database and privileged importer remain
+protected. A schema-capable writer can remove guards, rewind local clock state
+and restore them; a local SQL or hash-chain check cannot prove external
+monotonicity against that writer. F_01 excludes administrator/root and trust-root
+compromise. Protected authority deployment and independent external anchoring
+remain unfinished; no database-rewrite protection is claimed here.
+These commands do not establish OS-account/ACL separation. Protected authority
+storage remains a precondition; it is not satisfied when the controller can
+rewrite the authority schema. The root-compromise exclusion alone does not
+resolve that deployment's SQL-writer exposure.
+
+These two commands take no `--approval-origin`. Input is bounded and the outer
+request is closed before the clock is sampled. Full nested plan/requirements
+validation completes before durable clock observation. Malformed input or rejected bindings use status 1
 and `AUTHORITY_ADMIN code=CORE_ACCESS_LEASE_WINDOW_REJECTED`; malformed tenant
 identifiers retain `TENANT_REJECTED`. Output failures use `OUTPUT_FAILED` and
 can follow a successful commit. Recover by reading the same plan or retrying

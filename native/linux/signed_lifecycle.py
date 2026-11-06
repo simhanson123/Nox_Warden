@@ -23,6 +23,7 @@ checks = []
 packet_count = 0
 resources = []
 last_failure = None
+environment_warnings = []
 
 
 def check(name, passed, **evidence):
@@ -31,9 +32,53 @@ def check(name, passed, **evidence):
         raise AssertionError(name)
 
 
-def command(arguments, *, payload=None, expected=0, decode=True, environment=None):
+def split_loader_warning(stderr):
+    """Separate the same one exact lab loader warning as the evidence runner."""
+    lines = stderr.splitlines(keepends=True)
+    if lines and re.fullmatch(r"/lab/fw_linux_executor: /lib/(?:x86_64-linux-gnu/)?libc\.so\.6: weak version `GLIBC_2\.39' not found \(required by /lab/fw_linux_executor\)\n", lines[0]):
+        return ''.join(lines[1:]), True
+    return stderr, False
+
+
+def refusal_reason(result, expected_reason):
+    """Accept one bounded primary refusal, never an unrelated nonzero exit."""
+    if not re.fullmatch(r'(?:CORE_BUNDLE_[A-Z_]+|LAB_TRUST_BINDING)', expected_reason):
+        raise ValueError('unsupported expected refusal')
+    diagnostic, _ = split_loader_warning(result.stderr)
+    chains = [[expected_reason]]
+    if expected_reason.startswith('CORE_BUNDLE_'):
+        chains.append([expected_reason, 'CORE_ACCESS_BUNDLE_REJECTED'])
+        if expected_reason in ('CORE_BUNDLE_MATERIAL', 'CORE_BUNDLE_PROJECTION'):
+            chains.append([expected_reason, 'CORE_ACCESS_BUNDLE_PARSE', 'CORE_ACCESS_BUNDLE_REJECTED'])
+    if (result.returncode != 1 or result.stdout or len(result.stderr.encode()) > 4096
+            or diagnostic not in (''.join(code + '\n' for code in chain) for chain in chains)):
+        raise AssertionError('unexpected bounded refusal reason')
+    return {'reason_code': expected_reason,
+            'refusal_stage': 'trust-load' if expected_reason == 'LAB_TRUST_BINDING' else 'core-bundle'}
+
+
+def command(arguments, *, payload=None, expected=0, decode=True, environment=None, expected_reason=None):
     global last_failure
     result = subprocess.run(arguments, input=payload, text=True, capture_output=True, timeout=20, env=environment)
+    reason = None
+    if expected_reason is not None:
+        if expected != 1:
+            raise ValueError('refusal requires exit 1')
+        try:
+            reason = refusal_reason(result, expected_reason)
+            if split_loader_warning(result.stderr)[1]:
+                warning = 'host_binary_optional_glibc_2_39_symbol_unavailable_in_lab_image'
+                if warning not in environment_warnings:
+                    environment_warnings.append(warning)
+        except AssertionError:
+            last_failure = {'program': Path(arguments[0]).name, 'exit_code': result.returncode,
+                            'expected_reason_code': expected_reason,
+                            'stdout_present': bool(result.stdout),
+                            'stderr_line_count': len(result.stderr.splitlines()),
+                            'known_loader_warning_seen': split_loader_warning(result.stderr)[1],
+                            'reason_codes': [line for line in result.stderr.splitlines()
+                                             if re.fullmatch(r'[A-Z][A-Z0-9_]{0,80}', line)][-4:]}
+            raise
     if result.returncode != expected:
         last_failure = {'program': Path(arguments[0]).name, 'exit_code': result.returncode}
         error_codes = [line for line in result.stderr.splitlines() if re.fullmatch(r'[A-Z][A-Z0-9_]{0,80}', line)]
@@ -54,7 +99,7 @@ def command(arguments, *, payload=None, expected=0, decode=True, environment=Non
                 pass
         raise AssertionError('unexpected subprocess result: ' + Path(arguments[0]).name)
     if expected != 0:
-        return None
+        return reason
     return json.loads(result.stdout) if decode else result.stdout
 
 
@@ -174,13 +219,13 @@ def session(family, protocol):
     return connection
 
 
-def driver(case, action, *, extra=(), expected=0):
+def driver(case, action, *, extra=(), expected=0, expected_reason=None):
     args = [DRIVER, action, '--state-dir', str(case['directory'] / 'state'), '--trust', str(case['directory'] / 'trust.json')]
     if action in ('init', 'apply'):
         args += ['--bundle', str(case.get('bundle', case['directory'] / 'bundle.json'))]
     else:
         args += ['--operation-id', case['metadata']['operation_id']]
-    return command([*args, *extra], expected=expected)
+    return command([*args, *extra], expected=expected, expected_reason=expected_reason)
 
 
 def prepare(name, mode):

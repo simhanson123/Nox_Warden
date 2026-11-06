@@ -645,6 +645,9 @@ pub(super) fn cost_for_plan(
     if plan["change_kind"] == "add_access_lease" {
         let provenance = access_provenance::provenance_in_tx(tx, tenant, &subject, now)?
             .ok_or(AuthorityError::Binding)?;
+        if !access_window::current_reviewed_window(tx, tenant, &subject, now)? {
+            return Err(AuthorityError::Binding);
+        }
         if !core_configuration_available(tx, tenant, &provenance, now)? {
             return Err(AuthorityError::Binding);
         }

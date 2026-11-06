@@ -570,7 +570,9 @@ impl AuthorityStore {
         };
         if core {
             reasons.push("CORE_SIGNING_PROFILE_UNAVAILABLE".into());
-            if core_provenance.is_none() {
+            if core_provenance.is_none()
+                || !access_window::current_reviewed_window(&tx, tenant, &retained.subject, now)?
+            {
                 reasons.push("CORE_REQUEST_BINDING_UNAVAILABLE".into());
             }
         }

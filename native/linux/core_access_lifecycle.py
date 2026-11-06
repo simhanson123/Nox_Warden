@@ -6,8 +6,10 @@ This profile measures actual owned-table state and packets, without production
 signing, dispatch or native qualification claims.
 """
 import copy
+import base64
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import socket
@@ -23,6 +25,8 @@ clock_samples = []
 readback_diagnostics = []
 refusal_snapshot_diagnostics = []
 readonly_journal_observations = []
+refusals = []
+boundary_observations = []
 
 
 def sample_clock(case, stage):
@@ -74,13 +78,28 @@ def collect_core_observation(case, role):
                              '--challenge', str(directory / ('challenge-' + role + '.json')),
                              '--output', str(output)])
     verified = lab.command([lab.FIXTURE, 'verify-core-observation', str(directory), role, str(output)])
+    pin_bytes = (directory / 'reference-pin.json').read_bytes()
+    pin_hash = 'sha256:' + hashlib.sha256(pin_bytes).hexdigest()
+    reference_pin = json.loads(pin_bytes)
     lab.check('core_' + role + '_actual_signed_capture_matches', collected['captured']
               and verified['comparison'] == 'match' and verified['synthetic_observer_trust']
               and not verified['authority_admission_performed'] and not verified['production_authorized']
-              and not challenge['authority_admission_performed'])
+              and not challenge['authority_admission_performed']
+              and not reference_pin['production_authorized']
+              and challenge['reference_pin_hash'] == verified['reference_pin_hash'] == pin_hash
+              and challenge['references_hash'] == verified['references_hash']
+              and challenge['reference_revision'] == verified['reference_revision'] == reference_pin['reference_revision']
+              and challenge['reference_source'] == verified['reference_source'] == 'separate-trusted-lab-input'
+              and challenge['expected_artifact_hash'] == challenge['submitted_artifact_hash']
+              == verified['expected_artifact_hash'] == verified['submitted_artifact_hash'])
     captures.append({'artifact_role': role, 'compilation_hash': challenge['compilation_hash'],
                      'challenge_hash': challenge['challenge_hash'], 'proof_hash': verified['proof_hash'],
-                     'readback_hash': verified['readback_hash'], 'observed_state_hash': verified['observed_state_hash']})
+                     'readback_hash': verified['readback_hash'], 'observed_state_hash': verified['observed_state_hash'],
+                     'reference_pin_hash': pin_hash, 'references_hash': verified['references_hash'],
+                     'reference_revision': verified['reference_revision'],
+                     'reference_source': verified['reference_source'],
+                     'expected_artifact_hash': verified['expected_artifact_hash'],
+                     'submitted_artifact_hash': verified['submitted_artifact_hash']})
     if role == 'candidate':
         retained_after, material_after = readonly_candidate_material(case)
         lab.check('core_candidate_observer_keeps_immutable_journal_material',
@@ -284,6 +303,127 @@ def verify_refusal_state(case, before, bundle, check_id, retain_pair=False):
     return after
 
 
+def refusal_journal_state(case):
+    uri = 'file:' + str(case['directory'] / 'state/journal.sqlite3') + '?mode=ro'
+    with sqlite3.connect(uri, uri=True) as database:
+        database.execute('PRAGMA query_only=ON')
+        database.execute('BEGIN')
+        return {table: database.execute(query).fetchall() for table, query in (
+            ('identity', 'SELECT * FROM identity'),
+            ('operations', 'SELECT * FROM operations'),
+            ('execution_material', 'SELECT * FROM execution_material'),
+        )}
+
+
+def reject_before_write(case, bundle, before, check_id, expected_reason, *, command=None, retain_pair=False):
+    journal_before = refusal_journal_state(case)
+    reason = (lab.command(command, expected=1, expected_reason=expected_reason) if command else
+              lab.driver(case, 'apply', expected=1, expected_reason=expected_reason))
+    after = verify_refusal_state(case, before, bundle, check_id, retain_pair)
+    unchanged = refusal_journal_state(case) == journal_before
+    lab.check(check_id + '_exact_reason_and_journal_unchanged', unchanged,
+              **reason, generation_and_material_unchanged=unchanged)
+    refusals.append({'case': check_id, **reason, 'owned_table_unchanged': True,
+                     'generation_and_material_unchanged': unchanged})
+    return after
+
+
+def original_token_lifetime_bounds(record, installation, metadata):
+    """Recompute TTL bounds from original E and clocks, never an observed timeout."""
+    binding = installation['manifest']['binding']
+    names = set(metadata['core_token_names'])
+    tokens = {token['token_name']: token for token in installation['manifest']['tokens']
+              if token['token_name'] in names}
+    if len(tokens) != len(names) or record['started_monotonic_millis'] < binding['monotonic_millis']:
+        raise ValueError('original token binding')
+    elapsed_millis = record['monotonic_millis'] - binding['monotonic_millis']
+    if elapsed_millis < 0 or record['monotonic_millis'] < record['started_monotonic_millis']:
+        raise ValueError('token clock bracket')
+    original_end = metadata['expires_at_unix']
+    deductions = (binding['clock_uncertainty_seconds'] + binding['elapsed_seconds']
+                  + binding['commit_budget_seconds'])
+    initial_timeout = original_end - binding['wall_time_unix'] - deductions
+    # The kernel starts its timer after the binding sample. Counting all elapsed
+    # time since binding is conservative; only one extra second covers nft's
+    # integer-seconds representation. No observed timeout lowers this minimum.
+    minimum = max(0, initial_timeout - math.ceil(elapsed_millis / 1000) - 1)
+    if minimum <= 0:
+        raise ValueError('positive token observation window missed')
+    maximum = min(original_end - binding['clock_uncertainty_seconds'] - record['observed_at_unix'],
+                  math.ceil((binding['monotonic_millis']
+                             + (original_end - binding['clock_uncertainty_seconds']
+                                - binding['wall_time_unix']) * 1000
+                             - record['started_monotonic_millis']) / 1000))
+    actual = {}
+    for item in record['raw']['nftables']:
+        token_set = item.get('set', {})
+        name = token_set.get('name')
+        if name not in names:
+            continue
+        if name in actual or len(token_set.get('elem', [])) != 1:
+            raise ValueError('original token membership')
+        element = token_set['elem'][0]['elem']
+        token = tokens[name]
+        remaining = element['expires']
+        if (type(remaining) is not int or type(element['timeout']) is not int
+                or token['absolute_expiry_unix'] != original_end
+                or token['cutoff_unix'] != original_end - binding['clock_uncertainty_seconds']
+                or token['timeout_seconds'] != initial_timeout
+                or element['timeout'] != initial_timeout
+                or not 0 < remaining <= maximum or remaining < minimum):
+            raise ValueError('original token lifetime bounds')
+        actual[name] = remaining
+    if actual.keys() != names:
+        raise ValueError('original token missing before boundary')
+    return {'minimum_remaining_seconds': minimum, 'maximum_remaining_seconds': maximum,
+            'actual_remaining_seconds': actual, 'original_expires_at_unix': original_end,
+            'binding_wall_time_unix': binding['wall_time_unix'],
+            'binding_monotonic_millis': binding['monotonic_millis'],
+            'sample_finished_monotonic_millis': record['monotonic_millis'],
+            'clock_uncertainty_seconds': binding['clock_uncertainty_seconds'],
+            'elapsed_seconds': binding['elapsed_seconds'],
+            'commit_budget_seconds': binding['commit_budget_seconds'],
+            'nft_representation_tolerance_seconds': 1}
+
+
+def original_positive_bracket(target, end, deduction, started_at, finished_at, duration):
+    return (target <= started_at <= finished_at < end - deduction and 0 <= duration < 2
+            and abs((finished_at - started_at) - duration) < .1)
+
+
+def forged_core_signature():
+    return base64.b64encode(bytes(64)).decode('ascii')
+
+
+def verify_original_positive_boundary(case, installation, established):
+    binding = installation['manifest']['binding']
+    end = case['metadata']['expires_at_unix']
+    deduction = (binding['clock_uncertainty_seconds'] + binding['elapsed_seconds']
+                 + binding['commit_budget_seconds'])
+    # This two-second packet sampling margin is separate from the unchanged
+    # native process reserve inside the five-second installation budget.
+    target = end - deduction - 2
+    wait_for_original_expiry(target)
+    started_at = time.time()
+    started_monotonic = time.monotonic()
+    snapshot = native_snapshot_record(case)
+    bounds = original_token_lifetime_bounds(snapshot, installation, case['metadata'])
+    lab.check('core_original_tokens_keep_independent_remaining_lifetime_lower_bound', True, **bounds)
+    lab.probe(socket.AF_INET, 'tcp', 18080, True, 'core_established_tcp_live_at_original_positive_boundary', established)
+    lab.probe(socket.AF_INET, 'tcp', 18080, True, 'core_new_tcp_live_at_original_positive_boundary')
+    finished_at = time.time()
+    duration = time.monotonic() - started_monotonic
+    lab.check('core_positive_boundary_uses_original_absolute_end_and_bounded_clock_bracket',
+              original_positive_bracket(target, end, deduction, started_at, finished_at, duration),
+              target_unix=target, started_at_unix=started_at, finished_at_unix=finished_at,
+              original_expires_at_unix=end, packet_sampling_margin_seconds=2,
+              conservative_binding_deduction_seconds=deduction,
+              actual_elapsed_monotonic_seconds=duration)
+    boundary_observations.append({'kind': 'positive', 'target_unix': target,
+                                  'started_at_unix': started_at, 'finished_at_unix': finished_at,
+                                  'original_expires_at_unix': end, **bounds})
+
+
 def core_access_flow():
     directory = Path('/lab/core-access')
     metadata = lab.command([lab.FIXTURE, 'prepare-core', str(directory)])
@@ -338,33 +478,42 @@ def core_access_flow():
     lab.probe(socket.AF_INET, 'tcp', 18082, False, 'core_existing_deny_live_before_patch')
     baseline_snapshot = native_snapshot_record(case)
     live_grant_hash = verify_live_dispatch(case, 'core_negative_block_starts_with_current_crypto_authority', bundle['lease_window'])
-    for name, mutate in [
-        ('bad-core-signature', lambda value: value['grant']['dsse']['signatures'][0].update(sig='A' * 88)),
-        ('shifted-core-window', lambda value: value['lease_window'].update(not_before='2030-01-01T00:00:00Z')),
-        ('extra-core-plan-field', lambda value: value['plan'].update(candidate_state_ref={'object_hash': plan['desired_state_hash']})),
-        ('removed-core-after-baseline-policy', lambda value: value['review']['after']['policies'].pop(0)),
+    forged_signature = forged_core_signature()
+    decoded_signature_bytes = len(base64.b64decode(forged_signature, validate=True))
+    lab.check('core_forged_signature_has_exact_ed25519_length', decoded_signature_bytes == 64,
+              decoded_signature_bytes=decoded_signature_bytes)
+    for name, mutate, expected_reason in [
+        ('bad-core-signature', lambda value: value['grant']['dsse']['signatures'][0].update(sig=forged_signature),
+         'CORE_BUNDLE_GRANT_SIGNATURE'),
+        ('shifted-core-window', lambda value: value['lease_window'].update(not_before='2030-01-01T00:00:00Z'),
+         'CORE_BUNDLE_MATERIAL'),
+        ('extra-core-plan-field', lambda value: value['plan'].update(candidate_state_ref={'object_hash': plan['desired_state_hash']}),
+         'CORE_BUNDLE_MATERIAL'),
+        ('removed-core-after-baseline-policy', lambda value: value['review']['after']['policies'].pop(0),
+         'CORE_BUNDLE_MATERIAL'),
     ]:
         invalid = copy.deepcopy(bundle)
         mutate(invalid)
         path = directory / (name + '.json')
         lab.private_json(path, invalid)
         bad_case = dict(case, bundle=path)
-        lab.driver(bad_case, 'apply', expected=1)
-        baseline_snapshot = verify_refusal_state(case, baseline_snapshot, bundle,
-                                                name + '-refused-before-write', name == 'bad-core-signature')
+        baseline_snapshot = reject_before_write(bad_case, bundle, baseline_snapshot,
+                                                name + '-refused-before-write', expected_reason,
+                                                retain_pair=name == 'bad-core-signature')
         sample_clock(case, name + '-refused')
     wrong_target_path = directory / 'valid-signature-wrong-core-target.json'
     lab.command([lab.FIXTURE, 'forge-core-target', str(directory), str(wrong_target_path)])
-    lab.driver(dict(case, bundle=wrong_target_path), 'apply', expected=1)
-    baseline_snapshot = verify_refusal_state(case, baseline_snapshot, bundle,
-                                            'core_valid_signature_wrong_target_refused_before_write')
+    baseline_snapshot = reject_before_write(dict(case, bundle=wrong_target_path), bundle, baseline_snapshot,
+                                            'core_valid_signature_wrong_target_refused_before_write',
+                                            'CORE_BUNDLE_GRANT_BINDING')
     production_trust = json.loads((directory / 'trust.json').read_text())
     production_trust['production_authorized'] = True
     production_trust_path = directory / 'production-trust-refused.json'
     lab.private_json(production_trust_path, production_trust)
-    lab.command([lab.DRIVER, 'apply', '--state-dir', str(directory / 'state'),
-                 '--bundle', str(directory / 'bundle.json'), '--trust', str(production_trust_path)], expected=1)
-    verify_refusal_state(case, baseline_snapshot, bundle, 'core_production_trust_switch_refused_before_write')
+    reject_before_write(case, bundle, baseline_snapshot,
+                        'core_production_trust_load_refused_before_bundle_verification', 'LAB_TRUST_BINDING',
+                        command=[lab.DRIVER, 'apply', '--state-dir', str(directory / 'state'),
+                                 '--bundle', str(directory / 'bundle.json'), '--trust', str(production_trust_path)])
     with sqlite3.connect('file:' + str(directory / 'state/journal.sqlite3') + '?mode=ro', uri=True) as database:
         highest = database.execute('SELECT highest FROM identity WHERE singleton=1').fetchone()[0]
         operation_count = database.execute('SELECT COUNT(*) FROM operations').fetchone()[0]
@@ -379,6 +528,10 @@ def core_access_flow():
     first_tokens = lab.remaining_tokens(metadata['table'])
     lab.check('core_new_and_old_kernel_tokens_present', set(metadata['core_token_names']) <= first_tokens.keys()
               and len(first_tokens) > len(metadata['core_token_names']))
+    _, initial_material = readonly_candidate_material(case)
+    accepted_installation = json.loads(initial_material)['installation_manifest']['installation']
+    initial_bounds = original_token_lifetime_bounds(native_snapshot_record(case), accepted_installation, metadata)
+    lab.check('core_initial_tokens_keep_independent_original_lifetime_lower_bound', True, **initial_bounds)
     probe_path = directory / 'probes.json'
     lab.driver(case, 'probe', extra=['--output', str(probe_path)])
     report = json.loads(probe_path.read_text())
@@ -403,7 +556,8 @@ def core_access_flow():
     # Replay and observation are now confirmation history. They retain the same
     # accepted bundle/installation and never create a fresh submission window.
     retained_before_replay, material_before_replay = readonly_candidate_material(case)
-    accepted_installation = json.loads(material_before_replay)['installation_manifest']['installation']
+    lab.check('core_initial_accepted_installation_is_immutable',
+              accepted_installation == json.loads(material_before_replay)['installation_manifest']['installation'])
     before_replay = native_snapshot_record(case)
     # Guarantee a positive minimum decay even with one second of nft lifetime
     # representation quantization; incidental verification cost is unnecessary.
@@ -437,6 +591,7 @@ def core_access_flow():
               remaining_tokens=dict(sorted(reopened_tokens.items())[:16]))
     sample_clock(case, 'after-replay-reopen')
     collect_core_observation(case, 'candidate')
+    verify_original_positive_boundary(case, accepted_installation, established)
     wait_for_original_expiry(metadata['expires_at_unix'] + 1)
     lab.probe(socket.AF_INET, 'tcp', 18080, False, 'core_established_tcp_expires_at_original_absolute_end', established)
     lab.probe(socket.AF_INET, 'tcp', 18080, False, 'core_new_tcp_blocked_after_original_absolute_end')
@@ -446,6 +601,9 @@ def core_access_flow():
     expired_tokens = lab.remaining_tokens(metadata['table'])
     lab.check('core_only_original_request_tokens_expire', not set(metadata['core_token_names']) & expired_tokens.keys()
               and bool(expired_tokens))
+    boundary_observations.append({'kind': 'negative', 'sampled_at_unix': time.time(),
+                                  'original_expires_at_unix': metadata['expires_at_unix'],
+                                  'core_tokens_absent': True, 'new_and_established_tcp_blocked': True})
     late_replay = lab.driver(case, 'apply')
     lab.check('core_expired_retry_keeps_history_and_cannot_rebind', lab.state(late_replay) == 'CONFIRMED'
               and (directory / 'bundle.json').read_bytes() == original_final_bundle_bytes
@@ -622,6 +780,9 @@ def main():
         report['owned_table_failure_diagnostics'] = readback_diagnostics
         report['refused_grant_snapshot_diagnostics'] = refusal_snapshot_diagnostics
         report['readonly_journal_observations'] = readonly_journal_observations
+        report['refusals'] = refusals
+        report['environment_warnings'] = lab.environment_warnings
+        report['original_expiry_boundary_observations'] = boundary_observations
         report['synthetic_observer_trust'] = True
         report['authority_native_admission_performed'] = False
         report['network_namespace'] = os.readlink('/proc/self/ns/net')

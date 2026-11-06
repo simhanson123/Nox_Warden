@@ -30,6 +30,43 @@ fn version_one_pin_and_snapshot_bytes_round_trip_exactly_after_cutover() {
 }
 
 #[test]
+fn retained_v1_full_lease_charge_and_occupancy_do_not_require_a_new_window() {
+    // Primitive accounting only: no signer, target receipt or core authority is
+    // fabricated. Fresh plan eligibility must not be imposed on saved ledgers.
+    let mut f = Fixture::new(limits(), limits());
+    let mut cost = lease(1, &[42, 43]);
+    cost.lease_seconds = 3600;
+    f.reserve(20, &cost, NOW).unwrap();
+    f.finalize(20, NOW + 1).unwrap();
+    let before: (Vec<u8>, Vec<u8>, i64) = f.store.connection.query_row("SELECT cost_bytes,snapshot_bytes,lease_seconds FROM authority_signing_quota_reservations WHERE reservation_id=?", [&id(20)], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+    assert_eq!(before.2, 3600);
+    assert_eq!(
+        decode::<Snapshot>(&before.1).unwrap().schema_version,
+        "fw.signing-budget-reservation/v1"
+    );
+    assert_eq!(f.count("authority_core_access_lease_windows"), 0);
+    let tx = f.store.connection.transaction().unwrap();
+    let saved = read(&tx, &f.tenant, &id(20)).unwrap();
+    assert_eq!(saved.state, "issued");
+    assert_eq!(saved.cost.lease_seconds, 3600);
+    let usage = account(
+        &tx,
+        &f.tenant,
+        AccountingScope::Root(&id(10)),
+        NOW + 7200,
+        None,
+    )
+    .unwrap();
+    assert_eq!(usage.cumulative_seconds_per_day, 3600);
+    assert_eq!(usage.new_leases_per_day, 1);
+    assert_eq!(usage.active_leases, 1);
+    assert_eq!(usage.concurrent_deployments, 1);
+    assert_eq!(usage.unique_destinations_per_day, 2);
+    let after: (Vec<u8>, Vec<u8>, i64) = tx.query_row("SELECT cost_bytes,snapshot_bytes,lease_seconds FROM authority_signing_quota_reservations WHERE reservation_id=?", [&id(20)], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+    assert_eq!(after, before);
+}
+
+#[test]
 fn project_cutover_preserves_initial_root_anchor_and_rejects_stale_cas() {
     let mut f = Fixture::new(limits(), limits());
     let rooted = pin(limits());

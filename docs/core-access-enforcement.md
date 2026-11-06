@@ -6,6 +6,8 @@ This M03/M04L/M05/M06 batch starts at PR25 merge
 independent native recompilation and explicit development-only Linux execution.
 Current verification belongs in [reports](../reports/README.md); source presence
 and lab evidence do not establish production qualification.
+The [PR26 follow-up](pr26-follow-up.md) qualifies the received review, legacy
+binding rules, conservative-clock boundary and additional lab checks.
 
 ## Exact semantic review
 
@@ -61,7 +63,16 @@ UNKNOWN/unsigned-delivered capacity are unchanged.
 
 Published SQL001–013 and schema9 provenance bytes are preserved. Existing v1
 provenance may describe shorter or shifted compatible policy windows for historical
-cost accounting; that does not qualify it for this stricter reviewed-core profile.
+cost accounting. Once a request has a retained window, provenance-only bindings
+must stay inside it. Creating the first window checks every existing binding and
+atomically refuses an out-of-window legacy history without changing old rows.
+A shorter compatible legacy binding can remain cost history; new live cost and
+readiness require that plan's full retained review and exact fixed window.
+Legacy full-duration costs, reservation snapshots and
+issued/UNKNOWN/unsigned-delivered capacity remain intact. A legacy plan may gain
+the strict profile by passing the complete combined registration checks;
+provenance import alone does
+not supply a review or window.
 Migration adds no inferred legacy window, approval or completion evidence.
 The populated legacy migration tests reconstruct released schema13 around genuine
 old-API rows; they are not newly executed old-binary fixtures.
@@ -70,11 +81,31 @@ Window observation uses the existing durable project quota-clock floor, even
 before a quota pin is configured, and respects relevant original-root/target
 floors. It creates no quota pin, capacity, reservation, job or generation.
 Clock observation can commit independently of later admission refusal. After
-observed expiry and backward wall-clock samples, reads and exact retries remain
-verified history with `current=false`, including samples before admission and
-after reopening. Historical bytes are checked at the durable floor;
+closed structural plan/requirements validation, a well-formed attempt can persist
+time even when later current-time or database checks refuse admission. Malformed
+plan/requirements cannot advance that floor. Within the protected-database
+boundary, after observed expiry and backward wall-clock samples, reads and exact
+retries remain verified history with `current=false`, including samples before
+admission and after reopening. Historical bytes are checked at the durable floor;
 `checked_at` still reports the actual sample. `current` describes the structural
 window/plan/time state, never production eligibility.
+
+Provenance registration/read and window read recheck the selected window after
+clock observation. A concurrent first-window registration changes that selection
+and returns `Conflict` for retry, so a new window cannot be consumed without its
+required clock observation. Retry retains the original absolute interval.
+
+The floor is local durable state, not an external monotonic anchor. A writer able
+to remove SQL guards, rewind the floor and restore the schema can create a
+coherent earlier database that local checks accept. A local hash chain cannot
+prove otherwise against that writer. F_01 excludes administrator/root and
+trust-root compromise from the boundary; protected authority deployment and an
+independently protected external anchor remain unfinished. This follow-up does
+not claim to prevent privileged database rewrites or whole-database rollback.
+Protected authority storage is a precondition. OS-account/ACL separation remains
+unfinished; a deployment giving the controller permission to rewrite the
+authority schema does not satisfy it. The root-compromise exclusion alone does
+not resolve SQL-writer attacks.
 
 ## Administration, API and browser
 
@@ -95,7 +126,9 @@ The trusted-local `register-reviewed-core-access-plan` command accepts the close
 The empty objects above indicate required typed content; they are not valid
 fixtures. `read-core-access-lease-window` takes closed `{ "plan_id": "…" }`
 input and returns a bounded `fw.core-access-lease-window-query/v1` with a window
-or null. Input is bounded and closed before the command samples time. Output
+or null. Input is bounded and the outer request is closed before the command
+samples time; full nested plan/requirements validation precedes durable clock
+observation. Output
 failure does not undo an already committed registration; exact retry/read recovers
 the original result. Existing provenance commands and bytes remain compatible.
 
@@ -122,6 +155,18 @@ Neither UI state nor the new endpoint changes readiness v1/v2 wire shapes.
 Core native compilation independently rebuilds both complete states against the
 pinned reference. Lab capability and authenticated target metadata stay distinct;
 a baseline observation cannot be replaced by a candidate observation.
+
+For isolated core observations, a separate closed `reference-pin.json` uses
+`fw.core-lab-reference-pin/v1`, a canonical positive `reference_revision`,
+`production_authorized=false` and the pinned `LabReferences`. The fixture writes
+this trusted lab input before constructing the bundle. Both observation paths
+rebuild the complete baseline and candidate against it and compare exact bundle
+artifacts and recovery references. Observation metadata records the pin/reference
+hashes, revision and `reference_source=separate-trusted-lab-input`, plus expected
+and submitted artifact hashes. The external pin constrains observation evidence
+compilation. Driver initialization, apply and replay retain their existing
+artifact, grant and trust-scope validation paths; this adds no production trust
+or independently provisioned authority boundary.
 
 The additive `fw.isolated-core-access-execution-bundle/v1` carries the actual
 closed core plan, review, provenance and fixed window together with a core grant,
@@ -163,6 +208,25 @@ extended. The initial baseline installation is bound immediately before its
 native submission, within the existing five-second budget, retaining its old
 absolute expiries. Current signature checks before and after the tamper cases
 ensure those refusals cannot pass merely because the original grant expired.
+The forged signature is exactly 64 bytes and must produce
+`CORE_BUNDLE_GRANT_SIGNATURE`; every mutation requires its own exact bounded
+refusal and unchanged generation, operation/material state and owned table.
+`production_authorized=true` instead produces `LAB_TRUST_BINDING` during trust
+loading, and is reported as that separate condition.
+
+Expiry evidence includes an independent lower bound on remaining kernel token
+lifetime derived from original `E` and the installation clock bracket. A positive
+new/established TCP sample targets
+`E − (clock uncertainty + elapsed time + commit budget) − 2 seconds`, followed by
+negative samples at `E+1`. The fixture's one-second uncertainty, zero elapsed
+binding time and unchanged five-second commit budget put that target at `E−8`.
+This preserves the explicit early-cutoff model in
+[F_04 section 8](specs/F_04_정책컴파일러_집행_복구_명세.md).
+The two-second packet-sampling margin is separate from the native-process reserve;
+it does not enlarge any installation or security deadline. The lower bound allows
+one second for nftables integer-second representation. Checking only the expired
+state at `E+1`, or deriving the minimum from the observed timeout itself, cannot
+prove that a short token retained its intended conservative lifetime.
 Counts from the three older labs stay separate. CI retains the new report and
 allows 60 minutes for the expanded serial suite; product/test security deadlines
 are unchanged.

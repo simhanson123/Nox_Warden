@@ -194,6 +194,16 @@ submission checks current plan and window validity; accepted historical material
 and separately authorized restrictive recovery retain their original signed
 deadlines. Retry, reopen and recovery cannot shift `[S,E)`.
 
+The observation fixture separately loads a closed `reference-pin.json` prepared
+from its administrative reference inputs before bundle creation. Both baseline
+and candidate observation compilation use that pin and compare the submitted
+bundle/recovery references and artifacts against it. Capture records retain the
+pin hash, reference hash/revision and expected/submitted bindings. This corrects
+the fixture's previous self-reference; it does not add an external-reference gate
+to driver init/apply/replay or authenticate a production reference issuer. The
+driver retains its existing signed-material and lab-trust checks. The separate
+pin remains a synthetic trusted lab input, not an OS-protected deployment service.
+
 After the signed Linux lab builds its pinned image, run the separate profile:
 
 ```sh
@@ -208,6 +218,18 @@ tamper refusal before native mutation/generation, replay without refresh, and
 core-specific restrictive recovery after normal-plan expiry while original
 recovery authority remains valid. This profile's results are reported separately
 from the existing packet, signed-execution and native-evidence suites.
+
+The follow-up also requires a positive new/established TCP observation before
+the documented conservative cutoff, an independently computed token-lifetime
+lower bound, and negative traffic after original `E`. Its positive target is
+`E−8`: the unchanged one-second uncertainty and five-second commit budget, plus
+a separate two-second packet-sampling margin. This margin does not increase the
+driver's five-second installation budget or its two-second process reserve.
+A correctly sized 64-byte forged signature must reach the exact signature
+refusal; each negative case checks its intended bounded reason and unchanged
+generation, journal material and owned native table. Trust-load refusal remains
+distinct from cryptographic verification. See [the review follow-up](pr26-follow-up.md)
+for the actual verification status and the known multiport readback limit.
 
 This is explicit synthetic trust in a disposable lab. It does not provision
 production workload/delegation bootstrap, protected signing generation,

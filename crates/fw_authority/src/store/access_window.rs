@@ -43,6 +43,12 @@ impl AuthorityStore {
         now: i64,
     ) -> Result<CoreAccessLeaseWindowStatus> {
         time(now)?;
+        let subject = subject::validate_subject_structure(
+            &tenant.org_id,
+            &tenant.project_id,
+            plan,
+            requirements,
+        )?;
         let verified_review = review
             .verify(plan)
             .map_err(|_| invalid("core access review"))?;
@@ -92,8 +98,7 @@ impl AuthorityStore {
                 return Ok(result);
             }
         }
-        let subject =
-            subject::validate_subject(&tenant.org_id, &tenant.project_id, plan, requirements, now)?;
+        subject.require_current(now)?;
         if now < clock_floor(&tx, tenant, original.target_id(), original.root_id())? {
             return Err(AuthorityError::Time);
         }
@@ -111,6 +116,7 @@ impl AuthorityStore {
                 return Err(AuthorityError::Conflict);
             }
         } else {
+            validate_existing_request_bindings(&tx, tenant, &original, &verified_window, now)?;
             tx.execute(
                 "INSERT INTO authority_core_access_lease_windows VALUES(?,?,?,?,?,?,?,?,?,?)",
                 params![
@@ -188,26 +194,33 @@ impl AuthorityStore {
             tx.commit()?;
             selected
         };
-        if let Some((target, root)) = selected {
-            self.observe_core_window_time(tenant, &target, &root, now)?;
+        if let Some((target, root)) = &selected {
+            self.observe_core_window_time(tenant, target, root, now)?;
         }
         let tx = self.connection.transaction()?;
         let retained = records::retained_plan(&tx, tenant, plan_id)?;
         let historical_at = historical_verification_time(&tx, tenant, now)?;
-        let result = if let Some(review) =
+        let stored = if let Some(review) =
             review_evidence::review_in_tx(&tx, tenant, &retained.subject, historical_at)?
         {
             retained_window_in_tx(&tx, tenant, &retained, &review, historical_at)?
-                .map(|stored| status(&tx, tenant, &retained, &stored, now))
-                .transpose()?
         } else {
             None
         };
+        let final_selected = stored
+            .as_ref()
+            .map(|stored| (stored.window.target_id.clone(), stored.root_id.clone()));
+        if selected != final_selected {
+            return Err(AuthorityError::Conflict);
+        }
+        let result = stored
+            .map(|stored| status(&tx, tenant, &retained, &stored, now))
+            .transpose()?;
         tx.commit()?;
         Ok(result)
     }
 
-    fn observe_core_window_time(
+    pub(super) fn observe_core_window_time(
         &mut self,
         tenant: &AuthorityTenant,
         target: &str,
@@ -228,7 +241,7 @@ impl AuthorityStore {
 
 // A historical read can verify retained bytes after wall time rolls behind their
 // admission. This time is never used for checked_at or current eligibility.
-fn historical_verification_time(
+pub(super) fn historical_verification_time(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     now: i64,
@@ -268,6 +281,109 @@ struct StoredWindow {
     root_id: String,
 }
 
+pub(super) struct StoredRequestWindow {
+    window: CoreAccessLeaseWindow,
+    verified: VerifiedCoreAccessLeaseWindow,
+    admitted_at: i64,
+}
+
+impl StoredRequestWindow {
+    pub(super) fn current(
+        &self,
+        tx: &Transaction<'_>,
+        tenant: &AuthorityTenant,
+        original: &crate::VerifiedCoreAccessProvenance,
+        now: i64,
+    ) -> Result<bool> {
+        Ok(now >= self.admitted_at
+            && now >= self.verified.not_before()
+            && now < self.verified.expires_at()
+            && now >= clock_floor(tx, tenant, original.target_id(), original.root_id())?)
+    }
+}
+
+fn policy_window_contained(plan: &Value, window: &VerifiedCoreAccessLeaseWindow) -> Result<()> {
+    let policies = plan["requested_policies"]
+        .as_array()
+        .filter(|policies| !policies.is_empty() && policies.len() <= 256)
+        .ok_or(AuthorityError::Binding)?;
+    for policy in policies {
+        let lifetime = &policy["lifetime"];
+        let start = crate::timestamp(crate::string(lifetime, "not_before")?)?;
+        let end = crate::timestamp(crate::string(lifetime, "expires_at")?)?;
+        if start < window.not_before() || end > window.expires_at() || start >= end {
+            return Err(AuthorityError::Binding);
+        }
+    }
+    Ok(())
+}
+
+/// A first fixed interval must account for every already retained binding,
+/// including expired or retired legacy plans. Never rewrite those originals.
+fn validate_existing_request_bindings(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    original: &crate::VerifiedCoreAccessProvenance,
+    window: &VerifiedCoreAccessLeaseWindow,
+    now: i64,
+) -> Result<()> {
+    let mut query = tx.prepare("SELECT plan_id FROM authority_core_access_plan_bindings WHERE org_id=? AND project_id=? AND request_id=? ORDER BY plan_id")?;
+    let mut rows = query.query(params![
+        tenant.org_id,
+        tenant.project_id,
+        original.request_id()
+    ])?;
+    while let Some(row) = rows.next()? {
+        let retained = records::retained_plan(tx, tenant, &row.get::<_, String>(0)?)?;
+        let stored = access_provenance::retained_in_tx(tx, tenant, &retained, now)?
+            .ok_or(AuthorityError::Binding)?;
+        if stored.verified.canonical_bytes() != original.canonical_bytes() {
+            return Err(AuthorityError::Binding);
+        }
+        let plan: Value = decode(&retained.subject.plan_bytes)?;
+        policy_window_contained(&plan, window)?;
+    }
+    Ok(())
+}
+
+/// Resolve the request's window independently of any one plan's review. Legacy
+/// policies may be narrower in time, but may never escape an established window.
+pub(super) fn provenance_window_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan: &Value,
+    original: &crate::VerifiedCoreAccessProvenance,
+) -> Result<Option<StoredRequestWindow>> {
+    type Row = (String, Vec<u8>, Vec<u8>, i64, i64, i64, Vec<u8>);
+    let row: Option<Row> = tx.query_row("SELECT CASE WHEN length(lease_id)=36 THEN lease_id END,CASE WHEN length(provenance_hash)=32 THEN provenance_hash END,CASE WHEN length(window_hash)=32 THEN window_hash END,not_before,expires_at,admitted_at,CASE WHEN length(canonical_bytes) BETWEEN 1 AND 4096 THEN canonical_bytes END FROM authority_core_access_lease_windows WHERE org_id=? AND project_id=? AND request_id=?",params![tenant.org_id,tenant.project_id,original.request_id()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?;
+    let Some((lease, provenance_hash, window_hash, start, end, admitted_at, canonical)) = row
+    else {
+        return Ok(None);
+    };
+    let window: CoreAccessLeaseWindow = decode(&canonical)?;
+    let verified = window.verify_original_binding(original)?;
+    let original_admitted:i64=tx.query_row("SELECT admitted_at FROM authority_core_access_requests WHERE org_id=? AND project_id=? AND request_id=?",params![tenant.org_id,tenant.project_id,original.request_id()],|r|r.get(0))?;
+    if canonical != verified.canonical_bytes()
+        || hash(verified.hash())? != window_hash
+        || hash(original.hash())? != provenance_hash
+        || lease != original.lease_id()
+        || start != verified.not_before()
+        || end != verified.expires_at()
+        || admitted_at < original_admitted
+        || admitted_at < original.valid_from()
+        || admitted_at >= original.valid_until()
+        || admitted_at >= end
+    {
+        return Err(invalid("retained core access lease window"));
+    }
+    policy_window_contained(plan, &verified)?;
+    Ok(Some(StoredRequestWindow {
+        window,
+        verified,
+        admitted_at,
+    }))
+}
+
 fn retained_window_in_tx(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -278,30 +394,18 @@ fn retained_window_in_tx(
     let Some(original) = access_provenance::retained_in_tx(tx, tenant, retained, now)? else {
         return Ok(None);
     };
-    type Row = (String, Vec<u8>, Vec<u8>, i64, i64, i64, Vec<u8>);
-    let row: Option<Row> = tx.query_row("SELECT CASE WHEN length(lease_id)=36 THEN lease_id END,CASE WHEN length(provenance_hash)=32 THEN provenance_hash END,CASE WHEN length(window_hash)=32 THEN window_hash END,not_before,expires_at,admitted_at,CASE WHEN length(canonical_bytes) BETWEEN 1 AND 4096 THEN canonical_bytes END FROM authority_core_access_lease_windows WHERE org_id=? AND project_id=? AND request_id=?",params![tenant.org_id,tenant.project_id,original.verified.request_id()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?;
-    let Some((lease, provenance_hash, window_hash, start, end, admitted_at, canonical)) = row
-    else {
+    let Some(stored) = original.window else {
         return Ok(None);
     };
-    let window: CoreAccessLeaseWindow = decode(&canonical)?;
+    let StoredRequestWindow {
+        window,
+        verified: _,
+        admitted_at,
+    } = stored;
     let plan: Value = decode(&retained.subject.plan_bytes)?;
     let verified = window.verify_binding(&plan, &original.verified, review)?;
-    let original_admitted:i64=tx.query_row("SELECT admitted_at FROM authority_core_access_requests WHERE org_id=? AND project_id=? AND request_id=?",params![tenant.org_id,tenant.project_id,original.verified.request_id()],|r|r.get(0))?;
     let review_admitted:i64=tx.query_row("SELECT admitted_at FROM authority_plan_review_evidence WHERE org_id=? AND project_id=? AND plan_id=?",params![tenant.org_id,tenant.project_id,retained.subject.plan_id],|r|r.get(0))?;
-    if canonical != verified.canonical_bytes()
-        || hash(verified.hash())? != window_hash
-        || hash(original.verified.hash())? != provenance_hash
-        || lease != original.verified.lease_id()
-        || start != verified.not_before()
-        || end != verified.expires_at()
-        || admitted_at < original_admitted
-        || review_admitted < admitted_at
-        || review_admitted < original.admitted_at
-        || admitted_at < original.verified.valid_from()
-        || admitted_at >= original.verified.valid_until()
-        || admitted_at >= end
-        || now < admitted_at
+    if review_admitted < admitted_at || review_admitted < original.admitted_at || now < admitted_at
     {
         return Err(invalid("retained core access lease window"));
     }
@@ -331,6 +435,24 @@ pub(super) fn validate_review_binding(
     let retained = records::retained_plan(tx, tenant, &subject.plan_id)?;
     retained_window_in_tx(tx, tenant, &retained, review, now)?.ok_or(AuthorityError::Binding)?;
     Ok(())
+}
+
+/// Fresh cost/readiness eligibility is stricter than retained v1 accounting.
+/// This is never called while replaying an old reservation or charged usage.
+pub(super) fn current_reviewed_window(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    subject: &subject::ValidatedSubject,
+    now: i64,
+) -> Result<bool> {
+    let Some(review) = review_evidence::review_in_tx(tx, tenant, subject, now)? else {
+        return Ok(false);
+    };
+    let retained = records::retained_plan(tx, tenant, &subject.plan_id)?;
+    let Some(stored) = retained_window_in_tx(tx, tenant, &retained, &review, now)? else {
+        return Ok(false);
+    };
+    Ok(status(tx, tenant, &retained, &stored, now)?.current)
 }
 
 fn status(
@@ -372,11 +494,20 @@ fn status(
 }
 
 /// Replay the complete retained core graph on open, maintenance and externally
-/// changed live snapshots. Legacy provenance has no review/window requirement.
+/// changed live snapshots. Legacy provenance needs no inferred review/window,
+/// but every binding must fit a window once one exists for its original request.
 pub(super) fn validate_retained(tx: &Transaction<'_>) -> Result<()> {
     let orphan:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_core_access_lease_windows w WHERE NOT EXISTS(SELECT 1 FROM authority_core_access_plan_bindings b JOIN authority_plan_review_evidence e ON e.org_id=b.org_id AND e.project_id=b.project_id AND e.plan_id=b.plan_id JOIN authority_plans p ON p.org_id=e.org_id AND p.project_id=e.project_id AND p.plan_id=e.plan_id WHERE p.plan_kind='add_access_lease' AND b.org_id=w.org_id AND b.project_id=w.project_id AND b.request_id=w.request_id))",[],|r|r.get(0))?;
     if orphan {
         return Err(invalid("orphan core access lease window"));
+    }
+    let mut bindings = tx.prepare("SELECT org_id,project_id,plan_id,admitted_at FROM authority_core_access_plan_bindings ORDER BY org_id,project_id,plan_id")?;
+    let mut binding_rows = bindings.query([])?;
+    while let Some(row) = binding_rows.next()? {
+        let tenant = AuthorityTenant::new(&row.get::<_, String>(0)?, &row.get::<_, String>(1)?)?;
+        let retained = records::retained_plan(tx, &tenant, &row.get::<_, String>(2)?)?;
+        access_provenance::retained_in_tx(tx, &tenant, &retained, row.get(3)?)?
+            .ok_or(AuthorityError::Binding)?;
     }
     let mut statement=tx.prepare("SELECT e.org_id,e.project_id,e.plan_id,e.admitted_at FROM authority_plan_review_evidence e JOIN authority_plans p ON p.org_id=e.org_id AND p.project_id=e.project_id AND p.plan_id=e.plan_id WHERE p.plan_kind='add_access_lease'")?;
     let mut rows = statement.query([])?;
@@ -397,3 +528,7 @@ pub(super) fn validate_retained(tx: &Transaction<'_>) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "access_window_concurrency_tests.rs"]
+mod concurrency_tests;

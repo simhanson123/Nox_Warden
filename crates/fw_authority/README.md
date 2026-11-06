@@ -86,7 +86,13 @@ UNKNOWN accounting. Independent root/project quota administration and read-only
 readiness are available. Production preparation and workers remain blocked until
 protected bootstrap, native qualification, build identity and signer deployment
 exist. Successful mechanics are exercised only through private test witnesses.
-Core access cost resolution and rootless policy preparation remain unsupported.
+Core access cost resolution preserves the full original requested duration and
+destination membership. Fresh cost/readiness eligibility requires a complete
+review and a current retained fixed window. Compatible legacy policies must fit
+that window; creating its first interval checks every existing request binding.
+Legacy canonical bytes and retained quota accounting stay unchanged. These
+structural checks never open production core signing or dispatch. See the
+[fixed-window contract](../../docs/core-access-enforcement.md).
 
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
 feature. Native executor and lab consumers disable default features, keeping

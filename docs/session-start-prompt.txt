@@ -1,65 +1,63 @@
 Nox_Warden 개발을 이전 대화 없이 저장소에서 이어서 진행하라.
 저장소: https://github.com/simhanson123/Nox_Warden
+PR26: https://github.com/simhanson123/Nox_Warden/pull/26
+브랜치: feat/core-access-enforcement
 
-먼저 저장소/브랜치/git status를 확인하고 사용자 변경을 보존하라.
+현재 저장소·브랜치·git status·원격 PR/CI부터 확인하고 사용자 변경을 보존하라.
 AGENTS.md, docs/session-handoff.md, docs/review-continuity.md,
-reports/task-ledger.json, reports/README.md, docs/implementation.md를 읽어라.
-F00/F01 우선순위와 해당 작업의 F03/F04/F07/F08/F12 원본을 확인하라.
-원본 specs와 외부 검토 원문, 공개 migration001–014를 수정하지 마라.
+reports/task-ledger.json, reports/README.md, docs/implementation.md,
+docs/pr26-follow-up.md와 docs/core-access-enforcement.md를 읽어라.
+원본 F00/F01 우선순위 및 F03/F04/F07/F08/F12를 확인하라.
+공개 SQL001–014, 원본 specs와 검토 원문은 수정하지 마라.
 
-완료된 PR25 head: 89684e055f01a1c87113e4ea4a713ebbff77afe1
-PR25 비교 기준: 59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8
-main 병합: a624a1e684a8fc0065ac4f4609101410f56c50bb (동일 트리)
-PR CI41945354850와 별도 main CI41950760489는 모두 성공했다.
-Claude의 PR25 보고서는 docs/reviews/pr25-claude-review.md에 업로드 그대로
-보존했다. 14448바이트, SHA256:
-64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771
-I1/T1–T3은 보강됐고 새 보안 결함/개발 blocker는 없다고 보고했다.
-명령·문서 정정은 docs/pr25-review-assessment.md를 읽어라.
-올바른 focused 필터는 transition_atomicity다. 포함한 파일명으로 실행하면
-0개에 일치할 수 있으므로 종료코드0만으로 PASS를 주장하지 마라.
-외부 private probe는 없으며 외부의 Docker 검사는 NOT_RUN이었다.
+받은 Claude Opus5.5 PR26 검토 대상:
+3866ceaa2b86da3ea3653da338d433a23a02b283
+트리: 7f349ae2b22d1c19464454bcec8eb079d15614ef
+원래 PR 비교 기준: a624a1e684a8fc0065ac4f4609101410f56c50bb
+원문: docs/reviews/pr26-claude-review.md (15748바이트,162CRLF)
+SHA256: 7f82e555c1c734c9592b7ec3ddf96a4c65891b18815a02e00b45c0c6a1cba37d
+Medium이상 결함/즉시 개발blocker는 없다고 보고했지만 F1/F2와 lab공백4개를 보강한다.
+외부 private probe 소스는 제공되지 않았고 재실행하지 않았다.
+외부 구버전바이너리 이관 검증은 귀속된 보고이며 저장소 재구성fixture와 구분하라.
+외부 Docker/native lab4개는 NOT_RUN이었다. window_tests가 유효한 필터다.
 
-현재 브랜치: feat/core-access-enforcement, 기준은 위 main 병합이다.
-현재 묶음은 core 임시 접근의 전체 before/after 의미 검토, 하나의 불변 절대
-임대창, native 컴파일·격리 Linux 실행, CLI/API/UI 증거 연결을 구현했다.
-Schema14와 docs/core-access-enforcement.md를 읽어라. 새 core Linux 실제
-검사72건(패킷24·서명관측2), authority 브라우저43건은 통과했다.
-최종 로컬 검증은 PASS다: bash scripts/check.sh의 workspace Rust943,
-명시적 CLI1, reduced32, UI211/11파일, UI빌드2회와 static/Python검사;
-shared-umask authority/service530, 최신 bins/examples빌드도 통과했다.
-Rust943과530은 각각 ignored3개를 유지하고 nested worker요약2개를 제외했다.
-런타임 HTTP24/CLI13/별도 synthetic CLI protocol5, 등록API23/브라우저25/
-metadata41, catalogue11/passkeys76/login14/audit21도 통과했다.
-기존 Linux66/패킷40, signed98/패킷43, native33/capture5/패킷0이며,
-core를 포함한 lab4개의 컨테이너가 모두 제거됐다.
-최종406개 입력 digest:
-788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf
-통합 독립 내부검토는 source59파일에서 finding0건이며 Claude 실행이 아니다.
-이 로컬 인계는 이 기능의 commit/PR/CI/병합 전에 작성됐다. 이후 실제
-head/tree·PR CI·merge·별도 main CI는 기능 PR완료기록과 전체 Claude프롬프트에
-고정하라. 최신 ledger/reports를 따르고 과거 수치를 새 PASS로 재사용하지 마라.
-기존 일반 정책·provenance v1 바이트와 전체 원본 요청 비용을 보존하라.
-새 migration은 과거 기록의 임대창/승인/완료 증거를 추론해 만들지 마라.
-재시도·재개방·호환 계획으로 원래 절대 만료를 이동하거나 점유를 환급하지 마라.
-Core 구조적 provenance·의미 검토·lab 서명은 운영 workload/delegation 권위나
-보호 bootstrap·signer 자격을 대신하지 못한다. 운영 signer/dispatch는 닫아 둬라.
+F1은 고정창→legacy와 legacy→고정창 양순서를 새baseline회귀로 직접 재현했다.
+새 live 비용/readiness에는 해당 계획의 엄격한 검토와 창을 요구하되,
+legacy 원본 bytes/전체요청기간비용/issued·UNKNOWN·미인증delivered 점유는 보존하라.
+누락된 임대창/승인/완료증거를 추론하거나 발급슬롯을 환급하지 마라.
+F2는 malformed입력의 clock부작용을 막되 정상형 거절/만료 관측의 floor는 유지한다.
+F3는 전체 strict검증을 다시 하는 명시적 legacy upgrade를 허용한다.
+F4의 DB전체/트리거를 바꾸는 공격자에 대한 외부단조성은 미구현 신뢰경계다.
+로컬 체인만 추가하고 외부앵커나 root침해 방어를 완성했다고 쓰지 마라.
+Native는 독립reference,64바이트위조서명,정확한거절단계와 상태불변,
+원래E에 결합된 근접양성/만료음성 및 독립TTL하한을 검증하라.
+기존5초설치예산/2초processreserve, 원래S/E와 별도복구기한을 늘리지 마라.
 
-작업자는 GPT-6.1 Sol ultra로 역할/파일을 나누고 리드는 조율하라.
-큰 묶음을 병렬 구현하고 국소 검사 후 한 번에 통합 검토하라.
-공유 target의 Cargo/빌드/실행 검증은 한 조율자가 순차 실행하라.
-검사와 결함수정 후 commit/push/PR/CI/병합과 별도 main CI까지 마무리하라.
-통상 단계마다 확인을 요구하지 말고 원격브랜치 삭제/history 재작성은 하지 마라.
-다음 외부 검토는 Claude Opus5.5 하나에 실제 새 base/head SHA를 고정한
-전체 복사용 프롬프트로 요청하라. 이미 받은 고정 대상 검토를 반복하지 마라.
+현재 후속구현·새 로컬 전체검증·독립 내부검토는 완료됐다.
+새 실측: workspace957/별도CLI1/reduced32/UI211/11파일/두build/sharedumask541.
+각 전체Rust는 ignored3·nested요약2개제외. 14개runtime보고서도 모두PASS이며
+Linux66/패킷40,signed98/43,core85/26/capture2,native33/capture5/패킷0이다.
+실제old3866 publicAPI가 만든 충돌DB를 새CLI가DATABASE_REJECTED로거절하고bytes보존했다.
+최종406입력digest:c533bbc57909184dc29fe3a1bbed2574a5c230f0e7be006644806a2409015302
+상세범위·초기실패·수집기/환경정정·미완성경계는 ledger/reports를 따르라.
+이전943/530/UI211/core72 등의 수치를 새 수정 PASS로 재사용하지 마라.
+PR26 최초 CI42036443828 attempt1은 billing lock으로 실행전실패(steps0/artifacts0)였다.
+그 이후 상태는 보존된 PR의 실제 head·CI·merge·별도mainCI로 확인하라.
+결제변경/CI우회 없이 가능한 개발·검증·commit/push를 마무리하라.
+CI가 가능하면 정확한수정head 검사와 병합 후 별도mainCI까지 확인하라.
 
-보호 workload/delegation bootstrap, OS계정/독립 signer/초기 generation,
-인증 dispatch/완료증명/reconciliation, Linux 설치/복구/watchdog과
-실제 Windows WFP+callout/macOS NE 구현은 별도 남은 범위다.
-Linux 격리lab의 실제 패킷 검증을 운영 호스트 보호로 표시하지 마라.
-Pinned nft1.0.6의 multiport ct.proto-dst set readback 제한도 아직 남아 있다.
-현재 lab의 동등한 scalar 포트 정책을 multiport 지원으로 표시하지 마라.
-3OS 네이티브/8locale 영어기본+저장선택/Apache2.0/통계OFF/선택후원/
-AI자기승인금지를 유지하라. 운영망 실험/유료자원/패키지공개/운영배포는 제외다.
-새 Cloud 도구/네트워크/Docker/browser를 확인하고 잠금파일대로 복원하라.
-원시 로그/스크린샷/반복 일지는 커밋하지 말고 미실행은 NOT_RUN으로 기록하라.
+작업자는 GPT-6.1 Sol ultra, 리드는 조율이다. 파일소유권을 나눠 큰묶음 병렬구현,
+국소검사 후 한 번의 통합검토를 한다. Cargo/빌드/런타임은 한 검증조율자가 순차실행한다.
+통상단계 확인을 반복요구하지 말고 원격브랜치 삭제/공유history재작성은 하지 마라.
+다음 외부검토는 Claude Opus5.5 하나에 실제새base/head/tree의 전체복사용프롬프트로
+요청하라. 받은 고정대상 검토는 반복하지 말고 준비를 실행으로 표시하지 마라.
+
+다음 제품작업은 보호 workload/delegation bootstrap, OS계정·초기generation·독립signer,
+인증dispatch/완료증명/reconciliation이다. Linux설치·복구·watchdog/실제호스트검수,
+WindowsWFP+callout와 macOSNetworkExtension 구현도 필요하다.
+운영 signer/dispatch는 보호경로 완성까지 닫고 격리lab성공을 운영자격으로 표시하지 마라.
+Pinned nft1.0.6 anonymous multiport ct.proto-dst readback은 미검수이며 계속거절한다.
+3OS/8locale영어기본+저장선택/Apache2.0/통계OFF/선택후원/AI자기승인금지를 유지하라.
+운영망·호스트방화벽 실험/유료자원/패키지공개/운영배포는 제외한다.
+Cloud도구·네트워크·관리Docker·browser를 확인하고 README와 잠금파일대로 복원하라.
+원시로그/스크린샷/반복일지는커밋하지말고 미실행검사는NOT_RUN으로 기록하라.

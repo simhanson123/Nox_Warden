@@ -97,6 +97,34 @@ impl CoreAccessLeaseWindow {
         original: &VerifiedCoreAccessProvenance,
         review: &VerifiedPolicyReview,
     ) -> Result<VerifiedCoreAccessLeaseWindow> {
+        let verified = self.verify_original_binding(original)?;
+        let binding = review.core_binding().ok_or_else(invalid)?;
+        if binding.lease_id() != self.lease_id
+            || binding.request_id() != self.request_id
+            || verified.not_before() != binding.not_before()
+            || verified.expires_at() != binding.expires_at()
+            || binding.lease_seconds() != original.lease_seconds()
+            || verified.expires_at()
+                > crate::timestamp(crate::string(plan, "workload_binding_valid_until")?)?
+            || review.plan_hash() != canonical_hash(plan).map_err(|_| invalid())?
+        {
+            return Err(AuthorityError::Binding);
+        }
+        let basis = serde_json::json!({"schema_version":"f.policy-authority-basis/v1",
+            "approval_requirements_hash":plan["approval_requirements_hash"],
+            "envelope_hash":plan["envelope_hash"],"delegation_hash":plan["delegation_hash"]});
+        if binding.authority_basis_hash() != canonical_hash(&basis).map_err(|_| invalid())? {
+            return Err(AuthorityError::Binding);
+        }
+        Ok(verified)
+    }
+
+    /// The original request fixes this interval even for a compatible legacy
+    /// plan without a semantic review. This alone cannot qualify a fresh signer.
+    pub(crate) fn verify_original_binding(
+        &self,
+        original: &VerifiedCoreAccessProvenance,
+    ) -> Result<VerifiedCoreAccessLeaseWindow> {
         // Bound directly constructed Rust strings before canonical allocation.
         if [
             &self.schema_version,
@@ -115,7 +143,6 @@ impl CoreAccessLeaseWindow {
         {
             return Err(invalid());
         }
-        let binding = review.core_binding().ok_or_else(invalid)?;
         let start = crate::timestamp(&self.not_before)?;
         let end = crate::timestamp(&self.expires_at)?;
         if self.schema_version != CORE_ACCESS_LEASE_WINDOW_SCHEMA
@@ -127,23 +154,10 @@ impl CoreAccessLeaseWindow {
             || self.request_hash != original.request_hash()
             || self.provenance_hash != original.hash()
             || self.lease_id != original.lease_id()
-            || binding.lease_id() != self.lease_id
-            || binding.request_id() != self.request_id
-            || start != binding.not_before()
-            || end != binding.expires_at()
             || end.checked_sub(start) != Some(original.lease_seconds())
-            || binding.lease_seconds() != original.lease_seconds()
             || start < original.valid_from()
             || end > original.valid_until()
-            || end > crate::timestamp(crate::string(plan, "workload_binding_valid_until")?)?
-            || review.plan_hash() != canonical_hash(plan).map_err(|_| invalid())?
         {
-            return Err(AuthorityError::Binding);
-        }
-        let basis = serde_json::json!({"schema_version":"f.policy-authority-basis/v1",
-            "approval_requirements_hash":plan["approval_requirements_hash"],
-            "envelope_hash":plan["envelope_hash"],"delegation_hash":plan["delegation_hash"]});
-        if binding.authority_basis_hash() != canonical_hash(&basis).map_err(|_| invalid())? {
             return Err(AuthorityError::Binding);
         }
         let canonical = canonical_bytes(self).map_err(|_| invalid())?;
