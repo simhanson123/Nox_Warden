@@ -9,12 +9,16 @@ needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
 ## Current signer durability and target-confirmation follow-up
 
-PR28 now integrates the retained PR26/27 history into `main`, but is not merged.
-Its first real CI42277449076 passed through protected signer and failed target
-namespace setup at marker1/packet0. Bounded diagnostic and parallel CI follow-up
-is in progress; see the current verification report. Do not infer the exact
-OS restriction or a remote PASS from the earlier local results. Read the PR28
-completion record for the actual later head/run/merge/main-CI outcome.
+PR28 integrates the retained PR26/27 history into `main`. At this publication
+checkpoint it awaits a fresh complete remote run; resolve the actual later
+head/run/merge/main-CI outcome from the PR28 completion record. CI42277449076
+passed through protected signer but failed target setup. Diagnostic run42289070927
+identified `mount_private_propagation` failing with EACCES13 under the reported
+`docker-default (enforce)` profile. The target failed, the remaining development
+job was cancelled after its evidence was secured, and the required aggregate
+failed. The mount-free correction passed fresh local target55/native-runner52
+checks without relaxing capabilities, profiles or product guards. Four parallel
+CI suites must all succeed before merge. See the verification summary.
 
 Branch `feat/target-authority-confirmation` starts at PR27 head
 `5fc576f672c2e0671164b73a667e3452b99ea82a`, tree

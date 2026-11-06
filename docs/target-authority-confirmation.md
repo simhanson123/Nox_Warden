@@ -164,8 +164,14 @@ python scripts/target-bootstrap-linux-lab.py --report reports/target-bootstrap-l
 
 It uses the pinned Linux lab image, a disposable container with no external network or
 host mounts, and private network namespaces connected only to one another. The
-parent prepares the namespace-local settings and then reduces the target to
-`CAP_NET_ADMIN`; peer and signer processes use separate identities. Native packet
+container's initial network namespace receives the fixed Docker sysctl
+`net.netfilter.nf_conntrack_tcp_loose=0` and is retained as the target. Separate
+coordinator and peer namespaces are created and checked independently at value 1.
+The fixture explicitly enters the coordinator namespace; target execution enters
+the retained target namespace and reduces its capabilities to `CAP_NET_ADMIN`.
+No private mount or inner sysctl write is needed. Default security profiles and
+the seven setup capabilities remain unchanged; peer and signer processes use
+separate identities. Native packet
 observations and two accepted target confirmations are required for a passing
 report. The required CI step retains the report for seven days. A configured CI
 step is not an executed check; current results remain in the verification summary.

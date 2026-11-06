@@ -7,9 +7,12 @@ Nox_Warden 개발을 이전 대화 없이 저장소에서 이어서 진행하라
 
 현재 저장소/브랜치/git status/원격 PR/CI를 확인하고 사용자 변경을 보존하라.
 PR28은 PR26/27 커밋도 포함해 main으로 통합하지만 아직 미병합이다.
-첫 실제 CI42277449076은 protected signer까지 PASS, target namespace 준비만 marker1/packet0 FAIL이다.
-기존 lab이 정확 syscall/errno를 지웠으므로 원인을 추정하지 마라. bounded 진단과 병렬 target/전체CI의
-필수aggregate가 보강됐다. PR28 완료기록에서 실제 새head/최신CI/병합/mainCI를 확인하라.
+첫 CI42277449076은 protected signer까지 PASS, target 준비만 marker1/packet0 FAIL이다.
+진단CI42289070927은 mount_private_propagation/EACCES13과 docker-default(enforce)를 기록했다.
+실패 증거 확보 후 남은 development job을 취소했고 필수aggregate도 FAIL이다.
+mount-free 수정은 새 로컬target55/관련Python52 PASS다. 권한/profile/제품guard는 그대로다.
+canonical/shared-authority/runtime/target 네 job 모두 성공해야 한다.
+로컬 결과로 원격PASS를 추론하지 말고 PR28 완료기록에서 실제head/CI/병합/mainCI를 확인하라.
 AGENTS.md, docs/session-handoff.md, review-continuity.md, pr27-follow-up.md,
 remaining-work.md, reports/task-ledger.json, reports/README.md와 implementation.md를 읽어라.
 F00/F01 우선순위와 F02/F03/F04/F07/F08/F12 및 원본 schema를 확인하라.

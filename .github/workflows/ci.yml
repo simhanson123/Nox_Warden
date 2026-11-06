@@ -6,9 +6,8 @@ on:
 permissions:
   contents: read
 jobs:
-  development:
-    name: Core, browser and isolated Linux suites
-    # Includes retained-history suites and the isolated Linux execution labs.
+  canonical:
+    name: Canonical Rust, web and contract checks
     timeout-minutes: 60
     runs-on: ubuntu-24.04
     steps:
@@ -25,10 +24,44 @@ jobs:
       - run: python -m pip install -r scripts/requirements.txt
       - run: npm ci --prefix web
       - run: bash scripts/check.sh
+  shared_authority:
+    name: Authority suites with shared runner defaults
+    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install checksum-pinned Rust
+        run: FW_TOOLCHAIN_ROOT="$RUNNER_TEMP/rust" bash scripts/install-rust.sh
+      - name: Activate Rust
+        run: echo "$RUNNER_TEMP/rust/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r scripts/requirements.txt
       - name: Private authority storage with shared runner defaults
         run: |
           umask 0002
           cargo test --locked -p fw_authority -p fw_authority_service
+  runtime:
+    name: API, browser and isolated Linux suites
+    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install checksum-pinned Rust
+        run: FW_TOOLCHAIN_ROOT="$RUNNER_TEMP/rust" bash scripts/install-rust.sh
+      - name: Activate Rust
+        run: echo "$RUNNER_TEMP/rust/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r scripts/requirements.txt
+      - run: npm ci --prefix web
+      - name: Build every runtime binary and example from the locked workspace
+        run: cargo build --locked --workspace --bins --examples
+      - name: Prepare both web applications for runtime checks
+        run: |
+          npm run build --prefix web
+          npm run build:authority --prefix web
       - name: Real local HTTP and OpenAPI smoke
         run: |
           cargo build -p fw_control -p fw_cli -p fw_agent --locked
@@ -115,17 +148,19 @@ jobs:
           if-no-files-found: ignore
   required_checks:
     name: Core and isolated Linux smoke
-    needs: [development, target_bootstrap]
+    needs: [canonical, shared_authority, runtime, target_bootstrap]
     if: always()
     runs-on: ubuntu-24.04
     steps:
-      - name: Require both complete suites to succeed
+      - name: Require all four complete suites to succeed
         env:
-          DEVELOPMENT_RESULT: ${{ needs.development.result }}
+          CANONICAL_RESULT: ${{ needs.canonical.result }}
+          SHARED_AUTHORITY_RESULT: ${{ needs.shared_authority.result }}
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
           TARGET_BOOTSTRAP_RESULT: ${{ needs.target_bootstrap.result }}
         shell: bash
         run: |
-          if [[ "$DEVELOPMENT_RESULT" != success || "$TARGET_BOOTSTRAP_RESULT" != success ]]; then
-            printf 'Required suites did not both succeed: development=%s target_bootstrap=%s\n' "$DEVELOPMENT_RESULT" "$TARGET_BOOTSTRAP_RESULT" >&2
+          if [[ "$CANONICAL_RESULT" != success || "$SHARED_AUTHORITY_RESULT" != success || "$RUNTIME_RESULT" != success || "$TARGET_BOOTSTRAP_RESULT" != success ]]; then
+            printf 'Required suites did not all succeed: canonical=%s shared_authority=%s runtime=%s target_bootstrap=%s\n' "$CANONICAL_RESULT" "$SHARED_AUTHORITY_RESULT" "$RUNTIME_RESULT" "$TARGET_BOOTSTRAP_RESULT" >&2
             exit 1
           fi

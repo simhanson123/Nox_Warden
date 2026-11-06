@@ -9,7 +9,7 @@
     "independent_review_prompts": "docs/review-prompts.md",
     "method": "GPT-6.1 Sol ultra implementation and GPT-6 Astra ultra architecture/independent review, both at maximum reasoning with disjoint ownership; lead orchestration. Substantial integrated batches, one consolidated review and fresh coordinated validation, then authorized commit/push/stacked PR/CI/merge and separate main CI when available. Preserve remote branches and shared history.",
     "next_dependencies": [
-      "Resolve the actual remote namespace setup failure using bounded diagnostics without relaxing product/capability/profile boundaries; pass both parallel CI jobs and required aggregate, merge the integrated PR28 and inspect separate main CI. Preserve SQL001..016 and original review bytes.",
+      "Complete all four CI suites and existing required aggregate, merge integrated PR28 and inspect separate main CI. Remote mount_private_propagation/EACCES13 is diagnosed; mount-free local target55/native-runner52 passed without capability/profile/product changes. Preserve SQL001..016 and original review bytes.",
       "Qualify compiler/validator/build identity, protected observer/native evidence and management baseline; independently resolve workload asset revisions and actual packet source identity.",
       "Qualify isolated durable epoch/receipt/management-probe integration for installed contexts; no genesis reset, invented predecessor or issued/UNKNOWN refund.",
       "Connect authenticated executor dispatch/completion/reconciliation and current policy-signer key trust. Existing distinct-UID Unix signer IPC is implemented; installed OS account/ACL/key provisioning and authenticated executor completion are still required.",
@@ -29,7 +29,7 @@
       "The explicit isolated core profile preserves original f.plan/v1 material/window/recovery authority through actual native application, two signed captures, original absolute expiry and autonomous restrictive recovery. Scoped immutable-material reuse keeps fresh current trust/DSSE/time checks and original installation budgets; synthetic lab approval is not production workload/delegation authentication.",
       "Bounded trusted CLI registration/history reads, authenticated no-store core evidence GET and full-state review/window UI share retained evidence across eight locales; session-local conservative UI time survives refresh/remount without changing authority gates."
     ],
-    "next_implementation": "Complete fresh integrated validation, independent review and commit/push/stacked PR/required CI. Current native integration failures remain unpassed until corrected. Next scope: qualified build/native/workload inputs and policy-signer trust, authenticated dispatch/completion/reconciliation and installed Linux lifecycle; Windows WFP/callout and macOS Network Extension remain mandatory. PR26/PR27 are unmerged billing-blocked dependencies. No CI bypass or invented merge; remaining-work.md gives acceptance without percentage/date.",
+    "next_implementation": "Complete corrected PR28 required CI, merge retained PR26/27 history into main and inspect main CI. Then qualified build/native/workload inputs and policy-signer trust, authenticated dispatch/completion/reconciliation and installed Linux lifecycle; Windows WFP/callout and macOS Network Extension remain mandatory. Resolve current remote state from PR28 completion record; old billing failures are historical.",
     "implementation_base": "5fc576f672c2e0671164b73a667e3452b99ea82a",
     "implementation_branch": "feat/target-authority-confirmation",
     "completed_batch": {
@@ -1417,7 +1417,7 @@
         "M05",
         "M06"
       ],
-      "status": "implemented_local21_passed_remote_target_setup_failure_followup_in_progress",
+      "status": "implemented_local_integrated_and_mount_free_followup_passed_required_remote_ci_pending",
       "unmerged_dependencies": [
         {
           "pull_request": 26,
@@ -1430,7 +1430,7 @@
           "latest_recorded_ci": 42216796210
         }
       ],
-      "remote_status": "CI42277449076 executed: all prior suites passed; target namespace setup FAIL marker1/packet0; no merge; bounded diagnostics and parallel mandatory gating added.",
+      "remote_status": "CI42277449076 target setup failed after prior suites passed. CI42289070927 identified mount_private_propagation/EACCES13; target failure, remaining development cancelled and aggregate failure. Mount-free followup local target55/native52 PASS; fresh four-job remote CI required at publication checkpoint. Resolve final outcome in PR28.",
       "schema_base": 15,
       "schema": 16,
       "schema_change": "New016 includes3 explicit origin and6 target-bootstrap tables; preserve published001..015 and schema/guard contracts. Once016 is published, preserve it too and use a new future migration.",
@@ -1844,7 +1844,7 @@
         "remote_receipt_sha256": "b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a",
         "remote_inputs_compared": 281,
         "source_mismatches": 0,
-        "followup": "Bounded fixed stage/errno/cleanup/context diagnostics; original operations/caps/profiles/product guards unchanged. Parallel target job and always aggregate retaining existing required name; all previous checks and14+1 artifacts preserved.",
+        "followup": "Historical diagnostic checkpoint; subsequent mount-free correction and four-job CI are recorded below.",
         "target_runner_tests_passed": 14,
         "aggregate_result_combinations_checked": 49,
         "aggregate_success_cases": 1,
@@ -1866,6 +1866,58 @@
           "report_sha256": "a337d98456167f877ec6a22db3ed57e2bf8a27f9c4510756dd2d74e212359ba0",
           "qualification": "Does not establish the unknown GitHub syscall failure or a remote repair."
         }
+      },
+      "mount_free_followup": {
+        "remote_diagnostic_run": 42289070927,
+        "remote_diagnostic_head": "3d9e9dabb43fef0d760779758558f696db9d1c0a",
+        "failing_stage": "mount_private_propagation",
+        "errno": 13,
+        "lsm": "docker-default (enforce)",
+        "target_job": "failure",
+        "other_job": "cancelled_after_failure_evidence_retained",
+        "aggregate": "failure",
+        "diagnostic_receipt_sha256": "07388235d1a3661fe9ddcb8604b482bbc9bd99bbca9c3e69d36aa45835044809",
+        "source_inputs": 462,
+        "source_sha256": "329c48cba3db8cc50668fa23e88565e2b356753283acd32ce78a16942dad56ff",
+        "subsequent_delta": "native/linux/README.md topology explanation only; no executable change",
+        "setup_report_sha256": "2541526a2064461abe0c942cc86ba0b6e6330910879b46d3072a41d488c9e777",
+        "local_full_target": {
+          "status": "PASS",
+          "checks": 55,
+          "actual_cli_calls": 35,
+          "accepted_epochs": 2,
+          "sent_cases": 6,
+          "attempts": 8,
+          "duration_seconds": 121.75,
+          "expiry_wait_seconds": 76.38,
+          "report_sha256": "dffcda0cb2daffd254eb11fbf9ebfaf9e2cda53314ff9e935ba77b5a48713cea",
+          "container_removed": true,
+          "namespace_children_reaped": 3
+        },
+        "native_runner_tests_passed": 52,
+        "target_module_tests_passed": 16,
+        "mount_calls": 0,
+        "inner_sysctl_writes": 0,
+        "namespace_conntrack_values": {
+          "target": 0,
+          "coordinator": 1,
+          "peer": 1
+        },
+        "security_profiles": "default unchanged",
+        "capabilities": "original seven unchanged; target E/P/B4096 and Inh/Amb0",
+        "local_lsm": null,
+        "qualification": "No physical-host or remote-AppArmor PASS inferred. Earlier whole-suite receipts unchanged.",
+        "ci_jobs": [
+          "canonical",
+          "shared_authority",
+          "runtime",
+          "target_bootstrap"
+        ],
+        "required_successes": 4,
+        "aggregate_result_combinations_checked": 1296,
+        "aggregate_success_cases": 1,
+        "checks_and_artifacts": "Original commands preserved; runtime builds own bins/examples and both web apps;14+1 JSON artifacts and7-day retention preserved.",
+        "independent_evidence_review": "No source/report/binary mismatch; old fixed summary/audits unchanged."
       }
     },
     "next_product_batch": {

@@ -17,7 +17,7 @@ import uuid
 
 ROOT = Path('/lab')
 SIGNER, CONTROLLER, PEER = 65531, 65532, 65533
-CLONE_NEWNET, CLONE_NEWNS = 0x40000000, 0x00020000
+CLONE_NEWNET = 0x40000000
 checks = []
 observations = {}
 operator_operations = []
@@ -30,6 +30,7 @@ NAMESPACE_STAGES = frozenset({
     'create_private_proc', 'mount_private_proc', 'read_namespace_identity',
     'write_conntrack', 'verify_conntrack', 'unmount_private_proc',
     'remove_private_proc', 'send_ready', 'ready', 'diagnostic_channel',
+    'retain_initial_net', 'verify_initial_conntrack',
 })
 NAMESPACE_FIELDS = frozenset({'version', 'status', 'stage', 'errno', 'cleanup_errno',
                              'euid', 'egid', 'cap_eff', 'cap_prm', 'cap_bnd',
@@ -198,60 +199,58 @@ def namespace_diagnostic_bytes(value):
     return raw
 
 
-def new_namespace(label, configure_conntrack=False):
+def current_namespace_state():
+    # /proc/sys/net resolves against this task's current network namespace.
+    # Inner setup never writes a sysctl: Docker initializes only its new T.
+    text = Path('/proc/sys/net/netfilter/nf_conntrack_tcp_loose').read_text().strip()
+    if text not in {'0', '1'}:
+        raise RuntimeError('unexpected namespace conntrack value')
+    return {'network_namespace': os.readlink('/proc/self/ns/net'),
+            'conntrack_tcp_loose': int(text)}
+
+
+def enter_namespace(pid):
+    fd = os.open('/proc/' + str(pid) + '/ns/net', os.O_RDONLY)
+    try:
+        if libc.setns(fd, CLONE_NEWNET) != 0:
+            raise OSError(ctypes.get_errno(), 'fixture setns failed')
+    finally:
+        os.close(fd)
+
+
+def reap_namespace(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    os.waitpid(pid, 0)
+
+
+def new_namespace(label, *, retain_initial=False):
     read, send = os.pipe()
     pid = os.fork()
     if pid == 0:
         os.close(read)
         stage = 'initial'
-        first_failure = None
-        cleanup_errno = None
         try:
-            flags = CLONE_NEWNET | (CLONE_NEWNS if configure_conntrack else 0)
-            stage = 'unshare_net_mount' if configure_conntrack else 'unshare_net'
-            if libc.unshare(flags) != 0:
-                raise OSError(ctypes.get_errno(), 'fixture unshare failed')
-            if configure_conntrack:
-                libc.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_void_p]
-                libc.umount2.argtypes = [ctypes.c_char_p, ctypes.c_int]
-                stage = 'mount_private_propagation'
-                if libc.mount(None, b'/', None, 16384 | 262144, None) != 0:
-                    raise OSError(ctypes.get_errno(), 'private propagation refused')
-                proc = ROOT / ('private-proc-' + label)
-                stage = 'create_private_proc'
-                proc.mkdir(mode=0o700)
-                encoded = str(proc).encode()
-                stage = 'mount_private_proc'
-                if libc.mount(b'proc', encoded, b'proc', 2 | 4 | 8, None) != 0:
-                    raise OSError(ctypes.get_errno(), 'private proc mount refused')
-                try:
-                    stage = 'read_namespace_identity'
-                    current = os.readlink('/proc/self/ns/net')
-                    stage = 'write_conntrack'
-                    with (proc / 'sys/net/netfilter/nf_conntrack_tcp_loose').open('w') as field:
-                        field.write('0')
-                    stage = 'verify_conntrack'
-                    if (proc / 'sys/net/netfilter/nf_conntrack_tcp_loose').read_text().strip() != '0' or os.readlink('/proc/self/ns/net') != current:
-                        raise RuntimeError('target namespace sysctl readback failed')
-                except BaseException as error:
-                    first_failure = (stage, error)
-                    raise
-                finally:
-                    stage = 'unmount_private_proc'
-                    if libc.umount2(encoded, 0) != 0:
-                        cleanup_errno = ctypes.get_errno()
-                        raise OSError(cleanup_errno, 'private proc unmount refused')
-                stage = 'remove_private_proc'
-                proc.rmdir()
+            if retain_initial:
+                stage = 'retain_initial_net'
+                initial = os.readlink('/proc/self/ns/net')
+                stage = 'verify_initial_conntrack'
+                state = current_namespace_state()
+                if state != {'network_namespace': initial, 'conntrack_tcp_loose': 0}:
+                    raise RuntimeError('initial Docker namespace conntrack refused')
+            else:
+                stage = 'unshare_net'
+                if libc.unshare(CLONE_NEWNET) != 0:
+                    raise OSError(ctypes.get_errno(), 'fixture unshare failed')
             stage = 'send_ready'
             os.write(send, namespace_diagnostic_bytes(namespace_diagnostic('READY', 'ready')))
             os.close(send)
             signal.pause()
         except BaseException as error:
-            failed_stage, failed_error = first_failure or (stage, error)
             try:
-                os.write(send, namespace_diagnostic_bytes(namespace_diagnostic(
-                    'ERROR', failed_stage, failed_error, cleanup_errno)))
+                os.write(send, namespace_diagnostic_bytes(namespace_diagnostic('ERROR', stage, error)))
             except (OSError, RuntimeError):
                 pass
         os._exit(0)
@@ -270,13 +269,45 @@ def new_namespace(label, configure_conntrack=False):
         diagnostic.update(version=1, status='ERROR', stage='diagnostic_channel')
     observations.setdefault('namespace_setup_diagnostics', []).append({'namespace': label, **diagnostic})
     if diagnostic['status'] != 'READY':
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        os.waitpid(pid, 0)
+        reap_namespace(pid)
         raise RuntimeError('isolated namespace setup refused')
     return pid
+
+
+def setup_namespaces():
+    # Docker owns the initial isolated T and applies the fixed --sysctl before
+    # this process starts. Keep T alive, then explicitly move this controller
+    # into a separate O. No mount namespace, mount, proc mount or sysctl write.
+    initial = current_namespace_state()
+    target = outer_keeper = peer = None
+    try:
+        target = new_namespace('target', retain_initial=True)
+        outer_keeper = new_namespace('outer')
+        enter_namespace(outer_keeper)
+        outer = current_namespace_state()
+        peer = new_namespace('peer')
+        probe = ('import json,os;from pathlib import Path;print(json.dumps({'
+                 '"network_namespace":os.readlink("/proc/self/ns/net"),'
+                 '"conntrack_tcp_loose":int(Path("/proc/sys/net/netfilter/nf_conntrack_tcp_loose").read_text())}))')
+        target_state = json.loads(successful(['python3', '-c', probe], namespace=target, target=True))
+        peer_state = json.loads(successful(['python3', '-c', probe], namespace=peer, target=True))
+        check('initial Docker target retains namespaced conntrack zero',
+              initial == target_state and initial['conntrack_tcp_loose'] == 0)
+        check('three genuinely distinct container network namespaces',
+              len({state['network_namespace'] for state in (target_state, outer, peer_state)}) == 3)
+        check('namespace-local conntrack values demonstrate actual separation',
+              outer['conntrack_tcp_loose'] == peer_state['conntrack_tcp_loose'] == 1)
+        check('namespace setup leaves separate controller unchanged', current_namespace_state() == outer)
+        topology = {'outer': outer['network_namespace'], 'target': target_state['network_namespace'],
+                    'peer': peer_state['network_namespace'], 'namespace_states':
+                    {'docker_initial_target': initial, 'target': target_state, 'outer': outer, 'peer': peer_state},
+                    'mount_operations_executed': 0, 'inner_sysctl_writes_executed': 0}
+        return target, outer_keeper, peer, topology
+    except BaseException:
+        for pid in (peer, outer_keeper, target):
+            if pid is not None:
+                reap_namespace(pid)
+        raise
 
 
 def configure_link(target, peer):
@@ -443,20 +474,15 @@ def main():
     global packets, probe_attempts
     check('explicit disposable target marker', os.geteuid() == 0 and (ROOT / 'DISPOSABLE_TARGET_BOOTSTRAP_NAMESPACE').read_bytes() == b'fw-isolated-target-bootstrap-v1\n')
     os.chmod(ROOT, 0o755)
-    target = peer = None
+    target = outer_keeper = peer = None
     signer = peer_server = None
     accepted = []
     try:
-        outer = os.readlink('/proc/self/ns/net')
-        outer_conntrack = Path('/proc/sys/net/netfilter/nf_conntrack_tcp_loose').read_text().strip()
-        target = new_namespace('target', True)
-        peer = new_namespace('peer')
-        target_ns, peer_ns = [os.readlink('/proc/' + str(pid) + '/ns/net') for pid in (target, peer)]
-        check('three genuinely distinct container network namespaces', len({outer, target_ns, peer_ns}) == 3)
-        check('namespace-local sysctl leaves container parent unchanged', Path('/proc/sys/net/netfilter/nf_conntrack_tcp_loose').read_text().strip() == outer_conntrack)
+        target, outer_keeper, peer, topology = setup_namespaces()
+        outer, target_ns = topology['outer'], topology['target']
         interface = configure_link(target, peer)
-        observations['topology'] = {'outer': outer, 'target': target_ns, 'peer': peer_ns, 'interface': 'fwmgmt0', 'ifindex': interface,
-                                    'private_proc_unmounted': True, 'target_conntrack_tcp_loose': 0}
+        observations['topology'] = {**topology, 'interface': 'fwmgmt0', 'ifindex': interface,
+                                    'target_conntrack_tcp_loose': 0}
         material, authority, authority_runtime, peer_state = [ROOT / name for name in ('target-material', 'authority', 'authority-runtime', 'peer')]
         for path, mode, uid in [(material, 0o700, 0), (authority, 0o700, SIGNER),
                                 (authority_runtime, 0o711, SIGNER), (peer_state, 0o700, PEER)]:
@@ -573,13 +599,12 @@ def main():
             stop(signer, SIGNER)
         if peer_server is not None:
             stop(peer_server, PEER)
-        for pid in (target, peer):
+        reaped = []
+        for label, pid in (('target', target), ('peer', peer), ('outer', outer_keeper)):
             if pid is not None:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                os.waitpid(pid, 0)
+                reap_namespace(pid)
+                reaped.append(label)
+        observations['namespace_children_reaped'] = reaped
 
 
 def expected_target_refusal(config, bundle, target, outer, label, expected):

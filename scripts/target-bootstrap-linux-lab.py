@@ -18,6 +18,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = 'fw.target-bootstrap-linux-lab/v1'
 CAPABILITIES = ['CHOWN', 'DAC_OVERRIDE', 'SETUID', 'SETGID', 'NET_ADMIN', 'SYS_ADMIN', 'SETPCAP']
+NAMESPACE_SYSCTLS = {'net.netfilter.nf_conntrack_tcp_loose': '0'}
 BINARY_PATHS = {
     'fw_signer': 'target/debug/fw_signer',
     'fw_authority_admin': 'target/debug/fw_authority_admin',
@@ -219,6 +220,8 @@ def main():
                         runner_timeout_seconds=RUNNER_TIMEOUT_SECONDS)
         name = 'nox-target-bootstrap-' + uuid.uuid4().hex[:12]
         command = docker + ['run', '-d', '--name', name, '--network', 'none', '--cap-drop', 'ALL']
+        for key, value in NAMESPACE_SYSCTLS.items():
+            command += ['--sysctl', key + '=' + value]
         for capability in CAPABILITIES:
             command += ['--cap-add', capability]
         container = execute(command + ['--security-opt', 'no-new-privileges', '--read-only',
@@ -229,6 +232,7 @@ def main():
             raise StageFailure('invalid disposable container identity')
         metadata['container_configuration'] = {
             'network': 'none', 'cap_drop': ['ALL'], 'cap_add': CAPABILITIES,
+            'namespaced_sysctls': NAMESPACE_SYSCTLS,
             'host_mounts': [], 'host_ports': [], 'privileged': False, 'root_filesystem': 'read-only',
             'apparmor': 'default (no override)', 'seccomp': 'default (no override)',
             'security_opt': ['no-new-privileges'], 'tmpfs_bytes': 1024 * 1024 * 1024,

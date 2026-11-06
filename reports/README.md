@@ -8,44 +8,59 @@ The supplied specification and fixtures under `docs/specs` remain unchanged.
 
 ## Current signer durability and target-confirmation follow-up
 
-The first remote run of published head `2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d`,
-[CI42277449076](https://github.com/simhanson123/Nox_Warden/actions/runs/42277449076),
-executed successfully through canonical/shared storage, API/browser, existing
-Linux labs, native evidence and protected signer. Its final target stage failed
-after the marker check: checks1, packet/probe0, container cleanup complete.
-The original failure report SHA256 is
-`6889ceda78ed17f211303fa3da071c20e71f608e334c56ac8dd8dbaa2ac2a67f`;
-the separate remote receipt SHA256 is
-`b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a`.
-All281 remote build inputs matched the source. The old lab discarded the
-namespace child's exact syscall/errno, leaving only `isolated namespace setup
-refused`; no AppArmor, seccomp or kernel cause is established by that evidence.
-This remote failure is not overwritten by the earlier local PASS.
+The initial remote run [CI42277449076](https://github.com/simhanson123/Nox_Warden/actions/runs/42277449076)
+at `2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d` passed canonical/shared storage,
+API/browser, existing Linux labs, native evidence and protected signer. Target
+setup failed after marker1 with packet/probe0 and complete container cleanup.
+The report SHA256 is `6889ceda78ed17f211303fa3da071c20e71f608e334c56ac8dd8dbaa2ac2a67f`;
+its separate receipt is `b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a`.
+All281 remote build inputs matched. The old child discarded the exact syscall.
 
-The follow-up preserves a bounded512-byte diagnostic with fixed setup stage,
-errno/cleanup errno and restricted UID/capability/LSM context. It records no raw
-exception, argv, environment or stderr and leaves the original namespace/sysctl
-operations, capabilities, profiles and product guards unchanged. Four additional
-regressions include actual fork/pipe control with all privileged syscalls mocked,
-proving that a later unmount error cannot hide the original write error; the
-14 target-runner tests, pycompile and whitespace checks passed. This is diagnostic
-validation, not a claim that remote target setup is repaired.
-The complete related native-runner unit suite passed50/50. A same-seven-cap,
-default-profile, network-none/read-only local setup-only control also passed:
-three distinct namespaces, unchanged parent sysctl, target loose0 and exact
-NET_ADMIN-only E/P/B readback, child reap and container cleanup. It executed no
-product or packet scenario; its LSM label was unavailable, not assumed equal to
-GitHub. Receipt SHA256:
-`a337d98456167f877ec6a22db3ed57e2bf8a27f9c4510756dd2d74e212359ba0`.
+[Diagnostic CI42289070927](https://github.com/simhanson123/Nox_Warden/actions/runs/42289070927)
+at `3d9e9dabb43fef0d760779758558f696db9d1c0a` identified
+`mount_private_propagation`, EACCES13, after successful namespace creation.
+Its context reports `docker-default (enforce)`, Seccomp2, NoNewPrivs1 and the
+requested seven capabilities (0x2011c3). This identifies the failing operation;
+it does not independently prove which kernel security subsystem denied it.
+The target failed before product/packet checks. After retaining that report,
+the remaining development job was cancelled; the required aggregate failed.
+Diagnostic receipt SHA256: `07388235d1a3661fe9ddcb8604b482bbc9bd99bbca9c3e69d36aa45835044809`.
+Neither failed remote run is overwritten by local PASS.
 
-CI now runs the same target suite in a separate parallel job, with its own pinned
-toolchain, locked dependency fetch and image build. The other development steps
-are unchanged. The existing required check name is an `always()` aggregate that
-requires both jobs to report exact `success`;49 result combinations admit only
-success/success. Artifacts retain the same14+1 JSON allowlist, pinned upload action
-and seven-day retention. Independent reading review found no concrete issue.
-A new complete remote run is required before merge; the source/ref and actual
-outcome belong in the PR28 completion record. Published SQL001–016 is unchanged.
+The final lab uses a fixed Docker namespace-local conntrack sysctl for the
+retained target, with separate coordinator and peer namespaces. It performs no
+mounts or inner sysctl writes and keeps the original seven capabilities, default
+security profiles and product guards. The bounded512-byte fixed-stage diagnostic
+preserves the first error separately from cleanup without raw exception, argv,
+environment or stderr. The actual setup control measured three distinct
+namespaces, target0/coordinator1/peer1, target NET_ADMIN-only E/P/B4096, zero
+inheritable/ambient capabilities, three reaped children and container removal.
+The accessible coordinator remained1→1; this is not physical-host verification.
+Local LSM context was unavailable, not assumed equal to GitHub. Setup receipt:
+`2541526a2064461abe0c942cc86ba0b6e6330910879b46d3072a41d488c9e777`.
+
+Fresh related native-runner tests passed52 (target module16), with pycompile and
+whitespace checks. One full mount-free target execution passed55 checks,
+35 actual CLI calls, two accepted epochs, six sent cases/eight probe attempts,
+in121.75s including76.38s actual expiry wait. It confirmed namespace values,
+NET_ADMIN-only target execution, output-loss/exact retry, UDP role rotation,
+expired-history ineligibility and complete cleanup. The462-input snapshot is
+`329c48cba3db8cc50668fa23e88565e2b356753283acd32ce78a16942dad56ff`;
+the report is `dffcda0cb2daffd254eb11fbf9ebfaf9e2cda53314ff9e935ba77b5a48713cea`.
+A later `native/linux/README.md` edit only corrects its topology description;
+executable inputs did not change. Independent evidence comparison found no
+mismatch. Earlier21-stage receipts below remain fixed and are not represented
+as a new whole-suite execution of this follow-up.
+
+CI now has four independent suites: canonical, shared authority, runtime and
+target. Runtime explicitly builds locked workspace binaries/examples and both
+web apps; target retains its own locked fetch and pinned image build. All prior
+checks and14+1 allowlisted JSON artifacts/seven-day retention remain. The existing
+required name uses `always()` and requires four exact successes; all1296 tested
+result combinations rejected anything else. Independent reading review found no
+concrete issue. Published SQL001–016 and product Rust/UI are unchanged by this
+lab/CI correction. A new complete remote run is required before merge; PR28's
+completion record holds the actual final source, CI and main-merge outcomes.
 
 `feat/target-authority-confirmation` starts at
 `5fc576f672c2e0671164b73a667e3452b99ea82a`, tree

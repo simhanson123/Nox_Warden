@@ -74,13 +74,20 @@ reports/task-ledger.json과 F00/F01 우선순위, 관련 F02/F03/F04/F07/F08/F12
    인증 dispatch·완료·reconciliation, 설치 Linux watchdog/reboot/복구,
    Windows WFP/callout, macOS Network Extension, Team/외부 감사 앵커/릴리스는 남아 있다.
    테스트 수나 격리 lab 성공으로 완성도·일정을 추정하지 마라.
-10. CI는 전체 개발 검사와 target 검사를 병렬로 실행하고 기존 required 이름의
-    always/needs 집계가 두 success만 인정해야 한다. failure/cancelled/skipped가
-    통과하면 안 된다. 기존 검사와 artifact14+1/7일/pinned action을 보존해야 한다.
-    원격 CI42277449076의 namespace 준비 실패는 marker1/packet0이며, 당시 정확한
-    syscall/errno가 폐기됐다. 새512B 고정단계/errno/제한된 UID/cap/LSM 진단은
-    최초 실패와 cleanup 실패를 구분하고 raw예외/argv/env/stderr를 출력하면 안 된다.
-    로컬 준비 control PASS를 원격 원인 규명이나 제품 PASS로 쓰지 마라.
+10. CI는 canonical/shared-authority/runtime/target 네 작업을 독립 실행하고 기존
+    required 이름의 always/needs 집계가 네 success만 인정해야 한다.
+    failure/cancelled/skipped가 통과하면 안 된다. Runtime의 별도 bins/examples와
+    두 web build, 기존 검사와 artifact14+1/7일/pinned action을 확인하라.
+    CI42277449076의 준비 실패 뒤 진단CI42289070927은 실제
+    mount_private_propagation/EACCES13과 docker-default(enforce)를 기록했다.
+    실패 증거 확보 후 다른 job을 취소했으며 aggregate도 FAIL이었다.
+    mount-free 수정은 Docker 초기 target namespace의 고정 tcp_loose0과 별도
+    coordinator/peer namespace1을 사용한다. docker exec는 초기 target에 들어간다.
+    실제 fixture 이동과 target setns, 3개 namespace의 값·격리·자식 정리를 확인하라.
+    mount/inner sysctl write/host 설정 변경이나 capability/profile 완화가 없어야 한다.
+    512B 고정단계/errno/제한된 UID/cap/LSM 진단은 최초 실패와 cleanup 실패를
+    구분하고 raw예외/argv/env/stderr를 출력하면 안 된다. 로컬55/Python52 결과와
+    원격 최종 CI를 구분하고, 로컬 unavailable LSM을 GitHub와 같다고 가정하지 마라.
 11. lab timeout/UID cleanup 변경도 확인하라. 제품 권한이나 인증 조건을 약화하지 않고,
     준비 명령의 명시 시간 제한과 실제 자식 UID의 bounded 종료/reap를 사용해야 한다.
     이전 frozen source 결과와 이후 lab-only 수정 결과를 각 source에 정확히 연결하라.

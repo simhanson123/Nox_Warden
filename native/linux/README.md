@@ -57,11 +57,15 @@ The target adapter is `fw_linux_executor bootstrap-target --config FILE --bundle
 It requires a distinct inner network namespace, loopback plus one exact veth
 IPv4 `/30` interface/routes, `nf_conntrack_tcp_loose=0` and effective/permitted/
 bounding capabilities equal to NET_ADMIN only (4096), with zero inheritable/
-ambient capabilities. Setup uses a private mount/network context and temporary
-proc only at a container tmpfs path to set that target namespace's sysctl, then
-unmounts it before capability drop. The original proc/sys remains read-only;
-no host sysctl/path is changed. Those setup capability checks are not a target
-product PASS. Config/boot/netns/journal binding and a full post-probe guard remain
+ambient capabilities. Docker sets the isolated container network's fixed
+`net.netfilter.nf_conntrack_tcp_loose=0`; a keeper retains it as the target.
+Separate coordinator and peer network namespaces retain their independently
+checked value 1. The fixture explicitly enters the coordinator namespace and
+enters the target for execution; a later `docker exec` starts in the target
+namespace. Setup performs no mounts or inner sysctl writes, retains default
+Docker security profiles and original capabilities, and changes no host sysctl
+or path. Those setup capability checks are not a target product PASS.
+Config/boot/netns/journal binding and a full post-probe guard remain
 required before signed receipt commit.
 
 The runner is `scripts/target-bootstrap-linux-lab.py`, with report

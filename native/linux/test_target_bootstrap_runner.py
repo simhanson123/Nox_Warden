@@ -5,7 +5,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -191,35 +190,51 @@ class NamespaceDiagnosticContract(unittest.TestCase):
                     json.dumps({**self.packet(), 'status': 'READY', 'stage': 'ready'}).encode()]:
             self.rejected(raw)
 
+    def test_current_namespace_state_is_read_only_and_rejects_unexpected_values(self):
+        for text, expected in [('0\n', 0), ('1\n', 1)]:
+            with self.subTest(text=text), patch.object(Path, 'read_text', return_value=text), \
+                    patch.object(INNER.os, 'readlink', return_value='net:[101]'):
+                self.assertEqual(INNER.current_namespace_state(),
+                                 {'network_namespace': 'net:[101]', 'conntrack_tcp_loose': expected})
+        for text in ['', '2', '-1', 'true']:
+            with self.subTest(text=text), patch.object(Path, 'read_text', return_value=text):
+                with self.assertRaisesRegex(RuntimeError, '^unexpected namespace conntrack value$'):
+                    INNER.current_namespace_state()
+
     @unittest.skipUnless(hasattr(os, 'fork'), 'diagnostic child pipe requires fork')
-    def test_first_sysctl_failure_survives_a_later_cleanup_failure_in_child_pipe(self):
-        # Exercise the real fork/pipe/parser boundary while replacing every
-        # privileged operation. No host namespace or proc/sys path is changed.
-        def denied_cleanup(*_args):
-            INNER.ctypes.set_errno(errno.EPERM)
+    def test_retained_target_requires_zero_without_unshare_or_mount(self):
+        # Real child/pipe/reap. Every privileged operation is forbidden by the
+        # fake libc; a retained namespace must only inspect its current state.
+        fake = SimpleNamespace(unshare=Mock(side_effect=AssertionError('must not unshare')))
+        identity = os.readlink('/proc/self/ns/net')
+        for loose, succeeds in [(0, True), (1, False)]:
+            with self.subTest(loose=loose), patch.object(INNER, 'libc', fake), \
+                    patch.object(INNER, 'current_namespace_state', return_value={
+                        'network_namespace': identity, 'conntrack_tcp_loose': loose}), \
+                    patch.dict(INNER.observations, {}, clear=True):
+                if succeeds:
+                    pid = INNER.new_namespace('target', retain_initial=True)
+                    INNER.reap_namespace(pid)
+                    self.assertEqual(INNER.observations['namespace_setup_diagnostics'][0]['status'], 'READY')
+                else:
+                    with self.assertRaisesRegex(RuntimeError, '^isolated namespace setup refused$'):
+                        INNER.new_namespace('target', retain_initial=True)
+                    value = INNER.observations['namespace_setup_diagnostics'][0]
+                    self.assertEqual((value['stage'], value['errno']), ('verify_initial_conntrack', None))
+
+    @unittest.skipUnless(hasattr(os, 'fork'), 'diagnostic child pipe requires fork')
+    def test_newnet_refusal_preserves_errno_without_exception_text(self):
+        def denied(*_args):
+            INNER.ctypes.set_errno(errno.EACCES)
             return -1
-        fake = SimpleNamespace(unshare=Mock(return_value=0), mount=Mock(return_value=0),
-                               umount2=Mock(side_effect=denied_cleanup))
-        context = {key: value for key, value in self.packet().items()
-                   if key not in {'version', 'status', 'stage', 'errno', 'cleanup_errno'}}
-        original_open = Path.open
-        private = 'PRIVATE_FILENAME_AND_EXCEPTION_MARKER'
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            blocked = root / 'private-proc-target/sys/net/netfilter/nf_conntrack_tcp_loose'
-            def open_path(path, *args, **kwargs):
-                if path == blocked:
-                    raise OSError(errno.EROFS, private, '/' + private)
-                return original_open(path, *args, **kwargs)
-            with patch.object(INNER, 'ROOT', root), patch.object(INNER, 'libc', fake), \
-                    patch.object(INNER, 'namespace_context', return_value=context), \
-                    patch.dict(INNER.observations, {}, clear=True), patch.object(Path, 'open', open_path):
-                with self.assertRaisesRegex(RuntimeError, '^isolated namespace setup refused$'):
-                    INNER.new_namespace('target', True)
-                value = INNER.observations['namespace_setup_diagnostics'][0]
-                self.assertEqual((value['stage'], value['errno'], value['cleanup_errno']),
-                                 ('write_conntrack', errno.EROFS, errno.EPERM))
-                self.assertNotIn(private, json.dumps(value))
+        fake = SimpleNamespace(unshare=Mock(side_effect=denied))
+        with patch.object(INNER, 'libc', fake), patch.dict(INNER.observations, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, '^isolated namespace setup refused$'):
+                INNER.new_namespace('peer')
+            value = INNER.observations['namespace_setup_diagnostics'][0]
+            self.assertEqual((value['stage'], value['errno'], value['cleanup_errno']),
+                             ('unshare_net', errno.EACCES, None))
+            self.assertNotIn('fixture unshare failed', json.dumps(value))
 
 
 if __name__ == '__main__':

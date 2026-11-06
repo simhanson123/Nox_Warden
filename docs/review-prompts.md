@@ -13,8 +13,9 @@ Use the [complete Korean prompt](target-authority-review-prompt-ko.txt) for one
 Claude Opus5.5 review of the integrated signer/origin16/target-confirmation change
 on `feat/target-authority-confirmation`. Fix the actual resulting base/head/tree
 in the PR completion record and conversational handoff. Preparing a prompt or
-internal review is not a Claude execution. PR26/PR27 remain unmerged with
-billing-blocked CI. Preserve SQL001–015, specifications and original reviews.
+internal review is not a Claude execution. PR28 integrates PR26/PR27 into main;
+the completion record resolves the actual CI and merge state. Their old billing
+failures remain historical. Preserve SQL001–016, specifications and original reviews.
 
 The protected-signing prompt and notice below are the historical PR27 request;
 the review has now been received. They are not a new request for that target.
