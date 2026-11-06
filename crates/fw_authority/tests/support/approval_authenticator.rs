@@ -28,7 +28,89 @@ pub struct Authenticator {
     principal: uuid::Uuid,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateTestCache {
+    schema_version: String,
+    principal_id: String,
+    credential_id: String,
+    private_key_der: String,
+}
+
 impl Authenticator {
+    /// Synthetic fixture only. The caller must retain this secret object only
+    /// in private disposable storage; never log, report or provision it.
+    #[allow(dead_code)]
+    pub fn private_test_cache(&self) -> Value {
+        serde_json::to_value(PrivateTestCache {
+            schema_version: "fw.disposable-software-authenticator-cache/v1".into(),
+            principal_id: self.principal.to_string(),
+            credential_id: URL_SAFE_NO_PAD.encode(&self.id),
+            private_key_der: URL_SAFE_NO_PAD.encode(
+                self.key
+                    .private_key_to_der()
+                    .unwrap_or_else(|_| panic!("private test cache rejected")),
+            ),
+        })
+        .unwrap_or_else(|_| panic!("private test cache rejected"))
+    }
+
+    /// Restore only the synthetic fixture key corresponding to the already
+    /// pinned public credential. This creates no enrollment or owner authority.
+    #[allow(dead_code)]
+    pub fn from_private_test_cache(value: &Value) -> Self {
+        let bytes = fw_contracts::canonical_bytes(value)
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        let cache: PrivateTestCache = fw_contracts::parse_strict_with_limit(&bytes, 8192)
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        assert!(
+            cache.schema_version == "fw.disposable-software-authenticator-cache/v1",
+            "private test cache rejected"
+        );
+        let principal = uuid::Uuid::parse_str(&cache.principal_id)
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        assert!(
+            principal.to_string() == cache.principal_id,
+            "private test cache rejected"
+        );
+        let id = URL_SAFE_NO_PAD
+            .decode(&cache.credential_id)
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        let der = URL_SAFE_NO_PAD
+            .decode(&cache.private_key_der)
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        assert!(
+            id.len() == 32
+                && der.len() <= 2048
+                && URL_SAFE_NO_PAD.encode(&id) == cache.credential_id
+                && URL_SAFE_NO_PAD.encode(&der) == cache.private_key_der,
+            "private test cache rejected"
+        );
+        let key = PKey::private_key_from_der(&der)
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        let ec = key
+            .ec_key()
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        assert!(
+            ec.group().curve_name() == Some(Nid::X9_62_PRIME256V1),
+            "private test cache rejected"
+        );
+        let public = ec
+            .public_key()
+            .to_bytes(
+                ec.group(),
+                PointConversionForm::UNCOMPRESSED,
+                &mut BigNumContext::new().unwrap(),
+            )
+            .unwrap_or_else(|_| panic!("private test cache rejected"));
+        Self {
+            key,
+            public,
+            id,
+            principal,
+        }
+    }
+
     pub fn new(principal: &str) -> Self {
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
         let key = EcKey::generate(&group).unwrap();

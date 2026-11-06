@@ -71,6 +71,11 @@ pub enum Request {
         schema_version: String,
         request_id: String,
     },
+    #[serde(rename = "status_v2")]
+    StatusV2 {
+        schema_version: String,
+        request_id: String,
+    },
     #[serde(rename = "sign_job")]
     SignJob {
         schema_version: String,
@@ -89,6 +94,10 @@ impl Request {
     fn validate(&self) -> Result<&str> {
         let (schema, id) = match self {
             Self::Status {
+                schema_version,
+                request_id,
+            }
+            | Self::StatusV2 {
                 schema_version,
                 request_id,
             } => (schema_version, request_id),
@@ -155,6 +164,15 @@ mod tests {
     fn ipc_is_closed_and_never_accepts_grant_bytes_or_identity() {
         let good = br#"{"operation":"status","schema_version":"fw.signer-request/v1","request_id":"00000000-0000-4000-8000-000000000001"}"#;
         assert!(parse_request(good).is_ok());
+        assert!(
+            parse_request(
+                &String::from_utf8(good.to_vec())
+                    .unwrap()
+                    .replace("\"status\"", "\"status_v2\"")
+                    .into_bytes()
+            )
+            .is_ok()
+        );
         for input in [
             String::from_utf8(good.to_vec())
                 .unwrap()

@@ -3,7 +3,11 @@
 //! evidence before recording it. FULL commits precede native writes and one file
 //! lock spans each command's lifetime. Another process can recover after owner
 //! exit/death; this is not a watchdog that can preempt a hung lock owner.
+#[cfg(all(target_os = "linux", feature = "target-bootstrap"))]
+mod bootstrap;
 mod material;
+#[cfg(all(target_os = "linux", feature = "target-bootstrap"))]
+pub use bootstrap::*;
 #[cfg(test)]
 mod material_tests;
 mod recovery;

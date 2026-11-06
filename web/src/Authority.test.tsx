@@ -48,11 +48,11 @@ function server(authenticated = true) {
     if (path.endsWith('/plans/plan-1/signing-readiness')) {
       const current = (nextDetail as { current_approval_set?: { hash: string; valid_until: string } }).current_approval_set;
       const utc = (value: number) => new Date(Math.floor(value / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-      return reply({ schema_version: 'fw.signing-readiness/v2', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash,
+      return reply({ schema_version: 'fw.signing-readiness/v3', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash,
         checked_at: utc(Date.now()), valid_until: utc(Math.min(Date.now() + 60000, Date.parse(current?.valid_until ?? detail.plan.valid_until))),
         signing_allowed: false, dispatch_allowed: false, approval_set_hash: current?.hash ?? null, quota_configured: false, target_generation: null, latest_intent: null,
-        quota_scope: null, quota_root_id: null, latest_dispatch_unknown_seen: null,
-        reasons: ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED', ...current ? [] : ['APPROVAL_SET_MISSING']] });
+        quota_scope: null, quota_root_id: null, latest_dispatch_unknown_seen: null, bootstrap_authorization_hash: null, target_bootstrap: null,
+        reasons: ['BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'POLICY_SIGNER_KEY_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED', ...current ? [] : ['APPROVAL_SET_MISSING']] });
     }
     if (path.endsWith('/challenges')) {
       const body = JSON.parse(String(init?.body));
@@ -83,7 +83,7 @@ test('signing readiness refresh does not submit consent, request a passkey or cr
   expect(screen.getByRole('checkbox')).not.toBeChecked();
   const reads = requests.filter(r => r.path.endsWith('/signing-readiness'));
   expect(reads).toHaveLength(2);
-  expect(reads.every(r => r.path === '/authority/v2/plans/plan-1/signing-readiness')).toBe(true);
+  expect(reads.every(r => r.path === '/authority/v3/plans/plan-1/signing-readiness')).toBe(true);
   expect(reads.every(r => r.init?.method === 'GET' && r.init.body === undefined)).toBe(true);
 });
 

@@ -6,7 +6,177 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## Current protected authority and signer batch
+## Current signer durability and target-confirmation follow-up
+
+`feat/target-authority-confirmation` starts at
+`5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`.
+The [received PR27 review](../docs/reviews/pr27-claude-review.md) is preserved as
+17,066 bytes, 207 CRLF endings and SHA256
+`8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357`.
+Its private probes were not supplied or rerun. Its author directly reproduced
+SQLite lock release; its parallel reviewer reported signer commit loss,
+differing duplicate authorization and SIGBUS. The earlier PR27 20-stage PASS
+missed that descriptor/external-reader lifecycle and remains historical evidence.
+
+The integrated change repairs signer SQLite lock preservation, revoked-key
+re-pin diagnostics, independently pinned project origins, gate consistency and
+registry profile boundaries. Schema16 and a separate target journal connect
+actual isolated non-loopback Linux management rules, signed peer responses,
+full kernel readback and retained target confirmations. Explicit CLI/readiness v3
+and eight-locale UI distinguish accepted history from current eligibility.
+Production policy signing and dispatch remain closed. See the
+[correction contract](../docs/pr27-follow-up.md),
+[target profile](../docs/target-authority-confirmation.md) and
+[remaining acceptance](../docs/remaining-work.md).
+
+Fresh independent baseline reproduction verified all 488 exact PR27 Git blobs,
+then reproduced lock loss, lost authorization/floor, differing valid DSSE and
+SIGBUS with a freshly built old signer. Its report SHA256 is
+`a7c32a4463624a7b5ead271211698292324565823e2c7fa20b904061be244d9c`.
+The earlier corrected focused run passed 7 library and 2 startup cases plus
+55 normal process checks/17 actual operator CLI calls. Its 432-input digest is
+`d0b164d2061934f8fafafbe245339aa2a1754c5cdb000c0cb722b83eb9189f5c`
+and report SHA256 is
+`c3a1311f4bc91e83007ed73c41c5f71cd105d2be9265a48a756aeafd66fc9661`.
+Those focused results are separate checkpoints, not final integrated totals.
+
+The first final-validation snapshot has 462 frozen inputs, SHA256
+`08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e`.
+The fresh canonical invocation passed 1,074 workspace Rust tests, one separate
+explicit cancellation CLI test, 33 reduced-feature tests, Python 46/6/20/3,
+UI 215 in 11 files and both UI builds, including contracts, fmt and Clippy.
+Four ignored workspace declarations include helpers invoked by parent tests
+and the separately executed CLI case. Two nested worker summaries were excluded.
+The separate shared-umask0002 authority/service invocation passed 637 tests,
+with three ignored declarations and two nested worker summaries excluded.
+The two invocations overlap and must not be added into a unique-test total.
+Fresh npm restore, preflight and workspace binaries/examples build passed.
+Canonical count receipt SHA256:
+`a8671be90fdbf89f0b65d97f3470849028ab2251f85155867f4895c7903a4c6b`;
+shared-umask count receipt SHA256:
+`b7d98e4e769de80e9d84f95a0dddc24ccbe552f6596eb9302b3c21d07ee560b5`.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Real services; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 44 | Authenticated v3, closed gates, absent-target panel and browser review |
+| Isolated Linux | 66 | 40 actual packet-test cases |
+| Signed Linux | 98 | 43 actual packet-test cases |
+| Core access Linux | 85 | 26 actual packet-test cases and two signed captures |
+| Native evidence | 33 | Five actual captures; zero packet probes |
+| Protected signer | 57 | Distinct-UID processes, 18 actual operator CLI calls and lock/restart durability |
+| Target bootstrap | 53 | 35 actual operator CLI calls; two accepted epochs; six sent request cases/eight attempts |
+| Current14→16 compatibility | 15 | Typed rows/rowids/bytes and private backups preserved; incompatible source refused |
+
+All 21 selected final stages passed: 18 bind the original snapshot; protected
+signer, target bootstrap and current 14→16 compatibility bind the corrected
+snapshot below. The original failed attempt is preserved separately.
+Independent final source/evidence/binary/report and selected-artifact audits
+passed with no mismatch or pending item. Their receipt SHA256 values are
+`75a60ed736aa95e7f2e2f57f2e15bec2b0acf4db38e0998cfc114ed4e164b30f`
+and `eb69eacfa019bc4ba4b97796e942739a3ad90813ee6b1aac12687c2d03608625`.
+They verify21 selected stages, the separate original failure/control,23-stage
+binary continuity and15 selected CI report structures, including the local
+`enrollment-api.json` to CI `enrollment-smoke.json` naming correspondence.
+This evidence audit does not claim independent source review of code written
+by that auditor or a remote CI execution.
+The combined summary was written once after those audits, SHA256
+`c2fca63998858021d3c4650d22cc5be54d0c248ba9237d0ec894b0d4f518a485`.
+
+The first final protected-signer attempt failed before any product check. Its
+18-command setup exceeded the helper's 15-second bound; Python's attempted
+cross-UID timeout cleanup lacked CAP_KILL and masked TimeoutExpired as EPERM.
+The failure report is preserved unchanged, SHA256
+`3b2fbb00cf5eab954488401cee807eaa2526b2b9067683ccc0d8c66a0e6fc3a2`.
+The sole source correction uses bounded cleanup under the child's actual UID
+and gives only that setup command 90 seconds. Ordinary commands retain 15 seconds;
+product code, Docker capabilities and authentication conditions are unchanged.
+The corrected 462-input snapshot is
+`a0e05b559055508656af4ded010832c1fc785853056ac166c52064e8912092aa`.
+Exactly one file changed; the other 461 inputs, all Rust/UI source, stayed identical.
+The source-transition receipt SHA256 is
+`be014e32ff8d74855f6841ed0ca5993692a0cff65966281490c09b502cbbe517`.
+Python 46/6/20/3 and pycompile passed again. An actual four-capability timeout
+control verified both child UIDs, termination and reap with the fixed diagnostic
+(case 1, product scenarios 0); SHA256
+`c5f9325b89ee1ce8a9e0d9729f11335bf9e59ea36bece3cb5d70763366ce8fc1`.
+The corrected protected-signer run passed on that new snapshot in 30.64s,
+report SHA256
+`83b325145cdbe79b1eb9f043868f4a12e405b30e465b087cf462413cc3f46c2d`.
+The target run passed in 122.65s, including a real 77.461s wait for signed expiry.
+Report SHA256:
+`b3cd8ba3ffcba94274dce19bcb3ae945afa5908ad844c6d3d8ba0b028c18e572`.
+It verifies actual B1/B2 UDP role exchange, signed positive TCP/UDP responses,
+output-loss recovery, changed-nonce refusal, accepted1/current2 historical retry
+and retained epoch2 after expiry with eligibility false. Two negative EPERM
+attempts sent zero bytes and are excluded from the six transmitted cases.
+Earlier successful stages retain their original 08d source binding; these results
+are not presented as one unchanged whole-source run.
+
+Current14→16 compatibility freshly executes only the current admin binary
+against retained provenance-verified old 3866 fixtures; no new old-binary build
+or fixture-generation run is claimed. All old rowids/SQLite cell types/values
+and the private backup are preserved, all 18 new tables are empty, and inherited
+incompatible history is refused unchanged without a backup/manifest/sidecar.
+The genuine released15 fixtures below were separately produced for this batch.
+
+The browser fixture exercises the v3 API/parser/common gates with an absent
+target summary. Accepted-target history/current presentation has separate Rust
+and UI tests; it is not claimed as native-target browser evidence. Native
+results use disposable namespaces, experimental identities and development keys.
+SIGTERM/restart in tmpfs does not certify host power-loss recovery or installed
+Linux, Windows or macOS. Negative UDP records actual EPERM1 denial with zero
+transmitted bytes, separately from successfully sent timeout observations.
+
+Cleanup found no remaining lab container or active service/browser and no scan
+errors. 129 exited browser/crashpad zombies owned by PID1 were separately observed;
+this is not a claim that the process table is empty.
+
+Current tools were rechecked: Rust/Cargo1.99.1, Node24.19.0/npm11.9.0,
+Python3.12.14, Chromium154 and Docker28.4/vfs. Browser runs use the formal
+`--browser-executable /usr/bin/chromium` override. No host firewall, host network,
+account billing, managed security profile or production deployment was changed.
+
+Published SQL001–015, original specifications and earlier reviews are unchanged.
+The lead compared 82 immutable files (including 53 specifications) and 247 external
+Cargo identity/checksum tuples; all matched. Preservation receipt SHA256:
+`cc6157a92a082439cc6d09b9645449c8334df23c605224934e87ea42d2794602`.
+Two public synthetic v15 fixtures come from normal released 5fc flows, not
+fabricated authority or whole-database dumps. The healthy fixture preserves all
+original typed rows/rowids through16; the released15 cross-role key fixture
+verifies whole-database refusal with original/private backup preserved.
+Three migration regressions and the nine-table guard matrix ran in canonical
+and shared-umask suites. The matrix covers 256 refusals and 60 rollback-only
+structural controls, which are not independently authenticated authority.
+
+PR26 and PR27 remain open/unmerged. Rechecked CI42150829408 and CI42216796210
+failed before execution with: “The job was not started because your account is
+locked due to a billing issue.” Local PASS is not remote PASS, merge or main CI.
+Resolve this feature's actual head/tree/PR/run from its retained completion record.
+The next Claude Opus5.5 prompt is preparation, not an executed external review.
+
+Reproduce the principal current checks with:
+
+```sh
+source scripts/dev-env.sh
+npm ci --prefix web
+bash scripts/check.sh
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
+python scripts/smoke_protected_signer.py --report reports/protected-signer-smoke.json
+python scripts/target-bootstrap-linux-lab.py --report reports/target-bootstrap-linux-lab.json
+```
+
+The other runtime commands are the smoke/lab steps in
+[CI](../.github/workflows/ci.yml), with the browser override recorded above.
+The [complete review prompt](../docs/target-authority-review-prompt-ko.txt)
+includes focused migration/guard/backend/journal commands. Raw local reports
+remain outside Git; selected CI JSON reports have seven-day retention.
+
+## PR27 protected authority and signer checkpoint (historical)
 
 `feat/protected-signing-authority` starts at
 `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. PR26 remains an open,

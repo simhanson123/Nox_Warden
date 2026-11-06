@@ -8,6 +8,13 @@ packets in disposable namespaces. Connecting that executor to protected producti
 approval, signing, installation and recovery remains unfinished; Windows WFP and
 macOS Network Extension implementations are also required before product completion.
 
+The [PR27 follow-up](docs/pr27-follow-up.md) repairs a High signer durability
+defect in SQLite lock handling. [Target confirmation](docs/target-authority-confirmation.md)
+connects owner-authorized bootstrap, isolated management-path rules and signed
+target results to retained authority and readiness. See the
+[verification record](reports/README.md) and
+[remaining acceptance sequence](docs/remaining-work.md) for actual release work.
+
 English is the default interface language. Users can select Korean, Japanese,
 Spanish, German, French, Simplified Chinese or Traditional Chinese; their explicit
 selection is remembered. The original [F-2.0 specifications](docs/specs/F_00_시작안내.md)
@@ -65,9 +72,11 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   envelope/delegation objects and actual owner-bound WebAuthn bootstrap consent.
   A separate Linux signer uses distinct OS identities, protected key/database
   paths and authenticated Unix peer credentials to issue the exact bootstrap DSSE.
-  Its initial local/Lab single-owner authorization remains pending target
-  epoch/baseline confirmation. It cannot reset an existing protected target head;
-  production policy signing and dispatch remain closed pending qualification.
+  Its local/Lab single-owner authorization remains pending until the separate
+  target flow confirms the exact durable epoch and measured baseline. Generation0
+  rotation requires the actual predecessor and preserves exact receipt retries.
+  CLI/readiness v3 distinguish current and historical state. Existing signing
+  heads and issued capacity cannot be reset; production signing/dispatch stay closed.
 - A separate [policy review service and screen](docs/authority-review-ui.md)
   authenticate pinned authority passkeys, show verified before/after policy
   evidence and collect fresh signed approval or rejection. Historical receipts

@@ -400,7 +400,7 @@ impl AuthorityStore {
             let fingerprint = fw_native_evidence::fingerprint(&p.public_key)
                 .map_err(|_| invalid("observer key"))?;
             let fp = hash(&fingerprint)?;
-            let forbidden:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_native_observer_revocations WHERE org_id=? AND key_fingerprint=?) OR EXISTS(SELECT 1 FROM authority_target_keys WHERE org_id=? AND key_fingerprint=?) OR EXISTS(SELECT 1 FROM authority_registry_keys WHERE org_id=? AND key_fingerprint=?)",params![tenant.org_id,fp,tenant.org_id,fp,tenant.org_id,fp],|r|r.get(0))?;
+            let forbidden:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_native_observer_revocations WHERE org_id=? AND key_fingerprint=?) OR EXISTS(SELECT 1 FROM authority_target_keys WHERE org_id=? AND public_key=?) OR EXISTS(SELECT 1 FROM authority_registry_keys WHERE org_id=? AND public_key=?) OR EXISTS(SELECT 1 FROM authority_target_bootstrap_key_pins WHERE org_id=? AND public_key=?)",params![tenant.org_id,fp,tenant.org_id,p.public_key.as_slice(),tenant.org_id,p.public_key.as_slice(),tenant.org_id,p.public_key.as_slice()],|r|r.get(0))?;
             if forbidden {
                 return Err(AuthorityError::Binding);
             }

@@ -595,7 +595,7 @@ fn actual_schema8_migration_preserves_plan_and_audit_without_invented_provenance
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 15), (&backup, 8)] {
+    for (path, version) in [(&fixture.db, 16), (&backup, 8)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -657,7 +657,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         .output()
         .unwrap();
     assert_eq!(success(output)["status"], "migrated");
-    for (path, version) in [(&fixture.db, 15), (&backup, 9)] {
+    for (path, version) in [(&fixture.db, 16), (&backup, 9)] {
         assert_eq!(
             rusqlite::Connection::open(path)
                 .unwrap()
@@ -691,6 +691,15 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         "authority_bootstrap_challenges",
         "authority_bootstrap_proofs",
         "authority_bootstrap_pending_heads",
+        "authority_bootstrap_approval_origin_pins",
+        "authority_bootstrap_approval_origin_heads",
+        "authority_bootstrap_challenge_origin_bindings",
+        "authority_target_bootstrap_key_pins",
+        "authority_target_bootstrap_key_heads",
+        "authority_target_bootstrap_key_revocations",
+        "authority_target_bootstrap_challenges",
+        "authority_target_bootstrap_confirmations",
+        "authority_target_bootstrap_confirmation_heads",
     ];
     let before_names: BTreeSet<_> = before.iter().map(|(name, _)| name.as_str()).collect();
     let after_names: BTreeSet<_> = after.iter().map(|(name, _)| name.as_str()).collect();
@@ -732,7 +741,7 @@ fn actual_schema9_migration_preserves_original_provenance_bytes_and_exact_retrie
         let migrated = &after.iter().find(|(table, _)| table == name).unwrap().1;
         if name == "authority_schema_migrations" {
             assert!(migrated.starts_with(rows));
-            assert_eq!(migrated.len(), 15);
+            assert_eq!(migrated.len(), 16);
         } else {
             assert_eq!(migrated, rows, "{name}");
         }

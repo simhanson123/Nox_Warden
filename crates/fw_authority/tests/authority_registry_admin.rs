@@ -104,6 +104,11 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        let fixture = Self::new_unpinned();
+        fixture.pin_origin("1", ORIGIN, None);
+        fixture
+    }
+    fn new_unpinned() -> Self {
         let directory = private_directory::private_directory();
         let db = directory.path().join("authority.sqlite3");
         let (_, provenance) = core_fixture::fixture();
@@ -121,6 +126,18 @@ impl Fixture {
         let initialized = fixture.run("init-project", &json!({}));
         assert!(initialized.status.success());
         fixture
+    }
+    fn origin_pin(&self, revision: &str, origin: &str) -> Value {
+        json!({"schema_version":"fw.bootstrap-approval-origin-pin/v1",
+            "org_id":self.tenant.org_id(),"project_id":self.tenant.project_id(),
+            "revision":revision,"origin":origin,"rp_id":"localhost",
+            "not_before":at(self.now-10),"not_after":at(self.now+3600)})
+    }
+    fn pin_origin(&self, revision: &str, origin: &str, expected: Option<&str>) -> Value {
+        success(self.run(
+            "pin-bootstrap-approval-origin",
+            &json!({"pin":self.origin_pin(revision,origin),"expected_revision":expected}),
+        ))
     }
     fn run(&self, operation: &str, body: &impl Serialize) -> Output {
         self.run_at(operation, body, ORIGIN)
@@ -344,6 +361,35 @@ fn signed_workload_import_requires_independent_pin_and_tracks_original_current_h
 }
 
 #[test]
+fn revoked_trust_key_repin_reports_failure_without_reviving_signed_workload() {
+    let fixture = Fixture::new();
+    let (key, pin) = fixture.pin(WORKLOAD_BINDING_TYPE, 81);
+    let request = json!({"pin":pin});
+    assert_eq!(
+        success(fixture.run("pin-registry-trust-key", &request))["status"],
+        "pinned"
+    );
+    assert_eq!(
+        success(fixture.run("pin-registry-trust-key", &request))["status"],
+        "pinned"
+    );
+    let workload = fixture.workload(&key, &pin, 1);
+    success(fixture.run("import-workload-binding", &workload));
+    assert_eq!(
+        fixture.read("workload_binding", &workload.payload.binding_id)["current"],
+        true
+    );
+    success(fixture.run("revoke-registry-trust-key", &json!({"key_id":pin.key_id})));
+    refused(
+        fixture.run("pin-registry-trust-key", &request),
+        "REGISTRY_KEY_PIN_REJECTED",
+    );
+    let retained = fixture.read("workload_binding", &workload.payload.binding_id);
+    assert_eq!(retained["current"], false);
+    assert_eq!(retained["state"], "historical");
+}
+
+#[test]
 fn original_objects_are_immutable_staged_inputs_and_cannot_invent_owner_consent() {
     let fixture = Fixture::new();
     let manifest = fixture.stage();
@@ -515,6 +561,169 @@ fn pending_nonowner_and_revoked_owner_cannot_issue_bootstrap_approval() {
             "staged"
         );
     }
+}
+
+#[test]
+fn caller_origin_cannot_replace_missing_or_different_independent_project_pin() {
+    let fixture = Fixture::new_unpinned();
+    assert!(success(fixture.run("read-bootstrap-approval-origin", &json!({})))["pin"].is_null());
+    let manifest = fixture.stage();
+    let (authenticator, credential, _) = fixture.owner(ApprovalRole::Owner, true);
+    let request = json!({"principal_id":PRINCIPAL,"credential_id":credential,
+        "manifest_id":manifest.manifest_id});
+    for origin in [ORIGIN, "http://localhost:9998"] {
+        refused(
+            fixture.run_at("challenge-bootstrap", &request, origin),
+            "BOOTSTRAP_CHALLENGE_REJECTED",
+        );
+    }
+    assert_eq!(
+        fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+        "staged"
+    );
+    let pin = fixture.pin_origin("1", ORIGIN, None);
+    assert_eq!(pin["current"], true);
+    refused(
+        fixture.run_at("challenge-bootstrap", &request, "http://localhost:9998"),
+        "BOOTSTRAP_CHALLENGE_REJECTED",
+    );
+    fixture.prove(&manifest, &authenticator, &credential);
+    assert_eq!(
+        fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+        "owner_approved"
+    );
+}
+
+#[test]
+fn origin_rotation_never_revives_old_owner_proof_even_when_origin_returns() {
+    let fixture = Fixture::new();
+    let manifest = fixture.stage();
+    let (authenticator, credential, _) = fixture.owner(ApprovalRole::Owner, true);
+    let challenge = fixture.challenge(&manifest, &credential);
+    let request = json!({"principal_id":PRINCIPAL,"challenge_id":challenge["challenge"]["challenge_id"],
+        "assertion":authenticator.assertion(&challenge["options"],2,5,ORIGIN)});
+    let original = success(fixture.run("admit-bootstrap-proof", &request));
+    assert_eq!(original["replayed"], false);
+    assert_eq!(
+        fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+        "owner_approved"
+    );
+    let unconsumed = fixture.challenge(&manifest, &credential);
+    let old_request = json!({"principal_id":PRINCIPAL,
+        "challenge_id":unconsumed["challenge"]["challenge_id"],
+        "assertion":authenticator.assertion(&unconsumed["options"],3,5,ORIGIN)});
+    let counts = || {
+        let connection = rusqlite::Connection::open(&fixture.db).unwrap();
+        ["authority_bootstrap_proofs", "authority_audit"].map(|table| {
+            connection
+                .query_row::<i64, _, _>(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap()
+        })
+    };
+    for (revision, origin, expected) in [("2", "http://localhost:9998", "1"), ("3", ORIGIN, "2")] {
+        fixture.pin_origin(revision, origin, Some(expected));
+        assert_eq!(
+            fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+            "staged"
+        );
+        let before = counts();
+        let replay = success(fixture.run("admit-bootstrap-proof", &request));
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["proof_hash"], original["proof_hash"]);
+        assert_eq!(
+            canonical_bytes(&replay["proof"]).unwrap(),
+            canonical_bytes(&original["proof"]).unwrap()
+        );
+        assert_eq!(counts(), before, "historical retry created proof or audit");
+        assert_eq!(
+            fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+            "staged"
+        );
+        refused(
+            fixture.run("admit-bootstrap-proof", &old_request),
+            "BOOTSTRAP_PROOF_REJECTED",
+        );
+        assert_eq!(
+            fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+            "staged"
+        );
+    }
+    let current = fixture.challenge(&manifest, &credential);
+    success(fixture.run(
+        "admit-bootstrap-proof",
+        &json!({"principal_id":PRINCIPAL,
+        "challenge_id":current["challenge"]["challenge_id"],
+        "assertion":authenticator.assertion(&current["options"],3,5,ORIGIN)}),
+    ));
+    assert_eq!(
+        fixture.read("bootstrap_manifest", &manifest.manifest_id)["state"],
+        "owner_approved"
+    );
+}
+
+#[test]
+fn origin_pin_requires_strict_cas_tenant_rp_and_recovers_committed_output_loss() {
+    let fixture = Fixture::new_unpinned();
+    let pin = fixture.origin_pin("1", ORIGIN);
+    for (field, value) in [
+        ("project_id", json!(id(99))),
+        ("rp_id", json!("different.example")),
+        ("revision", json!("2")),
+    ] {
+        let mut wrong = pin.clone();
+        wrong[field] = value;
+        refused(
+            fixture.run(
+                "pin-bootstrap-approval-origin",
+                &json!({"pin":wrong,"expected_revision":null}),
+            ),
+            "BOOTSTRAP_ORIGIN_PIN_REJECTED",
+        );
+    }
+    for expected in ["0", "01", "18446744073709551616"] {
+        refused(
+            fixture.run(
+                "pin-bootstrap-approval-origin",
+                &json!({"pin":pin,"expected_revision":expected}),
+            ),
+            "REGISTRY_INPUT_REJECTED",
+        );
+    }
+    refused(
+        fixture.run("read-bootstrap-approval-origin", &json!({"origin":ORIGIN})),
+        "REGISTRY_INPUT_REJECTED",
+    );
+    let request = json!({"pin":pin,"expected_revision":null});
+    let mut invocation = command(
+        &fixture.db,
+        "pin-bootstrap-approval-origin",
+        &fixture.tenant,
+        ORIGIN,
+    );
+    invocation.stdout(
+        fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/full")
+            .unwrap(),
+    );
+    refused(
+        execute(invocation, &canonical_bytes(&request).unwrap()),
+        "OUTPUT_FAILED",
+    );
+    let read = success(fixture.run("read-bootstrap-approval-origin", &json!({})))["pin"].clone();
+    assert_eq!(read["revision"], "1");
+    assert_eq!(read["current"], true);
+    assert_eq!(read["pin_hash"], canonical_hash(&pin).unwrap());
+    let retry = success(fixture.run("pin-bootstrap-approval-origin", &request));
+    assert_eq!(retry["pinned_at"], read["pinned_at"]);
+    assert_eq!(retry["pin_hash"], read["pin_hash"]);
+    refused(
+        fixture.run(
+            "pin-bootstrap-approval-origin",
+            &json!({"pin":fixture.origin_pin("2",ORIGIN),"expected_revision":null}),
+        ),
+        "BOOTSTRAP_ORIGIN_PIN_REJECTED",
+    );
 }
 
 #[test]

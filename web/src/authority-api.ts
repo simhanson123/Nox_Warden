@@ -75,7 +75,7 @@ export class AuthorityClient {
     this.coreEvidenceTime = Math.max(this.coreEvidenceTime ?? -Infinity, time);
     return this.coreEvidenceTime;
   }
-  async request<T>(path: string, body?: unknown, signal?: AbortSignal, version: 'v1' | 'v2' = 'v1'): Promise<T> {
+  async request<T>(path: string, body?: unknown, signal?: AbortSignal, version: 'v1' | 'v2' | 'v3' = 'v1'): Promise<T> {
     if (window.location.origin !== authorityOrigin) throw new ApiError(0, 'AUTHORITY_ORIGIN_REQUIRED', '');
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.csrf) headers['X-Authority-CSRF'] = this.csrf;

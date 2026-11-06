@@ -9,6 +9,41 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR27 consolidated review
+
+The user supplied [Claude Opus5.5's PR27 report](reviews/pr27-claude-review.md)
+for `5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`, against
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. Its 17,066 uploaded bytes,
+207 CRLF endings and SHA256
+`8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357`
+are preserved, including progress notes.
+
+Accepted High S-1 blocked the next target-authority step: signer file validation
+can release SQLite's process-owned POSIX locks. The author directly reproduced
+lock release; actual signer commit loss, differing duplicate DSSE after restart
+and SIGBUS are attributed to its parallel reviewer. Private probe sources were
+not supplied. Prior local20-stage PASS did not cover that descriptor/reader
+lifecycle; retain it as historical evidence rather than using it to dismiss S-1.
+Low R-1/L1/L2 and informational I-1/I-2/L3 are tracked in the
+[follow-up contract](pr27-follow-up.md). New local reproductions/results must be
+recorded separately; preparing a response is not execution.
+
+The report's canonical/shared-umask/browser results are external evidence.
+Docker protected-signer smoke returned NOT_RUN/exit2/zero checks, and all four
+native/Docker labs were NOT_RUN there. Its numeric-UID signer probes are separate
+from that missing complete smoke. PR27 is open at the reviewed head above,
+based on unmerged PR26; CI42216796210 attempt1 failed before execution from
+billing with zero steps/artifacts. No merge or remote PASS is inferred.
+Development on `feat/target-authority-confirmation` integrates the S-1 correction,
+R-1/L1/L2, I-1/I-2 and confirmed target predecessors. Schema16, a separate durable
+target journal, management-baseline execution, signed receipts and CLI/readiness
+v3 form one batch. All21 selected local stages and independent evidence/artifact
+audits passed. A late lab-only timeout correction has a separate snapshot and
+fresh applicable checks; Rust/UI source is unchanged. Reports preserve the
+original failed attempt and separate actual execution from historical evidence.
+Preserve SQL001–015, specifications and original review bytes.
+
 ## Received PR26 follow-up consolidated review
 
 The user supplied [Claude Opus5.5's follow-up report](reviews/pr26-follow-up-claude-review.md)

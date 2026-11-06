@@ -1,5 +1,26 @@
 # Independent review prompts
 
+The [received Claude Opus5.5 PR27 review](reviews/pr27-claude-review.md) targets
+`5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`, against
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. It identifies accepted High S-1
+as the original next-development blocker, plus R-1/L1/L2 and informational findings. Read
+the [follow-up contract](pr27-follow-up.md); do not request another review of
+that unchanged target. Prior local PASS and attributed external results do not
+validate the new correction.
+
+Use the [complete Korean prompt](target-authority-review-prompt-ko.txt) for one
+Claude Opus5.5 review of the integrated signer/origin16/target-confirmation change
+on `feat/target-authority-confirmation`. Fix the actual resulting base/head/tree
+in the PR completion record and conversational handoff. Preparing a prompt or
+internal review is not a Claude execution. PR26/PR27 remain unmerged with
+billing-blocked CI. Preserve SQL001–015, specifications and original reviews.
+
+The protected-signing prompt and notice below are the historical PR27 request;
+the review has now been received. They are not a new request for that target.
+
+## PR27 protected-signing prompt checkpoint (historical)
+
 > The supplied [Claude Opus5.5 PR26 follow-up review](reviews/pr26-follow-up-claude-review.md)
 > is received for `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, tree
 > `9108060e91b2cf9659b598e5f670f095f72f3305`, against

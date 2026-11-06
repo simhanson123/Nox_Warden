@@ -1,16 +1,16 @@
 //! Protected local registry imports and genuine owner WebAuthn ceremonies.
 //! Input objects stay on bounded stdin; diagnostics never contain their bytes.
-use super::{Arguments, Result, request_with_limit};
+use super::{Arguments, Result, request_with_limit, revision};
 use fw_authority::{
     AccessEnvelope, ApprovalRole, AuthorityBootstrapManifest, AuthorityStore, AuthorityTenant,
-    BootstrapAuthorization, Delegation, MAX_AUTHORITY_REGISTRY_BYTES, RegistryTrustKey,
-    WorkloadBinding,
+    BootstrapApprovalOriginPin, BootstrapAuthorization, Delegation, MAX_AUTHORITY_REGISTRY_BYTES,
+    RegistryTrustKey, WorkloadBinding,
 };
 use fw_webauthn::{AuthenticationResponse, Credential, WebAuthn};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-pub(super) const HELP: &str = "fw_authority_admin pin-registry-trust-key|revoke-registry-trust-key|import-workload-binding|import-access-envelope|import-delegation|import-bootstrap-manifest|read-authority-registry|revoke-authority-registry-object --database PATH --org-id UUID --project-id UUID\nfw_authority_admin challenge-bootstrap|admit-bootstrap-proof|import-bootstrap-authorization --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\n\nRegistry commands read one strict JSON object from stdin (128 KiB maximum). Pin requests are {\"pin\":RegistryTrustKey}; revocation requests use key_id or content_hash. Workload bindings and original envelope/delegation/manifest imports use their exact contract objects. Read with {\"object_kind\":\"workload_binding|envelope|delegation|bootstrap_manifest|bootstrap_authorization\",\"object_id\":\"ID\"}; envelope/delegation IDs are UUID:revision. Challenge input is {\"principal_id\":UUID,\"credential_id\":ID,\"manifest_id\":UUID}; proof admission replaces credential_id/manifest_id with challenge_id and assertion. Authorization import is {\"manifest_id\":UUID,\"authorization\":BootstrapAuthorization}. A trust key must be pinned independently before a signed import. Envelope and delegation imports remain staged; supplied proof hashes never create owner consent. Only an activated authority credential with a current owner role can approve the immutable manifest. Authorization remains authorized_pending_target_confirmation. Status current applies only to signed workload identity; no registry operation enables policy signing or dispatch. These commands accept no private signing key. Keep proof/authorization files private (umask 077), pass their contents through stdin, and recover committed imports after output failure with read-authority-registry.";
+pub(super) const HELP: &str = "fw_authority_admin pin-registry-trust-key|revoke-registry-trust-key|pin-bootstrap-approval-origin|read-bootstrap-approval-origin|import-workload-binding|import-access-envelope|import-delegation|import-bootstrap-manifest|read-authority-registry|revoke-authority-registry-object --database PATH --org-id UUID --project-id UUID\nfw_authority_admin challenge-bootstrap|admit-bootstrap-proof|import-bootstrap-authorization --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\n\nRegistry commands read one strict JSON object from stdin (128 KiB maximum). Pin requests are {\"pin\":RegistryTrustKey}; revocation requests use key_id or content_hash. Workload bindings and original envelope/delegation/manifest imports use their exact contract objects. Read with {\"object_kind\":\"workload_binding|envelope|delegation|bootstrap_manifest|bootstrap_authorization\",\"object_id\":\"ID\"}; envelope/delegation IDs are UUID:revision. Challenge input is {\"principal_id\":UUID,\"credential_id\":ID,\"manifest_id\":UUID}; proof admission replaces credential_id/manifest_id with challenge_id and assertion. Authorization import is {\"manifest_id\":UUID,\"authorization\":BootstrapAuthorization}. Pin an approval origin independently with {\"pin\":BootstrapApprovalOriginPin,\"expected_revision\":null|string-u64}; read it with {}. Initial revision is 1; rotations require the current revision. The verifier --approval-origin must match that pin and never creates it. A trust key must be pinned independently before a signed import. Envelope and delegation imports remain staged; supplied proof hashes never create owner consent. Only an activated authority credential with a current owner role can approve the immutable manifest. Authorization remains authorized_pending_target_confirmation. Status current applies only to signed workload identity; no registry operation enables policy signing or dispatch. These commands accept no private signing key. Keep proof/authorization files private (umask 077), pass their contents through stdin, and recover committed imports after output failure with read-authority-registry.";
 
 pub(super) const PROVISION_HELP: &str = "fw_authority_admin provision-authority-principal|pin-authority-credential|grant-authority-role|bind-authority-human|revoke-authority-credential|revoke-authority-role --database PATH --org-id UUID --project-id UUID\nfw_authority_admin challenge-authority-credential|activate-authority-credential --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\n\nProtected OOB authority provisioning uses strict stdin: principal {principal_id,issuer,subject}; credential pin {credential,not_before,not_after}; role grant {principal_id,role,not_before,not_after}; independent human identity {principal_id,human_id}. Credential challenge/revocation use {credential_id}; activation uses {activation_id,assertion}; role revocation uses {membership_id}. Credential pin imports an independently enrolled public credential and leaves it pending until an actual WebAuthn possession ceremony succeeds. Controller credentials and caller-supplied human labels are not independent enrollment. The operator must establish principal/human identity and protect database access through the trusted local/OOB procedure. Granting a role or activating a credential alone never approves a manifest or permits policy signing/dispatch.";
 
@@ -19,6 +19,8 @@ pub(super) fn handles(command: &str) -> bool {
         command,
         "pin-registry-trust-key"
             | "revoke-registry-trust-key"
+            | "pin-bootstrap-approval-origin"
+            | "read-bootstrap-approval-origin"
             | "import-workload-binding"
             | "import-access-envelope"
             | "import-delegation"
@@ -44,6 +46,15 @@ pub(super) fn handles(command: &str) -> bool {
 struct KeyPin {
     pin: RegistryTrustKey,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OriginPin {
+    pin: BootstrapApprovalOriginPin,
+    expected_revision: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Empty {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct KeyRevocation {
@@ -162,6 +173,35 @@ pub(super) fn run(
 ) -> Result<Value> {
     // Sample admission time only after the entire bounded request is consumed.
     match args.command.as_str() {
+        "pin-bootstrap-approval-origin" => {
+            let request: OriginPin = input()?;
+            let expected = request
+                .expected_revision
+                .as_deref()
+                .map(revision)
+                .transpose()
+                .map_err(|_| "REGISTRY_INPUT_REJECTED")?;
+            output(
+                store
+                    .pin_bootstrap_approval_origin(
+                        tenant,
+                        &request.pin,
+                        expected,
+                        chrono::Utc::now().timestamp(),
+                    )
+                    .map_err(|_| "BOOTSTRAP_ORIGIN_PIN_REJECTED")?,
+            )
+        }
+        "read-bootstrap-approval-origin" => {
+            let _: Empty = input()?;
+            let pin = store
+                .read_bootstrap_approval_origin(tenant, chrono::Utc::now().timestamp())
+                .map_err(|_| "BOOTSTRAP_ORIGIN_STATUS_REJECTED")?;
+            Ok(
+                json!({"schema_version":"fw.bootstrap-approval-origin-query/v1","pin":pin,
+                "signing_allowed":false,"dispatch_allowed":false}),
+            )
+        }
         "provision-authority-principal" => {
             let request: PrincipalProvision = input()?;
             store

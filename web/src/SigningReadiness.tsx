@@ -4,8 +4,8 @@ import { AuthorityClient } from './authority-api';
 import type { AuthorityPlan } from './authority-api';
 import { formatTime } from './i18n';
 import type { Locale } from './i18n';
-import { parseSigningReadiness } from './signing-readiness';
-import type { SigningReadiness as Readiness } from './signing-readiness';
+import { parseSigningReadinessV3 } from './signing-readiness';
+import type { SigningReadinessV3 as Readiness } from './signing-readiness';
 import catalog from './authority-locales.json';
 
 type Key = keyof typeof catalog.en;
@@ -41,9 +41,9 @@ export default function SigningReadiness({ client, detail, locale, onUnauthorize
     const controller = new AbortController(); const expected = plan.current;
     setSnapshot(undefined); setUnavailable(false); setLoading(true);
     const requestedMonotonic = performance.now();
-    void client.request('/plans/' + encodeURIComponent(String(expected.plan.plan_id)) + '/signing-readiness', undefined, controller.signal, 'v2').then(value => {
+    void client.request('/plans/' + encodeURIComponent(String(expected.plan.plan_id)) + '/signing-readiness', undefined, controller.signal, 'v3').then(value => {
       if (controller.signal.aborted) return;
-      const parsed = parseSigningReadiness(value, expected); const wall = Date.now();
+      const parsed = parseSigningReadinessV3(value, expected); const wall = Date.now();
       setSnapshot({ value: parsed, context, wall, requestedMonotonic, receivedMonotonic: performance.now(), observedWall: { current: wall } });
     }).catch(error => {
       if (controller.signal.aborted) return;
@@ -81,6 +81,18 @@ export default function SigningReadiness({ client, detail, locale, onUnauthorize
       {fresh && value.quota_scope && <p>{t(value.quota_scope === 'project' ? 'signing.projectQuota' : 'signing.rootQuota')}</p>}
       {fresh && value.quota_root_id && <p>{t('signing.quotaRoot')}: <code>{value.quota_root_id}</code></p>}
       <ul aria-label={t('signing.reasons')}>{value.reasons.map(reason => <li key={reason}>{t(`signing.reason.${reason}`)}</li>)}</ul>
+      <section role="region" aria-label={t('signing.target.heading')}><h4>{t('signing.target.heading')}</h4>
+        {!value.target_bootstrap ? <p>{t('signing.target.none')}</p> : <>
+          <p>{t('signing.target.pending')}</p>
+          <p>{t(fresh && value.target_bootstrap.current_for_plan ? 'signing.target.current' : 'signing.target.history')}</p>
+          <dl><dt>{t('signing.target.epoch')}</dt><dd>{value.target_bootstrap.accepted_epoch}</dd>
+            <dt>{t('signing.target.revision')}</dt><dd>{value.target_bootstrap.confirmation_revision}</dd>
+            <dt>{t('signing.target.hash')}</dt><dd><code>{value.target_bootstrap.confirmation_hash}</code></dd>
+            <dt>{t('signing.target.observed')}</dt><dd>{formatTime(value.target_bootstrap.observed_at, locale)}</dd>
+            <dt>{t('signing.target.validUntil')}</dt><dd>{formatTime(value.target_bootstrap.valid_until, locale)}</dd></dl>
+          <p>{t('signing.target.boundary')}</p>
+        </>}
+      </section>
       <section role="region" aria-label={t('signing.latestIntent')}><h4>{t('signing.latestIntent')}</h4>
         {!intent ? <p>{t('signing.noIntent')}</p> : <>
           <p>{t('signing.intentBoundary')}</p><p className="notice">{t('signing.historical')}</p>

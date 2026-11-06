@@ -4,6 +4,50 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+Branch `feat/target-authority-confirmation` starts at PR27 head
+`5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`. The change repairs SQLite lock-safe
+signer durability, revoked-key reporting and independent project approval-origin
+binding. Schema16 adds origin and target confirmation history while preserving
+published SQL001–015 and old signed bytes.
+
+The new isolated Linux path verifies owner-authorized bootstrap material, retains
+a separate durable journal, applies a compiled non-loopback management baseline
+and measures signed peer probes and full kernel readback. The authority retains
+the verified target confirmation and actual epoch predecessor. CLI, readiness v3
+and eight-locale UI distinguish accepted history from current eligibility.
+Policy signing and dispatch remain false. The explicit
+`isolated-linux-bootstrap-v1` profile does not establish installed host protection.
+
+The [received PR27 review](reviews/pr27-claude-review.md) is preserved as 17,066
+bytes, 207 CRLF endings, SHA256
+`8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357`.
+Its private probes were not supplied. New exact-source reproduction and normal
+corrected regressions address S-1; the earlier PR27 passing suite missed that
+lifecycle. Read [the correction contract](pr27-follow-up.md),
+[target contracts](target-authority-confirmation.md) and
+[current verification](../reports/README.md). All 21 selected local stages passed, plus applicable Python/timeout controls
+after a lab-only helper correction. Reports bind 18 stages to the original source
+and 3 to the corrected snapshot; product Rust/UI source is identical across them.
+Old PR27 counts are not reused. Independent source/evidence/binary and15-report
+artifact audits passed with no mismatch; exact receipts are in the reports.
+
+PR26 and PR27 remain open dependencies. Their last recorded runs42150829408 and
+42216796210 failed before execution because of billing. Local tests establish no
+remote PASS, merge or main CI. Resolve the new feature's exact head/tree, stacked
+PR and CI from its retained completion record. Preserve remote branches/shared
+history. Use Sol6.1 ultra implementation and Astra ultra architecture/independent
+review, disjoint ownership and one consolidated batch review.
+
+Next substantial work: qualified production inputs and policy-signer trust,
+authenticated dispatch/completion/reconciliation and installed Linux lifecycle.
+Windows WFP/callout and macOS Network Extension remain mandatory native tracks.
+[Remaining acceptance](remaining-work.md) gives concrete completion conditions;
+there is no defensible percentage or date.
+
+The following protected-signer and PR26 assessments describe historical
+checkpoints; their counts do not validate the new correction/target batch.
+
 The current `feat/protected-signing-authority` batch starts at
 `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, an unmerged PR26 dependency.
 The [received follow-up review](reviews/pr26-follow-up-claude-review.md) confirms

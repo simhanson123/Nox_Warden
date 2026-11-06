@@ -3,10 +3,16 @@
 //! Test-only witnesses exercise transactions; no public lab bypass is provided.
 use super::*;
 use crate::{
-    GrantContext, PreparedSigningJob, SIGNING_JOB_SCHEMA, SignerResult, SigningJob, TrustKey,
-    validate_signing_job, verify_signer_result,
+    AuthorityGate as Gate, GrantContext, PreparedSigningJob, SIGNING_JOB_SCHEMA, SignerResult,
+    SigningJob, TrustKey, validate_signing_job, verify_signer_result,
 };
 use serde::Deserialize;
+
+#[path = "signing_readiness_v3.rs"]
+mod signing_readiness_v3;
+pub use signing_readiness_v3::{
+    SIGNING_READINESS_V3_REQUIRED, SigningReadinessV3, TargetBootstrapReadiness,
+};
 
 #[cfg(test)]
 #[path = "signer_adapter_tests.rs"]
@@ -584,6 +590,16 @@ impl AuthorityStore {
         verifier: &WebAuthn,
         now: i64,
     ) -> Result<SigningReadinessV2> {
+        self.signing_readiness_snapshot_with_context(tenant, plan_id, verifier, now, None)
+    }
+    fn signing_readiness_snapshot_with_context(
+        &mut self,
+        tenant: &AuthorityTenant,
+        plan_id: &str,
+        verifier: &WebAuthn,
+        now: i64,
+        mut context: Option<&mut signing_readiness_v3::Context>,
+    ) -> Result<SigningReadinessV2> {
         let target = self.observe_signing_plan_time(tenant, plan_id, now)?;
         // Readiness reports current pin configuration as well as historical
         // work, so observe both scopes even when they now refer to different roots.
@@ -607,21 +623,28 @@ impl AuthorityStore {
             return Err(AuthorityError::Time);
         }
         let plan: Value = decode(&retained.subject.plan_bytes)?;
-        let mut reasons: Vec<String> = [
-            "PROTECTED_BOOTSTRAP_REQUIRED",
-            "BUILD_IDENTITY_REQUIRED",
-            "NATIVE_QUALIFICATION_REQUIRED",
-            "PROTECTED_SIGNER_UNAVAILABLE",
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
+        let mut reasons = if let Some(context) = context.as_deref_mut() {
+            signing_readiness_v3::gates_in_tx(&tx, tenant, &plan, now, context)?
+        } else {
+            // Published v1/v2 require the legacy bootstrap blocker and have no
+            // accepted-target history field. Refuse a state they cannot render
+            // rather than silently describing accepted epochs as absent.
+            if target_bootstrap::target_status_in_tx(&tx, tenant, &target, now)?.is_some() {
+                return Err(invalid(SIGNING_READINESS_V3_REQUIRED));
+            }
+            vec![
+                "PROTECTED_BOOTSTRAP_REQUIRED".into(),
+                Gate::BuildIdentityRequired.code().into(),
+                Gate::NativeQualificationRequired.code().into(),
+                Gate::ProtectedSignerUnavailable.code().into(),
+            ]
+        };
         let active = !retained.retired && now < retained.subject.valid_until;
         if !active {
-            reasons.push("PLAN_STALE".into());
+            reasons.push(Gate::PlanStale.code().into());
         }
         if review_evidence::review_in_tx(&tx, tenant, &retained.subject, now)?.is_none() {
-            reasons.push("REVIEW_EVIDENCE_MISSING".into());
+            reasons.push(Gate::ReviewEvidenceMissing.code().into());
         }
         let core = plan["change_kind"] == "add_access_lease";
         let core_provenance = if core && active {
@@ -630,20 +653,20 @@ impl AuthorityStore {
             None
         };
         if core {
-            reasons.push("CORE_SIGNING_PROFILE_UNAVAILABLE".into());
+            reasons.push(Gate::CoreSigningProfileUnavailable.code().into());
             if core_provenance.is_none()
                 || !access_window::current_reviewed_window(&tx, tenant, &retained.subject, now)?
             {
-                reasons.push("CORE_REQUEST_BINDING_UNAVAILABLE".into());
+                reasons.push(Gate::CoreRequestBindingUnavailable.code().into());
             }
         }
         let approval = sets::current_set(&tx, tenant, plan_id, verifier, now)?;
         if approval.is_none() {
-            reasons.push("APPROVAL_SET_MISSING".into());
+            reasons.push(Gate::ApprovalSetMissing.code().into());
         }
         let metadata = target_metadata::current_metadata_in_tx(&tx, tenant, &target, now)?;
         if metadata.is_none() {
-            reasons.push("TARGET_METADATA_MISSING".into());
+            reasons.push(Gate::TargetMetadataMissing.code().into());
         }
         let native = native_evidence::native_status_in_tx(&tx, tenant, plan_id, now)?;
         let native_good = native.compilation.as_ref().is_some_and(|c| c.current)
@@ -658,7 +681,7 @@ impl AuthorityStore {
         let native_good =
             native_good && native_evidence::baseline_binding_in_tx(&tx, tenant, plan_id)?.is_some();
         if !native_good {
-            reasons.push("NATIVE_BASELINE_UNAVAILABLE".into());
+            reasons.push(Gate::NativeBaselineUnavailable.code().into());
         }
         let quota_configuration = signing_quota::quota_configuration_summary(&tx, tenant, now)?;
         let quota_configured = match &core_provenance {
@@ -668,12 +691,12 @@ impl AuthorityStore {
             None => !core && quota_configuration.is_some(),
         };
         if !quota_configured {
-            reasons.push("QUOTA_CONFIGURATION_MISSING".into());
+            reasons.push(Gate::QuotaConfigurationMissing.code().into());
         }
         let quota_valid_until = quota_configuration.as_ref().map(|(_, deadline)| *deadline);
         let head = target_head(&tx, tenant, &target)?;
         if head.is_none() {
-            reasons.push("TARGET_GENERATION_UNINITIALIZED".into());
+            reasons.push(Gate::TargetGenerationUninitialized.code().into());
         }
         let mut valid_until = retained
             .subject
@@ -693,6 +716,9 @@ impl AuthorityStore {
         }
         if let Some(o) = native.observation.as_ref().filter(|o| o.current) {
             valid_until = valid_until.min(crate::timestamp(&o.valid_until)?);
+        }
+        if let Some(deadline) = context.as_ref().and_then(|context| context.valid_until) {
+            valid_until = valid_until.min(deadline);
         }
         let last = latest_plan_job(&tx, tenant, plan_id)?;
         if last != observed_latest {

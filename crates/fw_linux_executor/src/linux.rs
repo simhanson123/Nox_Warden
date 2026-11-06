@@ -1,6 +1,15 @@
-//! Native writes are confined to the deliberately disposable, loopback-only lab.
-//! No policy signing key, approval endpoint, or production enable switch exists.
-//! The read-only collector accepts a separate lab observation signing key.
+//! Native writes are confined to deliberately disposable namespaces. Legacy
+//! execution uses the loopback profile; target bootstrap has its own strict
+//! veth/peer guard and purpose-specific confirmation key. Neither enables policy
+//! signing or production dispatch. The collector remains read-only.
+#[path = "bootstrap.rs"]
+mod bootstrap;
+#[path = "bootstrap_files.rs"]
+mod bootstrap_files;
+#[path = "bootstrap_guard.rs"]
+mod bootstrap_guard;
+#[path = "bootstrap_probes.rs"]
+mod bootstrap_probes;
 #[path = "collector.rs"]
 mod collector;
 #[path = "files.rs"]
@@ -15,7 +24,7 @@ use fw_authority::{GrantContext, TrustKey, VerifiedGrant};
 use fw_backend_linux::{
     Comparison, Installation, bind_at, restrictive_recovery, verify_installation_readback_at,
 };
-use fw_contracts::{canonical_hash, parse_strict};
+use fw_contracts::{canonical_bytes, canonical_hash, parse_strict};
 use fw_executor::{ExecutionMaterial, ExecutorJournal, State};
 use fw_linux_executor::*;
 use serde::{Deserialize, Serialize};
@@ -1124,15 +1133,38 @@ fn watch(state: &Path, id: &str, trusted: &LabTrust, trust_path: &Path) -> Resul
 }
 
 pub fn run_main() {
-    let result = run();
-    match result {
-        Ok(Some(output)) => println!("{output}"),
-        Ok(None) => {}
-        Err(error) => {
-            eprintln!("{error}");
-            std::process::exit(1);
+    // run() has returned and dropped every journal/SQLite connection before an
+    // output descriptor is duplicated or closed. Delivery never changes a
+    // committed epoch or causes a second signed confirmation.
+    let result = run().and_then(|output| {
+        if let Some(output) = output {
+            let mut bytes = canonical_bytes(&output).map_err(|_| Error::new("OUTPUT_FAILED"))?;
+            bytes.push(b'\n');
+            write_output(&bytes)?;
         }
+        Ok(())
+    });
+    if let Err(error) = result {
+        use std::io::Write;
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "{error}");
+        let _ = stderr.flush();
+        std::process::exit(1);
     }
+}
+
+fn write_output(bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let descriptor = std::io::stdout()
+        .as_fd()
+        .try_clone_to_owned()
+        .map_err(|_| Error::new("OUTPUT_FAILED"))?;
+    let mut output = std::fs::File::from(descriptor);
+    output
+        .write_all(bytes)
+        .map_err(|_| Error::new("OUTPUT_FAILED"))?;
+    output.flush().map_err(|_| Error::new("OUTPUT_FAILED"))
 }
 fn run() -> Result<Option<Value>> {
     let arguments = std::env::args_os()
@@ -1146,10 +1178,11 @@ fn run() -> Result<Option<Value>> {
     let mut arguments = arguments.into_iter();
     let command = arguments.next().ok_or(Error::new("COMMAND_REQUIRED"))?;
     if command == "--help" {
-        println!(
-            "fw_linux_executor init|apply --state-dir DIR --bundle FILE --trust FILE\nfw_linux_executor observe|status|recover --state-dir DIR --operation-id UUID --trust FILE\nfw_linux_executor probe [same options] --output FILE\nfw_linux_executor confirm [same options] --confirmation FILE\nfw_linux_executor collect-evidence --artifact FILE --installation FILE --observer-key FILE --challenge FILE --output FILE\nDisposable loopback lab only; never a production firewall command."
-        );
+        write_output(b"fw_linux_executor init|apply --state-dir DIR --bundle FILE --trust FILE\nfw_linux_executor observe|status|recover --state-dir DIR --operation-id UUID --trust FILE\nfw_linux_executor probe [same options] --output FILE\nfw_linux_executor confirm [same options] --confirmation FILE\nfw_linux_executor collect-evidence --artifact FILE --installation FILE --observer-key FILE --challenge FILE --output FILE\nfw_linux_executor bootstrap-target --config FILE --bundle FILE\nLegacy commands use the disposable loopback profile. Bootstrap uses its separately guarded isolated veth/peer profile. Production policy signing and dispatch remain unavailable.\n")?;
         return Ok(None);
+    }
+    if command == "bootstrap-target" {
+        return bootstrap::run(arguments).map(Some);
     }
     native::guard()?;
     if command == "collect-evidence" {

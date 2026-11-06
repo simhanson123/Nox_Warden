@@ -1,71 +1,63 @@
 Nox_Warden 개발을 이전 대화 없이 저장소에서 이어서 진행하라.
 저장소: https://github.com/simhanson123/Nox_Warden
-현재 작업 브랜치: feat/protected-signing-authority
-작업 기준: dded7e94e84ef0e59a0552e961c5c57eaaabdd81
-의존 PR26: https://github.com/simhanson123/Nox_Warden/pull/26 (open/unmerged)
-확인 당시 main: a624a1e684a8fc0065ac4f4609101410f56c50bb
+현재 브랜치: feat/target-authority-confirmation
+작업 기준: 5fc576f672c2e0671164b73a667e3452b99ea82a
+기준 트리: 719b80f88255921711ede7b4f4da81876568f7e3
+의존 PR26/PR27은 open/unmerged, 확인 당시 main은 a624a1e684a8fc0065ac4f4609101410f56c50bb.
 
 현재 저장소/브랜치/git status/원격 PR/CI를 확인하고 사용자 변경을 보존하라.
-AGENTS.md, docs/session-handoff.md, docs/review-continuity.md,
-reports/task-ledger.json, reports/README.md, docs/implementation.md,
-docs/protected-signing-authority.md와 docs/pr26-follow-up.md를 읽어라.
-원본 F00/F01 우선순위 및 F03/F04/F07/F08/F12를 확인하라.
-공개 SQL001–014, 원본 specs/기존 schema/검토 원문을 변경하지 마라.
-이번 묶음은015를 추가한다. 공개 후에는015와 그 schema/guard계약도 보존하고,
-다음 schema변경은 새 migration으로 구현하라.
+AGENTS.md, docs/session-handoff.md, review-continuity.md, pr27-follow-up.md,
+remaining-work.md, reports/task-ledger.json, reports/README.md와 implementation.md를 읽어라.
+F00/F01 우선순위와 F02/F03/F04/F07/F08/F12 및 원본 schema를 확인하라.
+공개 SQL001–016과 schema/guard계약, 원본 specs/검토 bytes는 보존하라.
+새 schema변경은 새로운 migration으로 구현하고 기존016까지의 이력을 고치지 마라.
 
-새로 받은 Claude Opus5.5 PR26 후속 검토:
-기준 3866ceaa2b86da3ea3653da338d433a23a02b283
-대상 dded7e94e84ef0e59a0552e961c5c57eaaabdd81
-트리 9108060e91b2cf9659b598e5f670f095f72f3305
-원문 docs/reviews/pr26-follow-up-claude-review.md (15477바이트,193CRLF)
-SHA256 5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa
-F1/F2/F3 수정 확인, Medium이상/개발blocker 없음; F4 보호저장소 한계 유지.
-Low D6a/D6b는 lab상수/시계/E−8 검증과 보수적 TTL하한의 이중반올림이다.
-외부 private probe 소스는 제공되지 않았고 Docker/native4종은 NOT_RUN이었다.
-동일한 수신 검토대상 재검토를 요구하지 말고, 새 증거는 독립적으로 귀속하라.
+새로 받은 Claude Opus5.5 PR27 검토(수신일2026-11-07 Asia/Seoul):
+기준 dded7e94e84ef0e59a0552e961c5c57eaaabdd81
+대상 5fc576f672c2e0671164b73a667e3452b99ea82a
+원문 docs/reviews/pr27-claude-review.md (17066바이트,207CRLF)
+SHA256 8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357
+High S-1이 수신당시 다음개발을 막았다. signer의 같은프로세스 DB/WAL/SHM open-close가
+SQLite POSIX fcntl잠금을 해제해 반환commit/clockfloor유실, 재시작후 다른DSSE중복,
+SIGBUS를 일으킬 수 있다. author직접 잠금재현과 병렬검토자 실제signer반례를 구분하라.
+private probe/log는 제공되지 않았다. 새 로컬 재현·수정검사 결과는 ledger/reports만 따른다.
+S1 독립 재현/수정 회귀와 R1/L1/L2, I1/I2 교정을 구현했다.
+Schema16 origin/target history, 별도 durable target journal, 실제 nonloopback
+관리 baseline/서명 probe/target confirmation, CLI/readiness v3/8locale가 한 묶음이다.
+선택한21개 로컬 단계가 통과했다.18단계는08d snapshot, lab helper만 바꾼 뒤3단계는
+a0e snapshot이며 제품 Rust/UI는 동일하다. Python/실제timeout회귀도 새로 통과했다.
+정확한 수·소스·감사·원격 상태는 ledger/reports와 PR완료기록을 따르라.
 
-현재 큰묶음은 signed workload registry, 원본 envelope/delegation staging,
-실제 owner WebAuthn bootstrap proof, DSSE authorization import, 독립 signer/IPC다.
-로컬 bootstrap승인은 target의 durable epoch/generation/baseline/probe 확인이 아니다.
-대상 확인/운영 build identity/native qualification이 빠지면 pending으로 유지하고
-production resolver/signing/dispatch를 닫아라. caller PASS/boolean/config로 열지 마라.
-정확한 현재 구현범위/새 검증결과는 ledger/reports를 따른다.
-이전 workspace957/umask541/UI211/core85/26/capture2는 dded시점의 역사적 값이며
-이번 변경의 PASS로 재사용하지 마라. 새 검증 전에는 NOT_RUN으로 기록하라.
-이번 묶음의 새 local20단계와 독립 source/report/binary/artifact검토는 완료됐다.
-동일427개입력 SHA256 f55ec761434508c86be4365f1d2afd98e1c22fc9bb5d6b429ffbdf9e004fc11b,
-workspace1016/ignored3/childsummary2제외, CLI1/reduced32, umask593,
-UI211/11files 및 모든 새 runtime/legacy검증은 reports/ledger를 따른다.
-실제 최종feature head/tree/stackedPR/remoteCI는 해당브랜치 PR완료기록에서 확인하라.
-local완료와 remoteCI/merge/mainCI완료를 혼동하거나 selfSHA때문에 별도metadata커밋을 만들지 마라.
+이전 PR27 local20단계PASS/f55..427입력/workspace1016/umask593/UI211/protected47는
+역사적 사실이며 S1의 descriptor/외부reader수명주기를 검사하지 못했다.
+이전PASS나 수신검토의 숫자를 현재수정의 PASS로 재사용하거나 S1반증으로 쓰지 마라.
+외부검토의 Docker보호signer는 NOT_RUN/exit2/check0였고 native4종도 NOT_RUN이었다.
+외부 numericUID 실제signer프로브는 그와 별도다. 새로 못 돌리면 NOT_RUN으로 기록하라.
 
-충돌 legacy schema14 DB는 수정v14 open에서 Binding으로 거절됐다. 현재v15 open은
-MigrationRequired(CLI DATABASE_REJECTED)이며 명시적 이관에서 Binding으로
-거절된다(CLI MIGRATION_REJECTED).
-충돌검증은 새 이관백업 생성 전이므로 실패로 새 검증백업이 생겼다고 추론하지 마라.
-같은 파일의 모든 tenant가 막힌다. docs/authority-store.md의 복구 경계를 따르라.
-원본/sidecar/백업/evidence를 보존하고 history삭제/수정/임의창/승인을 만들지 마라.
-신뢰할 수 있는 일관된 compatible authority/epoch/generation과 승인된 복원절차가
-없으면 새쓰기/signing을 닫아라. issued/UNKNOWN/unsigneddelivered 점유를 환급하거나
-만료grant/allow/철회credential을 되살리지 마라. 현 tool에 auto repair는 없다.
+다음 큰 범위는 qualified build/native/workload/source와 정책 signer 신뢰,
+인증 dispatch·완료 증명·reconciliation, 설치 Linux 계정/ACL/키·watchdog/
+재부팅/업데이트/복구다. Windows WFP+callout·macOS NE·Team·운영 UX·
+외부 감사 앵커·release도 남는다. 격리 target 확인은 운영 권한이 아니다.
+원래 [S,E), generation fence, issued/UNKNOWN 점유와 닫힌 정책 서명/dispatch를 보존하라.
+negative UDP EPERM은 local_send_denied/bytes_sent0이며 timeout과 구별한다.
+15의 충돌 키 이관은 전 DB를 거절하고 원본/백업을 보존하며 자동 복구하지 않는다.
+NULL legacy origin은 나중 matching pin으로 승격하지 않는다.
+remaining-work.md의 완료 조건으로 설명하고 완료율/날짜를 추정하지 마라.
 
-PR26 CI42036443828와 후속42150829408은 billing lock으로 실행전실패했다.
-리드가 PR26 open/unmerged/head dded와 billing annotation을 재확인했다.
-현재 브랜치는 미병합 PR26 위에 있으므로 main완료나 remotePASS를 주장하지 마라.
-결제변경/CI우회/운영배포 없이 가능한 개발/검증/통상Git작업을 계속하라.
-새 head의 PR CI와 merge후 별도 mainCI는 실제 증거가 있어야만 완료로 기록한다.
+PR26 CI42150829408, PR27 CI42216796210 attempt1은 billing lock 실행전실패로 기록됐다.
+PR27은 steps/artifacts0이다. 결제변경/CI우회 없이 가능한 개발과 통상Git작업을 계속하라.
+localPASS/검토수신은 remotePASS/merge/mainCI가 아니다. 실제head/tree/PR/CI는 완료기록에 고정하라.
+원격branch삭제/공유history재작성은 하지 마라. selfSHA를 위해 metadata전용커밋을 만들지 마라.
 
-구현은 GPT-6.1 Sol ultra, 아키텍처/독립검토는 GPT-6 Astra ultra, 리드는 조율이다.
-두 모델을 최대 추론으로 사용하고 파일소유권을 나눠 큰묶음 병렬구현,
-국소검사 후 한 번의 통합검토를 한다. Cargo/build/runtime은 한 검증조율자가 순차실행한다.
-수신 검토/새 local검증/내부검토/remoteCI를 구분하라. 다음 외부검토는 Claude Opus5.5
-하나에 실제새 base/head/tree의 전체복사용프롬프트로 요청하고 PR에도 보존하라.
-remote branch삭제/공유history재작성은 하지 마라. 원시로그/반복일지는 Git에 넣지 마라.
+구현 Sol6.1ultra, architecture/독립검토 Astraultra를 모두 최대추론으로 사용하고
+파일소유권을 나눠 병렬구현하라. Cargo/build/runtime은 한 검증조율자가 순차실행한다.
+필요국소검사후 큰묶음 통합검토 한 번으로 진행하고 원시로그/반복일지는 Git에 넣지 마라.
+다음외부검토는 실제새base/head/tree의 완전복사용프롬프트를 대화와PR에 보존하라.
+준비/내부검토를 실제Claude검토라고 쓰지 마라.
 
-Linux설치/management/watchdog/reboot/실제host검수, WindowsWFP+callout,
-macOSNetworkExtension, 인증dispatch/완료/reconciliation, installers/전체제품수용이 남는다.
-Pinned nft1.0.6 anonymous multiport ct.proto-dst readback은 미검수/거절을 유지하라.
+충돌legacy14는 모든tenant거절, 현재15open MigrationRequired/DATABASE_REJECTED와
+명시migrate Binding/MIGRATION_REJECTED를 구분하라. 실패로 새검증백업을 추론하지 마라.
+원본/sidecar/백업을 보존하고 history편집/임의승인/issued환급/rollbackresurrection을 금지하라.
+신뢰가능한compatible authority/epoch/generation 복원문맥 없으면 닫아라. auto repair는 없다.
 3OS/8locale/영어기본+저장선택/Apache2.0/통계OFF/선택후원/AI자기승인금지를 유지하라.
-운영망/hostfirewall실험/유료자원/패키지공개/운영배포는 제외한다.
-Cloud도구/네트워크/관리Docker/browser를 확인하고 잠금파일대로 복원하라.
+운영망/hostfirewall실험/유료자원/패키지공개/운영배포는 제외하며 managed도구/잠금을 보존하라.

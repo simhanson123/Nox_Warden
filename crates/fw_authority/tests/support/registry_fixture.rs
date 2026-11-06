@@ -40,6 +40,14 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new(directory: &Path, now: i64) -> Self {
+        Self::with_origin(directory, now, true)
+    }
+
+    pub fn new_unpinned(directory: &Path, now: i64) -> Self {
+        Self::with_origin(directory, now, false)
+    }
+
+    fn with_origin(directory: &Path, now: i64, pin_origin: bool) -> Self {
         let original: Value = serde_json::from_str(include_str!(
             "../../../../docs/specs/F_기준자료/F_개발계약/F_계약_예제.json"
         ))
@@ -66,6 +74,25 @@ impl Fixture {
             )
             .unwrap();
         let verifier = WebAuthn::new(ORIGIN).unwrap();
+        if pin_origin {
+            store
+                .pin_bootstrap_approval_origin(
+                    &tenant,
+                    &BootstrapApprovalOriginPin {
+                        schema_version: "fw.bootstrap-approval-origin-pin/v1".into(),
+                        org_id: tenant.org_id().into(),
+                        project_id: tenant.project_id().into(),
+                        revision: "1".into(),
+                        origin: ORIGIN.into(),
+                        rp_id: verifier.rp_id().into(),
+                        not_before: at(now - 60),
+                        not_after: at(now + 3600),
+                    },
+                    None,
+                    now,
+                )
+                .unwrap();
+        }
         let authenticator = Authenticator::new(OWNER);
         let registration = verifier
             .begin_registration(OWNER, "Synthetic owner", &[])

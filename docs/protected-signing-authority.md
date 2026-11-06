@@ -1,5 +1,15 @@
 # Protected bootstrap and independent signer boundary
 
+The [received PR27 review](reviews/pr27-claude-review.md) identifies High S-1 in
+the signer's SQLite file-check lifecycle. Its durability/exact-retry contract
+requires correction before target-authority work proceeds; prior passing suites
+did not cover this case. The [follow-up](pr27-follow-up.md) separates external
+counterexamples, correction requirements and new validation. The contracts below
+describe the protected-signing implementation checkpoint, not proof that S-1 is
+fixed or that production authority is available.
+PR27 also has L2 status-list inconsistencies; the gates below state the required
+meaning, while the follow-up records shared diagnostics/versioned-readiness work.
+
 This M03/M05 batch starts at
 `dded7e94e84ef0e59a0552e961c5c57eaaabdd81` on
 `feat/protected-signing-authority`. Its dependency PR26 remains open/unmerged
@@ -98,6 +108,7 @@ or logs. These commands do not accept a private signing key.
 | Pending public credential | `pin-authority-credential` takes `credential`, `not_before`, `not_after`; the public credential must have been independently enrolled. |
 | Actual possession | `challenge-authority-credential` takes `credential_id`; `activate-authority-credential` takes `activation_id`, `assertion`. Use a real origin-bound WebAuthn assertion. |
 | Owner role | `grant-authority-role` takes `principal_id`, `role`, `not_before`, `not_after`; role grant alone does not approve a manifest. |
+| Independent approval origin | `pin-bootstrap-approval-origin` takes `pin`, `expected_revision` (initial null, later canonical uint64 CAS); `read-bootstrap-approval-origin` takes `{}`. New bootstrap ceremonies must match this separately provisioned origin/RP pin. |
 | Purpose-specific registry trust | `pin-registry-trust-key` takes `{"pin":RegistryTrustKey}`. Independently establish scope/key/purpose; use the canonical bootstrap pin hash as the manifest trust-root reference. Workload and bootstrap keys remain distinct. |
 | Exact signed workload | `import-workload-binding` takes the original complete signed binding; its current status authenticates its issuer and retained freshness, not observed workload isolation. |
 | Original bootstrap inputs | `import-access-envelope`, `import-delegation`, then `import-bootstrap-manifest` take the original contract objects directly. They remain staged. |
@@ -112,6 +123,14 @@ identity. The operator must establish those facts independently. A lost import
 response can be recovered by the read command and exact retry. Reads and retries
 retain the original authority window; they cannot renew an approval, issue a
 replacement request or reset an epoch/generation/quota obligation.
+
+Schema16 introduces the explicit project origin pin without deriving it from old
+challenges. Legacy15 proofs retain their original bytes and unpinned historical
+classification; even a later matching pin cannot make them current. New challenges
+bind a pin revision and rotation invalidates earlier bindings. The follow-up also
+uses an explicit one-authoritative-signature profile for new registry admissions;
+published F multi-signature shapes and retained old multi-signature history remain
+unchanged. Complete co-signature identity support remains future work.
 
 ## Independent signer process
 
@@ -128,6 +147,12 @@ permissions and authenticated IPC. A separate process under the same writable
 account does not establish that boundary. This batch does not install system
 accounts, configure every platform's ACLs or claim resistance to host
 administrator/trust-root compromise or coherent whole-storage rollback.
+
+The follow-up preserves `status` as the exact legacy `fw.signer-status/v1` and
+adds opt-in `status_v2`, returning `fw.signer-status/v2` with shared canonical
+`BUILD_IDENTITY_REQUIRED`/`NATIVE_QUALIFICATION_REQUIRED` codes. Both summaries
+describe the process/key/peer boundary with policy signing/dispatch false; they
+do not report target confirmation. See the [signer protocol](../crates/fw_signer/README.md).
 
 ## Production gates and remaining acceptance
 

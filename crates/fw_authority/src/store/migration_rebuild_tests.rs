@@ -45,7 +45,7 @@ fn nullable_upgrade_preserves_guarded_rooted_lifecycles_and_all_rowids() {
         let before = retained_rows(&f.path);
         let backup = f.directory.path().join("schema11.sqlite3");
         AuthorityStore::migrate(&f.path, &backup).unwrap();
-        assert_eq!(version(&f.path), 15);
+        assert_eq!(version(&f.path), 16);
         assert_eq!(version(&backup), 11);
         assert_eq!(retained_rows(&backup), before);
         assert_retained(&f.path, &before);
@@ -121,7 +121,7 @@ fn abrupt_process_exit_after_parent_drop_recovers_the_original_transaction() {
     assert_eq!(retained_rows(&backup), before);
     let next = f.directory.path().join("after-crash.sqlite3");
     AuthorityStore::migrate(&f.path, &next).unwrap();
-    assert_eq!(version(&f.path), 15);
+    assert_eq!(version(&f.path), 16);
     assert_retained(&f.path, &before);
 }
 
@@ -141,7 +141,7 @@ fn competing_maintenance_processes_commit_one_upgrade_and_keep_all_evidence() {
         usize::from(first.exists()) + usize::from(second.exists()),
         1
     );
-    assert_eq!(version(&f.path), 15);
+    assert_eq!(version(&f.path), 16);
     assert_retained(&f.path, &before);
 }
 
@@ -191,11 +191,11 @@ fn schema12_upgrade_preserves_all_retained_bytes_and_current_maintenance_is_noop
             AuthorityStore::open(&f.path),
             Err(AuthorityError::MigrationRequired {
                 found: 12,
-                required: 15
+                required: 16
             })
         ));
         AuthorityStore::migrate(&f.path, &backup).unwrap();
-        assert_eq!(version(&f.path), 15);
+        assert_eq!(version(&f.path), 16);
         assert_eq!(version(&backup), 12);
         assert_eq!(retained_rows(&backup), before);
         assert_retained(&f.path, &before);
@@ -273,7 +273,7 @@ fn interrupted_backup_retains_incomplete_private_pair_and_new_destination_recove
     assert!(AuthorityStore::migrate(&f.path, &interrupted).is_err());
     let fresh = f.directory.path().join("retry.sqlite3");
     AuthorityStore::migrate(&f.path, &fresh).unwrap();
-    assert_eq!(version(&f.path), 15);
+    assert_eq!(version(&f.path), 16);
     assert_eq!(retained_rows(&fresh), before);
     assert_retained(&f.path, &before);
     assert!(interrupted.exists());
@@ -344,7 +344,7 @@ fn schema15_upgrade_preserves_every_retained_state_and_starts_without_registry_a
         let before = retained_rows(&f.path);
         let backup = f.directory.path().join("schema14.sqlite3");
         AuthorityStore::migrate(&f.path, &backup).unwrap();
-        assert_eq!(version(&f.path), 15);
+        assert_eq!(version(&f.path), 16);
         assert_eq!(version(&backup), 14);
         assert_eq!(retained_rows(&backup), before);
         assert_retained(&f.path, &before);

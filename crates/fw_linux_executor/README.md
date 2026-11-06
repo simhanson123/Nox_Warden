@@ -2,8 +2,9 @@
 
 This executable verifies signed fixture grants and connects the durable executor
 journal to actual nftables apply/readback, packet probes, confirmation and
-restrictive recovery. It refuses execution outside the guarded, loopback-only
-disposable lab. It is not a host installer or the controller's production executor.
+restrictive recovery. Its original signed-policy commands refuse execution outside
+the guarded, loopback-only disposable lab. It is not a host installer or the
+controller's production executor.
 
 Use the supported runner from the repository root:
 
@@ -85,3 +86,26 @@ does not prove their original installation provenance, journal approval or
 historical policy authorization. A signature proves possession of the observer
 key, not protected collector deployment. Every result remains development-only,
 `production_qualified:false` and `dispatch_allowed:false`.
+
+## Target bootstrap integration
+
+The separate [target-confirmation profile](../../docs/target-authority-confirmation.md)
+implements a bounded non-loopback management baseline, exact
+owner-authorized bootstrap material, durable generation0 epoch/predecessor state,
+native readback and fresh probes. It uses a dedicated development confirmation
+receipt, not a policy grant or a reinterpretation of `f.receipt/v1`. The target
+path supplies no arbitrary signed-payload or caller-PASS input. Inside its guarded
+isolated profile, invoke `bootstrap-target --config FILE --bundle FILE`; only those
+options are accepted. Private config fixes tenant/target/state, independent root
+and target pin plus seed path. Fresh state must be absent; partial loss/legacy
+grant journals refuse initialization. Same-config/boot/netns/journal generation0
+rotation requires the exact confirmed predecessor and atomic full verified B
+replacement. Key/boot recovery remains unsupported.
+
+Historical exact retries return their original confirmation, with separate
+`accepted_epoch`, `current_epoch`, `current_journal_state` and time-only
+`challenge_unexpired`. PENDING/UNKNOWN cannot be hidden by an older receipt.
+Every production permission stays false. Fresh target kernel/full-batch evidence
+is recorded separately in the verification summary; existing loopback tests
+cannot qualify this path or installed host support. Negative UDP distinguishes
+a successful send followed by timeout from EPERM1 with zero sent bytes.

@@ -3,6 +3,7 @@
 //! A verified workload identity and a human bootstrap decision are useful
 //! authority evidence, but cannot qualify native enforcement or open dispatch.
 use super::*;
+use crate::AuthorityGate as Gate;
 use crate::{
     AccessEnvelope, AuthorityBootstrapManifest, BootstrapApprovalProof, BootstrapAuthorization,
     Delegation, RegistryTrustKey, WorkloadBinding, validate_access_envelope, validate_delegation,
@@ -56,6 +57,104 @@ struct Object {
     revoked: bool,
 }
 
+pub(super) struct RetainedBootstrapMaterial {
+    pub manifest: AuthorityBootstrapManifest,
+    pub authorization: BootstrapAuthorization,
+    pub proofs: Vec<BootstrapApprovalProof>,
+    pub root: RegistryTrustKey,
+    pub authorization_hash: String,
+    pub valid_until: i64,
+}
+
+/// Target confirmation consumes retained protected authority, never submitted
+/// proof objects or a controller's boolean. Historical reads retain old bytes.
+pub(super) fn bootstrap_material_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    manifest_id: &str,
+    now: i64,
+    current: bool,
+) -> Result<RetainedBootstrapMaterial> {
+    let (manifest_object, manifest) = manifest_at(tx, tenant, manifest_id)?;
+    let object = object_at(tx, tenant, "bootstrap_authorization", manifest_id)?
+        .ok_or(AuthorityError::Binding)?;
+    validate_authorization_record(tx, tenant, &object)?;
+    let authorization: BootstrapAuthorization = decode(&object.canonical)?;
+    let valid_until = if current {
+        current_authorization(tx, tenant, &object, now)?
+    } else {
+        crate::timestamp(&authorization.payload.not_after)?
+    };
+    if current && manifest_object.revoked {
+        return Err(AuthorityError::Binding);
+    }
+    let mut root = key_at(tx, tenant, &authorization.payload.signer_key_id)?;
+    if !current {
+        root.revoked = false;
+    }
+    let mut proofs = Vec::new();
+    for digest in &authorization.payload.approval_proof_hashes {
+        let id:String=tx.query_row("SELECT proof_id FROM authority_bootstrap_proofs WHERE org_id=? AND project_id=? AND proof_hash=?",params![tenant.org_id,tenant.project_id,hash(digest)?],|row|row.get(0)).optional()?.ok_or(AuthorityError::Binding)?;
+        proofs.push(verify_bootstrap_proof_record(tx, tenant, &id, None, false)?);
+    }
+    Ok(RetainedBootstrapMaterial {
+        manifest,
+        authorization,
+        proofs,
+        root,
+        authorization_hash: object.hash,
+        valid_until,
+    })
+}
+
+/// Current root authorization for this exact retained plan, in its caller's
+/// validated snapshot. A short authorization is not persistent target state.
+pub(super) fn bootstrap_for_plan_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan: &Value,
+    now: i64,
+) -> Result<Option<(String, i64)>> {
+    require_registry_time(tx, tenant, now)?;
+    let retained = records::retained_plan(tx, tenant, crate::string(plan, "plan_id")?)?;
+    if retained.subject.plan_bytes != bytes(plan)? {
+        return Err(AuthorityError::Binding);
+    }
+    let Some(review) = review_evidence::review_in_tx(tx, tenant, &retained.subject, now)? else {
+        return Ok(None);
+    };
+    let target = crate::string(plan, "target_id")?;
+    let epoch = crate::counter(crate::string(plan, "authority_epoch")?)?;
+    let digest:Option<Vec<u8>>=tx.query_row("SELECT authorization_hash FROM authority_bootstrap_pending_heads WHERE org_id=? AND project_id=? AND target_id=? AND authority_epoch=?",params![tenant.org_id,tenant.project_id,target,epoch.to_be_bytes().as_slice()],|row|row.get(0)).optional()?;
+    let Some(digest) = digest else {
+        return Ok(None);
+    };
+    let object = object_hash_at(tx, tenant, &hash_string(&digest)?)?;
+    let (_, manifest) = manifest_at(tx, tenant, &object.id)?;
+    if manifest.management_baseline_hash != review.evidence().before.management_baseline_hash
+        || manifest.capability_hash != crate::string(plan, "target_capability_hash")?
+    {
+        return Ok(None);
+    }
+    if plan["change_kind"] == "add_access_lease"
+        && (!manifest
+            .envelope_hashes
+            .iter()
+            .any(|hash| plan["envelope_hash"] == *hash)
+            || !manifest
+                .delegation_hashes
+                .iter()
+                .any(|hash| plan["delegation_hash"] == *hash))
+    {
+        return Ok(None);
+    }
+    match current_authorization(tx, tenant, &object, now) {
+        Ok(until) => Ok(Some((object.hash, until))),
+        Err(AuthorityError::Time | AuthorityError::Binding | AuthorityError::Conflict) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 fn binding(tenant: &AuthorityTenant, org: &str, project: &str) -> Result<()> {
     if tenant.org_id != org || tenant.project_id != project {
         return Err(AuthorityError::Binding);
@@ -63,7 +162,7 @@ fn binding(tenant: &AuthorityTenant, org: &str, project: &str) -> Result<()> {
     Ok(())
 }
 
-fn object_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>> {
+pub(super) fn object_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     struct Budget(usize);
     impl std::io::Write for Budget {
         fn write(&mut self, chunk: &[u8]) -> std::io::Result<usize> {
@@ -236,7 +335,11 @@ fn clock_floor(tx: &Transaction<'_>, tenant: &AuthorityTenant) -> Result<i64> {
         .unwrap_or(0))
 }
 
-fn require_registry_time(tx: &Transaction<'_>, tenant: &AuthorityTenant, now: i64) -> Result<()> {
+pub(super) fn require_registry_time(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    now: i64,
+) -> Result<()> {
     time(now)?;
     if now < clock_floor(tx, tenant)? {
         return Err(AuthorityError::Time);
@@ -270,6 +373,8 @@ impl AuthorityStore {
         let payload = {
             let tx = self.connection.transaction()?;
             require_registry_time(&tx, tenant, now)?;
+            let origin = bootstrap_origin::current_origin(&tx, tenant, now)?;
+            bootstrap_origin::require_verifier(&origin, verifier)?;
             let key = key_at(&tx, tenant, key_id)?;
             if key.payload_type != crate::BOOTSTRAP_AUTHORIZATION_TYPE
                 || key.public_key != signing_key.verifying_key().to_bytes()
@@ -368,7 +473,11 @@ impl AuthorityStore {
 
     /// Persist time before admission so a rejected/expired input cannot revive
     /// after clock rollback. This does not reserve quota or a target generation.
-    fn observe_registry_time(&mut self, tenant: &AuthorityTenant, now: i64) -> Result<()> {
+    pub(super) fn observe_registry_time(
+        &mut self,
+        tenant: &AuthorityTenant,
+        now: i64,
+    ) -> Result<()> {
         time(now)?;
         let tx = self
             .connection
@@ -424,8 +533,10 @@ impl AuthorityStore {
         }
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_registry_keys WHERE org_id=? AND project_id=? AND key_id=?)",params![tenant.org_id,tenant.project_id,key.key_id],|r|r.get(0))?;
         if exists {
-            let mut previous = key_at(&tx, tenant, &key.key_id)?;
-            previous.revoked = false;
+            let previous = key_at(&tx, tenant, &key.key_id)?;
+            if previous.revoked {
+                return Err(AuthorityError::Conflict);
+            }
             if bytes(&previous)? != canonical {
                 return Err(AuthorityError::Conflict);
             }
@@ -434,7 +545,9 @@ impl AuthorityStore {
         }
         let fingerprint = hash(&hash_bytes(&key.public_key))?;
         // Purpose separation extends existing target transport/observer pins.
-        let alias:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_target_keys WHERE org_id=? AND key_fingerprint=?) OR EXISTS(SELECT 1 FROM authority_native_observer_keys WHERE org_id=? AND key_fingerprint=?)",params![tenant.org_id,fingerprint,tenant.org_id,fingerprint],|r|r.get(0))?;
+        // Fingerprint encodings differ between registry (raw Ed25519) and
+        // transport/observer (SPKI). Purpose ownership follows the key bytes.
+        let alias:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM authority_target_keys WHERE org_id=? AND public_key=?) OR EXISTS(SELECT 1 FROM authority_native_observer_keys WHERE org_id=? AND public_key=?) OR EXISTS(SELECT 1 FROM authority_target_bootstrap_key_pins WHERE org_id=? AND public_key=?)",params![tenant.org_id,key.public_key.as_slice(),tenant.org_id,key.public_key.as_slice(),tenant.org_id,key.public_key.as_slice()],|r|r.get(0))?;
         if alias {
             return Err(AuthorityError::Conflict);
         }
@@ -529,6 +642,7 @@ impl AuthorityStore {
             tx.commit()?;
             return Ok(result);
         }
+        binding_value.validate_current_admission_profile()?;
         let key = key_at(&tx, tenant, &binding_value.payload.issuer_key_id)?;
         let verified = verify_workload_binding(binding_value, &key, now)?;
         binding(
@@ -608,7 +722,7 @@ impl AuthorityStore {
             &object,
             now,
             false,
-            vec!["BOOTSTRAP_AUTHORIZATION_REQUIRED".into()],
+            vec![Gate::BootstrapAuthorizationRequired.code().into()],
         )?;
         tx.commit()?;
         Ok(result)
@@ -665,7 +779,7 @@ impl AuthorityStore {
             &object,
             now,
             false,
-            vec!["BOOTSTRAP_AUTHORIZATION_REQUIRED".into()],
+            vec![Gate::BootstrapAuthorizationRequired.code().into()],
         )?;
         tx.commit()?;
         Ok(result)
@@ -709,9 +823,9 @@ impl AuthorityStore {
             now,
             false,
             vec![
-                "OWNER_PROOF_REQUIRED".into(),
-                "BOOTSTRAP_AUTHORIZATION_REQUIRED".into(),
-                "TARGET_EPOCH_CONFIRMATION_REQUIRED".into(),
+                Gate::OwnerProofRequired.code().into(),
+                Gate::BootstrapAuthorizationRequired.code().into(),
+                Gate::TargetEpochConfirmationRequired.code().into(),
             ],
         )?;
         tx.commit()?;
@@ -883,11 +997,26 @@ fn object_status(
             now,
             false,
             vec![
-                "TARGET_EPOCH_CONFIRMATION_REQUIRED".into(),
-                "NATIVE_QUALIFICATION_REQUIRED".into(),
-                "POLICY_SIGNER_KEY_REQUIRED".into(),
+                Gate::TargetEpochConfirmationRequired.code().into(),
+                Gate::NativeQualificationRequired.code().into(),
+                Gate::PolicySignerKeyRequired.code().into(),
             ],
         )?;
+        let approval_verifier =
+            if ["bootstrap_manifest", "bootstrap_authorization"].contains(&object.kind.as_str()) {
+                match bootstrap_origin::current_verifier(tx, tenant, now) {
+                    Ok(verifier) => Some(verifier),
+                    Err(AuthorityError::Time | AuthorityError::Binding) => {
+                        result
+                            .gates
+                            .push(Gate::BootstrapApprovalOriginRequired.code().into());
+                        None
+                    }
+                    Err(error) => return Err(error),
+                }
+            } else {
+                None
+            };
         if object.kind == "bootstrap_authorization" {
             match current_authorization(tx, tenant, object, now) {
                 Ok(_) => {}
@@ -897,13 +1026,25 @@ fn object_status(
                     }
                     result
                         .gates
-                        .push("BOOTSTRAP_AUTHORIZATION_NOT_CURRENT".into());
+                        .push(Gate::BootstrapAuthorizationNotCurrent.code().into());
                 }
                 Err(error) => return Err(error),
+            }
+            if let Some(target) =
+                target_bootstrap::target_status_in_tx(tx, tenant, &object.target, now)?
+                && target.authorization_hash == object.hash
+            {
+                result.state = "target_confirmed_pending_qualification".into();
+                if target.current_confirmation_eligibility {
+                    result
+                        .gates
+                        .retain(|gate| gate != Gate::TargetEpochConfirmationRequired.code());
+                }
             }
         }
         if object.kind == "bootstrap_manifest"
             && !object.revoked
+            && let Some(verifier) = approval_verifier.as_ref()
             && require_manifest_inputs(
                 tx,
                 tenant,
@@ -912,7 +1053,7 @@ fn object_status(
             )
             .is_ok()
         {
-            let mut statement=tx.prepare("SELECT proof_id,challenge_id FROM authority_bootstrap_proofs WHERE org_id=? AND project_id=? AND manifest_id=? AND admitted_at<=? AND expires_at>? LIMIT 17")?;
+            let mut statement=tx.prepare("SELECT proof_id FROM authority_bootstrap_proofs WHERE org_id=? AND project_id=? AND manifest_id=? AND admitted_at<=? AND expires_at>? LIMIT 17")?;
             let mut rows = statement.query(params![
                 tenant.org_id,
                 tenant.project_id,
@@ -921,14 +1062,11 @@ fn object_status(
                 now
             ])?;
             while let Some(row) = rows.next()? {
-                let challenge = bootstrap_challenge_at(tx, tenant, &row.get::<_, String>(1)?)?;
-                let verifier = WebAuthn::new(challenge.challenge.origin())
-                    .map_err(|_| invalid("bootstrap origin"))?;
                 if verify_bootstrap_proof_record(
                     tx,
                     tenant,
                     &row.get::<_, String>(0)?,
-                    Some((&verifier, now)),
+                    Some((verifier, now)),
                     true,
                 )
                 .is_ok()
@@ -938,9 +1076,11 @@ fn object_status(
                 }
             }
             if result.state == "staged" {
-                result.gates.push("OWNER_PROOF_REQUIRED".into());
+                result.gates.push(Gate::OwnerProofRequired.code().into());
             }
-            result.gates.push("BOOTSTRAP_AUTHORIZATION_REQUIRED".into());
+            result
+                .gates
+                .push(Gate::BootstrapAuthorizationRequired.code().into());
         }
         return Ok(result);
     }
@@ -952,6 +1092,7 @@ fn object_status(
         && now >= object.admitted
         && now >= clock_floor(tx, tenant)?
         && head
+        && workload.validate_current_admission_profile().is_ok()
         && verify_workload_binding(&workload, &key, now).is_ok();
     status(
         object,
@@ -960,7 +1101,7 @@ fn object_status(
         if current {
             vec![]
         } else {
-            vec!["WORKLOAD_BINDING_NOT_CURRENT".into()]
+            vec![Gate::WorkloadBindingNotCurrent.code().into()]
         },
     )
 }
@@ -1402,6 +1543,8 @@ impl AuthorityStore {
             return Err(AuthorityError::Binding);
         }
         require_manifest_inputs(&tx, tenant, &manifest, now)?;
+        let origin = bootstrap_origin::current_origin(&tx, tenant, now)?;
+        bootstrap_origin::require_verifier(&origin, verifier)?;
         let security = security_revision(&tx, tenant)?;
         require_human(&tx, tenant, principal, now)?;
         let credential = records::credential(&tx, tenant, credential_id)?;
@@ -1421,6 +1564,7 @@ impl AuthorityStore {
             now,
         )?;
         tx.execute("INSERT INTO authority_bootstrap_challenges(org_id,project_id,challenge_id,manifest_id,principal_id,credential_id,membership_id,credential_revision,role_revision,security_revision,issued_at,expires_at,challenge_bytes,state_bytes,credential_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",params![tenant.org_id,tenant.project_id,challenge.challenge_id(),manifest_id,principal,credential.id,membership.id,credential.revision,membership.revision,security,now,challenge.expires_at(),challenge.canonical_payload(),bytes(&ceremony.state)?,credential.canonical])?;
+        bootstrap_origin::bind_challenge(&tx, tenant, &challenge, &origin)?;
         audit(
             &tx,
             tenant,
@@ -1482,6 +1626,13 @@ impl AuthorityStore {
                 dispatch_allowed: false,
             });
         }
+        let origin = bootstrap_origin::require_challenge_origin(
+            &tx,
+            tenant,
+            &challenge.challenge,
+            verifier,
+            now,
+        )?;
         if challenge.consumed.is_some() {
             return Err(AuthorityError::Conflict);
         }
@@ -1537,7 +1688,8 @@ impl AuthorityStore {
             valid_until: at((now + crate::APPROVAL_CHALLENGE_SECONDS)
                 .min(crate::timestamp(&manifest.expires_at)?)
                 .min(credential.not_after)
-                .min(membership.not_after))?,
+                .min(membership.not_after)
+                .min(origin.not_after))?,
         };
         proof.validate(&manifest, now)?;
         let canonical = bytes(&proof)?;
@@ -1606,6 +1758,9 @@ impl AuthorityStore {
             tx.commit()?;
             return Ok(result);
         }
+        authorization.validate_current_admission_profile()?;
+        let origin = bootstrap_origin::current_origin(&tx, tenant, now)?;
+        bootstrap_origin::require_verifier(&origin, verifier)?;
         if manifest_object.revoked {
             return Err(AuthorityError::Binding);
         }
@@ -1662,9 +1817,9 @@ impl AuthorityStore {
             now,
             false,
             vec![
-                "TARGET_EPOCH_CONFIRMATION_REQUIRED".into(),
-                "NATIVE_QUALIFICATION_REQUIRED".into(),
-                "POLICY_SIGNER_KEY_REQUIRED".into(),
+                Gate::TargetEpochConfirmationRequired.code().into(),
+                Gate::NativeQualificationRequired.code().into(),
+                Gate::PolicySignerKeyRequired.code().into(),
             ],
         )?;
         tx.commit()?;
@@ -1760,6 +1915,13 @@ fn verify_bootstrap_proof_record(
     require_human(tx, tenant, &proof.approver_id, row.5)?;
     if require_current {
         let (verifier, now) = current.ok_or(AuthorityError::Binding)?;
+        bootstrap_origin::require_challenge_origin(
+            tx,
+            tenant,
+            &challenge.challenge,
+            verifier,
+            now,
+        )?;
         if verifier.origin() != challenge.challenge.origin()
             || now < row.5
             || now >= row.6
@@ -1844,6 +2006,9 @@ fn current_authorization(
 ) -> Result<i64> {
     validate_authorization_record(tx, tenant, object)?;
     let authorization: BootstrapAuthorization = decode(&object.canonical)?;
+    if authorization.validate_current_admission_profile().is_err() {
+        return Err(AuthorityError::Binding);
+    }
     let (manifest_object, manifest) = manifest_at(tx, tenant, &object.id)?;
     if object.revoked
         || manifest_object.revoked
@@ -1857,12 +2022,10 @@ fn current_authorization(
     if key.revoked {
         return Err(AuthorityError::Binding);
     }
+    let verifier = bootstrap_origin::current_verifier(tx, tenant, now)?;
     let mut proofs = Vec::new();
     for digest in &authorization.payload.approval_proof_hashes {
-        let (id,challenge_id):(String,String)=tx.query_row("SELECT proof_id,challenge_id FROM authority_bootstrap_proofs WHERE org_id=? AND project_id=? AND proof_hash=?",params![tenant.org_id,tenant.project_id,hash(digest)?],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or(AuthorityError::Binding)?;
-        let challenge = bootstrap_challenge_at(tx, tenant, &challenge_id)?;
-        let verifier =
-            WebAuthn::new(challenge.challenge.origin()).map_err(|_| invalid("bootstrap origin"))?;
+        let id:String=tx.query_row("SELECT proof_id FROM authority_bootstrap_proofs WHERE org_id=? AND project_id=? AND proof_hash=?",params![tenant.org_id,tenant.project_id,hash(digest)?],|row|row.get(0)).optional()?.ok_or(AuthorityError::Binding)?;
         proofs.push(verify_bootstrap_proof_record(
             tx,
             tenant,
@@ -2011,17 +2174,34 @@ pub(super) fn core_registry_in_tx(
             authorization_hash = Some(authorization.hash);
         }
     }
+    let confirmation =
+        target_bootstrap::target_status_in_tx(tx, tenant, original.verified.target_id(), now)?;
+    let plan_epoch = crate::string(plan, "authority_epoch")?;
+    let plan_capability = crate::string(plan, "target_capability_hash")?;
+    let confirmed = confirmation.as_ref().is_some_and(|target| {
+        target.current_confirmation_eligibility
+            && target.accepted_epoch == plan_epoch
+            && authorization_hash.as_ref() == Some(&target.authorization_hash)
+            && target.management_baseline_hash == review.evidence().before.management_baseline_hash
+            && target.capability_hash == plan_capability
+    });
+    if confirmed && let Some(target) = confirmation.as_ref() {
+        valid_until = valid_until.min(crate::timestamp(&target.valid_until)?);
+    }
     let mut gates = vec![
-        "TARGET_EPOCH_CONFIRMATION_REQUIRED".into(),
-        "NATIVE_QUALIFICATION_REQUIRED".into(),
-        "POLICY_SIGNER_KEY_REQUIRED".into(),
+        Gate::BuildIdentityRequired.code().into(),
+        Gate::NativeQualificationRequired.code().into(),
+        Gate::PolicySignerKeyRequired.code().into(),
     ];
+    if !confirmed {
+        gates.insert(0, Gate::TargetEpochConfirmationRequired.code().into());
+    }
     if authorization_hash.is_none() {
-        gates.push("BOOTSTRAP_AUTHORIZATION_REQUIRED".into());
+        gates.push(Gate::BootstrapAuthorizationRequired.code().into());
     }
     // The issuer's declaration has not independently mapped each asset revision
     // to the immutable source snapshot or qualified packet identity on the OS.
-    gates.push("WORKLOAD_SOURCE_ATTESTATION_REQUIRED".into());
+    gates.push(Gate::WorkloadSourceAttestationRequired.code().into());
     Ok(CoreRegistryStatus {
         valid_until,
         workload_binding_hash: workload.hash,

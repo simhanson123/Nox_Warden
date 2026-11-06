@@ -464,7 +464,7 @@ fn v14_migration_preserves_unchanged_principal_audit_and_creates_empty_registry(
         AuthorityStore::open(&path),
         Err(AuthorityError::MigrationRequired {
             found: 14,
-            required: 15
+            required: 16
         })
     ));
     let backup = directory.path().join("backup.sqlite3");
@@ -475,7 +475,7 @@ fn v14_migration_preserves_unchanged_principal_audit_and_creates_empty_registry(
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        15
+        16
     );
     assert_eq!(
         db.query_row("SELECT count(*) FROM authority_registry_objects", [], |r| r

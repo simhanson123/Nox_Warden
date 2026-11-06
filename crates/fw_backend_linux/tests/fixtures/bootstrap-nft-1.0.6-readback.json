@@ -1,0 +1,447 @@
+{
+  "baseline": {
+    "interface_index": 3,
+    "interface_name": "fwmgmt0",
+    "local_address": "192.0.2.1",
+    "management_tcp_port": 19080,
+    "negative_udp_port": 19082,
+    "network_namespace": "net:[4026532364]",
+    "org_id": "00000000-0000-4000-8000-000000000001",
+    "peer_address": "192.0.2.2",
+    "peer_probe_public_key": [
+      238,
+      104,
+      134,
+      176,
+      169,
+      151,
+      62,
+      164,
+      109,
+      132,
+      170,
+      234,
+      23,
+      26,
+      181,
+      2,
+      5,
+      248,
+      238,
+      27,
+      151,
+      249,
+      14,
+      194,
+      58,
+      55,
+      140,
+      24,
+      17,
+      231,
+      153,
+      9
+    ],
+    "positive_udp_port": 19081,
+    "prefix_length": 30,
+    "project_id": "00000000-0000-4000-8000-000000000002",
+    "schema_version": "fw.isolated-bootstrap-management-baseline/v1",
+    "target_id": "00000000-0000-4000-8000-000000000003"
+  },
+  "capability": {
+    "architecture": "x86_64",
+    "backend": "nftables",
+    "kernel_release": "6.18.57",
+    "nft_version": "nftables v1.0.6 (Lester Gooch #5)",
+    "platform": "linux",
+    "profile": "isolated-linux-bootstrap-v1",
+    "schema_version": "fw.isolated-bootstrap-capability/v1"
+  },
+  "ruleset": {
+    "nftables": [
+      {
+        "metainfo": {
+          "json_schema_version": 1,
+          "release_name": "Lester Gooch #5",
+          "version": "1.0.6"
+        }
+      },
+      {
+        "table": {
+          "family": "inet",
+          "handle": 1,
+          "name": "fw_bootstrap_58e6d529b86f1d532b7b9961"
+        }
+      },
+      {
+        "chain": {
+          "family": "inet",
+          "handle": 1,
+          "hook": "input",
+          "name": "input",
+          "policy": "drop",
+          "prio": 0,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961",
+          "type": "filter"
+        }
+      },
+      {
+        "chain": {
+          "family": "inet",
+          "handle": 2,
+          "hook": "output",
+          "name": "output",
+          "policy": "drop",
+          "prio": 0,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961",
+          "type": "filter"
+        }
+      },
+      {
+        "chain": {
+          "family": "inet",
+          "handle": 3,
+          "hook": "forward",
+          "name": "forward",
+          "policy": "drop",
+          "prio": 0,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961",
+          "type": "filter"
+        }
+      },
+      {
+        "rule": {
+          "chain": "input",
+          "expr": [
+            {
+              "match": {
+                "left": {
+                  "meta": {
+                    "key": "iifname"
+                  }
+                },
+                "op": "==",
+                "right": "fwmgmt0"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "saddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.2"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "daddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.1"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "key": "direction"
+                  }
+                },
+                "op": "==",
+                "right": "reply"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "key": "protocol"
+                  }
+                },
+                "op": "==",
+                "right": 6
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "dir": "original",
+                    "key": "saddr"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.1"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "dir": "original",
+                    "key": "daddr"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.2"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "dir": "original",
+                    "key": "proto-dst"
+                  }
+                },
+                "op": "==",
+                "right": 19080
+              }
+            },
+            {
+              "accept": null
+            }
+          ],
+          "family": "inet",
+          "handle": 5,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961"
+        }
+      },
+      {
+        "rule": {
+          "chain": "input",
+          "expr": [
+            {
+              "match": {
+                "left": {
+                  "meta": {
+                    "key": "iifname"
+                  }
+                },
+                "op": "==",
+                "right": "fwmgmt0"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "saddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.2"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "daddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.1"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "key": "direction"
+                  }
+                },
+                "op": "==",
+                "right": "reply"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "key": "protocol"
+                  }
+                },
+                "op": "==",
+                "right": 17
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "dir": "original",
+                    "key": "saddr"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.1"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "dir": "original",
+                    "key": "daddr"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.2"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "ct": {
+                    "dir": "original",
+                    "key": "proto-dst"
+                  }
+                },
+                "op": "==",
+                "right": 19081
+              }
+            },
+            {
+              "accept": null
+            }
+          ],
+          "family": "inet",
+          "handle": 7,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961"
+        }
+      },
+      {
+        "rule": {
+          "chain": "output",
+          "expr": [
+            {
+              "match": {
+                "left": {
+                  "meta": {
+                    "key": "oifname"
+                  }
+                },
+                "op": "==",
+                "right": "fwmgmt0"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "saddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.1"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "daddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.2"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "dport",
+                    "protocol": "tcp"
+                  }
+                },
+                "op": "==",
+                "right": 19080
+              }
+            },
+            {
+              "accept": null
+            }
+          ],
+          "family": "inet",
+          "handle": 4,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961"
+        }
+      },
+      {
+        "rule": {
+          "chain": "output",
+          "expr": [
+            {
+              "match": {
+                "left": {
+                  "meta": {
+                    "key": "oifname"
+                  }
+                },
+                "op": "==",
+                "right": "fwmgmt0"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "saddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.1"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "daddr",
+                    "protocol": "ip"
+                  }
+                },
+                "op": "==",
+                "right": "192.0.2.2"
+              }
+            },
+            {
+              "match": {
+                "left": {
+                  "payload": {
+                    "field": "dport",
+                    "protocol": "udp"
+                  }
+                },
+                "op": "==",
+                "right": 19081
+              }
+            },
+            {
+              "accept": null
+            }
+          ],
+          "family": "inet",
+          "handle": 6,
+          "table": "fw_bootstrap_58e6d529b86f1d532b7b9961"
+        }
+      }
+    ]
+  },
+  "source_capture_sha256": "7be96c6a497727e3eada3cfb9b5386cb203fc6c8f041071b296577751e5d338c"
+}

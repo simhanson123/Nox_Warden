@@ -374,3 +374,48 @@ fn original_delegation_service_identifiers_preserve_bounded_string_semantics() {
     provenance.delegation.service_ids.push("DB/read".into());
     assert!(validate_delegation(&provenance.delegation, &provenance.envelope).is_err());
 }
+
+#[test]
+fn independent_asset_sets_allow_one_identity_and_two_revision_hashes() {
+    let (mut binding, pin, key) = workload();
+    binding.payload.asset_revision_hashes.push(hash(2));
+    binding.dsse = sign(&binding.payload, &key, &pin);
+    binding.validate_current_admission_profile().unwrap();
+    let verified = verify_workload_binding(&binding, &pin, NOW).unwrap();
+    assert_eq!(verified.payload().asset_ids.len(), 1);
+    assert_eq!(verified.payload().asset_revision_hashes.len(), 2);
+}
+
+#[test]
+fn supplemental_signature_cannot_enter_current_profile_but_history_is_preserved() {
+    let (mut binding, pin, _) = workload();
+    binding.validate_current_admission_profile().unwrap();
+    binding.dsse.signatures.push(DsseSignature {
+        keyid: "untrusted-supplement".into(),
+        sig: STANDARD.encode([0u8; 64]),
+    });
+    let original = canonical_bytes(&binding).unwrap();
+    binding.validate_shape().unwrap();
+    assert!(binding.validate_current_admission_profile().is_err());
+    assert_eq!(
+        verify_workload_binding(&binding, &pin, NOW)
+            .unwrap()
+            .canonical_bytes(),
+        original
+    );
+    let (manifest, proofs, mut authorization, pin, _) = bootstrap();
+    authorization.validate_current_admission_profile().unwrap();
+    authorization.dsse.signatures.push(DsseSignature {
+        keyid: "untrusted-supplement".into(),
+        sig: STANDARD.encode([0u8; 64]),
+    });
+    let original = canonical_bytes(&authorization).unwrap();
+    authorization.validate_shape().unwrap();
+    assert!(authorization.validate_current_admission_profile().is_err());
+    assert_eq!(
+        verify_bootstrap_authorization(&authorization, &manifest, &proofs, &pin, NOW)
+            .unwrap()
+            .canonical_bytes(),
+        original
+    );
+}

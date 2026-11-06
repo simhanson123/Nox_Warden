@@ -1,6 +1,6 @@
 # Durable signing coordination
 
-Authority schema 15 retains the two-phase signing mechanics introduced in schema
+Authority schema 16 retains the two-phase signing mechanics introduced in schema
 7, original core-access cost provenance added in schema 9 and the history/audit
 protections added in schema 11. It supports general-policy quota without a
 delegation root while keeping issued dispatch capacity occupied until an

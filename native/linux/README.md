@@ -1,9 +1,9 @@
 # Isolated Linux packet and execution suites
 
-The Rust compiler and signed execution driver have separate nftables kernel
-suites. Both run in disposable Docker network namespaces using loopback only.
-Neither uses host networking, published ports, privileged containers, host mounts,
-devices or an external network target. The container receives **only CAP_NET_ADMIN**, has
+The original Rust compiler and signed execution driver have separate nftables
+kernel suites. Those profiles run in disposable Docker network namespaces using
+loopback only. Neither uses host networking, published ports, privileged containers, host mounts,
+devices or an external network target. Each original container receives **only CAP_NET_ADMIN**, has
 a read-only root filesystem, and is removed in a `finally` cleanup path. The suite
 checks that its namespace differs from the caller's before changing any rules.
 The fixed Docker-local socket cannot be redirected by inherited Docker endpoint,
@@ -40,6 +40,36 @@ This does **not** make `fw_testlab qualify` pass the full platform gate. Generat
 reports are ignored local outputs. CI keeps its selected smoke report as an
 artifact for seven days; see the [verification summary](../../reports/README.md)
 for scope and CI links.
+
+## Target bootstrap management profile
+
+The separate target-confirmation work uses a bounded non-loopback management
+baseline with actual isolated veth/namespace probes, a durable target journal and
+an authenticated `fw.*` confirmation receipt. It does not relabel an old loopback
+baseline with empty management paths or reinterpret a grant receipt. The
+[target contract](../../docs/target-authority-confirmation.md) distinguishes the
+management-baseline `B` hash, exact compiled/readback semantics, signed positive
+probe responses and an actual negative timeout or EPERM1/zero-byte send denial.
+Those outcomes remain distinct. Listener preflight is a
+separate lab acceptance control, not a product flag or cryptographic deny proof.
+
+The target adapter is `fw_linux_executor bootstrap-target --config FILE --bundle FILE`.
+It requires a distinct inner network namespace, loopback plus one exact veth
+IPv4 `/30` interface/routes, `nf_conntrack_tcp_loose=0` and effective/permitted/
+bounding capabilities equal to NET_ADMIN only (4096), with zero inheritable/
+ambient capabilities. Setup uses a private mount/network context and temporary
+proc only at a container tmpfs path to set that target namespace's sysctl, then
+unmounts it before capability drop. The original proc/sys remains read-only;
+no host sysctl/path is changed. Those setup capability checks are not a target
+product PASS. Config/boot/netns/journal binding and a full post-probe guard remain
+required before signed receipt commit.
+
+The runner is `scripts/target-bootstrap-linux-lab.py`, with report
+`reports/target-bootstrap-linux-lab.json`; its required CI step/artifact wiring
+does not establish execution or PASS. The verification summary records fresh
+execution, two confirmed epochs, output recovery and expiry. Production qualification,
+policy dispatch, installed lifecycle and supported three-OS acceptance remain
+closed requirements.
 
 ## Compiler packet coverage
 

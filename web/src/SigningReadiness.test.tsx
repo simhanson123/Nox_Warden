@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { AuthorityClient } from './authority-api';
 import type { AuthorityPlan } from './authority-api';
 import SigningReadiness from './SigningReadiness';
-import { parseSigningReadiness } from './signing-readiness';
+import { parseSigningReadinessV3 as parseSigningReadiness, parseSigningReadiness as parseLegacyReadiness } from './signing-readiness';
+import type { TargetBootstrapReadiness } from './signing-readiness';
 
 const hash = (digit: string) => 'sha256:' + digit.repeat(64);
 const id = (digit: string) => `${digit.repeat(8)}-${digit.repeat(4)}-4${digit.repeat(3)}-8${digit.repeat(3)}-${digit.repeat(12)}`;
@@ -16,10 +17,11 @@ function detail(): AuthorityPlan {
       valid_until: time(now() + 3600000), authority_epoch: '2', target_generation: '7' }, requirements: {} };
 }
 function readiness(plan = detail()) {
-  return { schema_version: 'fw.signing-readiness/v2', org_id: plan.plan.org_id, project_id: plan.plan.project_id,
+  return { schema_version: 'fw.signing-readiness/v3', org_id: plan.plan.org_id, project_id: plan.plan.project_id,
     target_id: plan.plan.target_id, plan_id: plan.plan.plan_id, plan_hash: plan.plan_hash,
     checked_at: time(now()), valid_until: time(now() + 30000), signing_allowed: false, dispatch_allowed: false,
-    reasons: ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'],
+    reasons: ['BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'POLICY_SIGNER_KEY_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE', 'BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED', 'BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED'],
+    bootstrap_authorization_hash: null as string | null, target_bootstrap: null as TargetBootstrapReadiness | null,
     approval_set_hash: hash('c'), quota_configured: true, target_generation: '8',
     quota_scope: 'root', quota_root_id: id('a'), latest_dispatch_unknown_seen: true as boolean | null,
     latest_intent: { intent_id: id('5'), request_id: id('6'), plan_id: plan.plan.plan_id, plan_hash: plan.plan_hash,
@@ -36,6 +38,70 @@ function response(value: unknown, status = 200) { return new Response(JSON.strin
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 afterEach(() => { vi.useRealTimers(); });
 
+test('legacy v2 parser preserves its closed reason contract and rejects canonical v3 responses', () => {
+  const plan = detail();
+  const legacy: Record<string, unknown> = { ...readiness(plan) };
+  delete legacy.bootstrap_authorization_hash;
+  delete legacy.target_bootstrap;
+  legacy.schema_version = 'fw.signing-readiness/v2';
+  legacy.reasons = ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'];
+  expect(parseLegacyReadiness(legacy, plan).schema_version).toBe('fw.signing-readiness/v2');
+  expect(() => parseLegacyReadiness(readiness(plan), plan)).toThrow();
+  expect(() => parseSigningReadiness(legacy, plan)).toThrow();
+  expect(() => parseLegacyReadiness({ ...legacy, reasons: ['BOOTSTRAP_AUTHORIZATION_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'] }, plan)).toThrow();
+});
+
+function targetConfirmation(plan: AuthorityPlan): TargetBootstrapReadiness {
+  return { state: 'target_confirmed_pending_qualification', target_id: String(plan.plan.target_id),
+    confirmation_revision: '1', accepted_epoch: String(plan.plan.authority_epoch), highest_generation: '0',
+    confirmation_hash: hash('1'), observed_at: time(now() - 60000), admitted_at: time(now() - 59000),
+    valid_until: time(now() + 20000), current_confirmation_eligibility: true, current_for_plan: true,
+    signing_allowed: false, dispatch_allowed: false };
+}
+
+test('current target confirmation removes only its contextual blockers and never grants production permission', async () => {
+  const plan = detail(); const value = readiness(plan);
+  value.bootstrap_authorization_hash = hash('2'); value.target_bootstrap = targetConfirmation(plan);
+  value.valid_until = value.target_bootstrap.valid_until;
+  value.reasons = value.reasons.filter(r => !['BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED', 'BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED'].includes(r));
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  const region = await screen.findByRole('region', { name: 'Target bootstrap confirmation' });
+  expect(await within(region).findByText('Current target confirmation evidence matches this plan.')).toBeInTheDocument();
+  expect(region).toHaveTextContent('Target confirmed; production qualification remains pending.');
+  expect(region).toHaveTextContent(value.target_bootstrap.confirmation_hash);
+  expect(screen.getByText('Production signing and deployment remain blocked.')).toBeInTheDocument();
+  expect(parseSigningReadiness(value, plan).reasons).toEqual(expect.arrayContaining(['BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'POLICY_SIGNER_KEY_REQUIRED']));
+  for (const mutate of [
+    (v: typeof value) => { v.reasons.push('TARGET_EPOCH_CONFIRMATION_REQUIRED'); },
+    (v: typeof value) => { v.bootstrap_authorization_hash = null; },
+    (v: typeof value) => { v.target_bootstrap!.accepted_epoch = '3'; },
+    (v: typeof value) => { v.target_bootstrap!.highest_generation = '1'; },
+    (v: typeof value) => { v.target_bootstrap!.current_confirmation_eligibility = false; },
+    (v: typeof value) => { v.target_bootstrap!.valid_until = time(now() - 1000); },
+    (v: typeof value) => { Object.assign(v.target_bootstrap!, { raw_assertion: 'private-marker' }); },
+    (v: typeof value) => { Object.assign(v.target_bootstrap!, { dispatch_allowed: true }); },
+  ]) {
+    const wrong = structuredClone(value); mutate(wrong);
+    expect(() => parseSigningReadiness(wrong, plan)).toThrow();
+  }
+});
+
+test('expired target observation remains accepted epoch history with current confirmation blocked', async () => {
+  const plan = detail(); const value = readiness(plan);
+  value.target_bootstrap = { ...targetConfirmation(plan), observed_at: time(now() - 62000), valid_until: time(now() - 1000), current_confirmation_eligibility: false, current_for_plan: false };
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
+  render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
+  expect(await screen.findByText('Accepted target history is retained; current confirmation for this plan is unavailable.')).toBeInTheDocument();
+  expect(screen.getByText('Accepted epoch history survives observation expiry. This evidence does not qualify the build, native enforcement or production signing.')).toBeInTheDocument();
+  expect(parseSigningReadiness(value, plan).target_bootstrap?.accepted_epoch).toBe(plan.plan.authority_epoch);
+  expect(parseSigningReadiness(value, plan).reasons).toContain('TARGET_EPOCH_CONFIRMATION_REQUIRED');
+  for (const deadline of [value.target_bootstrap.admitted_at, time(Date.parse(value.target_bootstrap.admitted_at) - 1000)]) {
+    const wrong = { ...value, target_bootstrap: { ...value.target_bootstrap, valid_until: deadline } };
+    expect(() => parseSigningReadiness(wrong, plan)).toThrow();
+  }
+});
+
 test('current prerequisites and retained intents are separate read-only evidence, including old approval hashes and generations', async () => {
   const plan = detail(); const value = readiness(plan);
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response(value));
@@ -51,7 +117,7 @@ test('current prerequisites and retained intents are separate read-only evidence
   expect(history).toHaveTextContent('Quota slots remain held by this reservation.');
   expect(history).toHaveTextContent(value.latest_intent.grant_hash);
   expect(parseSigningReadiness(value, plan).latest_intent?.approval_set_hash).not.toBe(value.approval_set_hash);
-  expect(fetch.mock.calls[0][0]).toBe('/authority/v2/plans/' + plan.plan.plan_id + '/signing-readiness');
+  expect(fetch.mock.calls[0][0]).toBe('/authority/v3/plans/' + plan.plan.plan_id + '/signing-readiness');
   expect(fetch.mock.calls[0][1]).toMatchObject({ method: 'GET', credentials: 'same-origin', cache: 'no-store' });
   expect(new Headers(fetch.mock.calls[0][1]?.headers).get('X-Authority-CSRF')).toBe('memory-proof');
   expect(within(panel).getAllByRole('button')).toHaveLength(1);
@@ -76,7 +142,7 @@ test.each([false, true])('core signing remains blocked when original request bin
 
 test.each([
   ['legacy version downgrade', (v: ReturnType<typeof readiness>) => { v.schema_version = 'fw.signing-readiness/v1'; }],
-  ['unknown version', (v: ReturnType<typeof readiness>) => { v.schema_version = 'fw.signing-readiness/v3'; }],
+  ['unknown version', (v: ReturnType<typeof readiness>) => { v.schema_version = 'fw.signing-readiness/v4'; }],
   ['partial project-only root', (v: ReturnType<typeof readiness>) => { v.quota_scope = 'project'; }],
   ['partial rooted configuration', (v: ReturnType<typeof readiness>) => { Object.assign(v, { quota_root_id: null }); }],
   ['unknown quota scope', (v: ReturnType<typeof readiness>) => { v.quota_scope = 'global'; }],
@@ -134,13 +200,13 @@ test('project-only configuration cannot satisfy core quota prerequisites', () =>
   expect(() => parseSigningReadiness({ ...value, quota_configured: true, reasons: value.reasons.filter(r => r !== 'QUOTA_CONFIGURATION_MISSING') }, plan)).toThrow();
 });
 
-test('an unavailable v2 endpoint does not retry the v1 contract', async () => {
+test('an unavailable v3 endpoint does not retry a legacy contract', async () => {
   const plan = detail();
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response({ error: 'unavailable' }, 404));
   render(<SigningReadiness client={client()} detail={plan} locale="en" onUnauthorized={vi.fn()}/>);
   await screen.findByText('Signing readiness is unavailable. Refresh to recheck.');
   expect(fetch).toHaveBeenCalledTimes(1);
-  expect(fetch.mock.calls[0][0]).toBe('/authority/v2/plans/' + plan.plan.plan_id + '/signing-readiness');
+  expect(fetch.mock.calls[0][0]).toBe('/authority/v3/plans/' + plan.plan.plan_id + '/signing-readiness');
 });
 
 test.each([

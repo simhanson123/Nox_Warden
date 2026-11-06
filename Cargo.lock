@@ -580,6 +580,7 @@ dependencies = [
  "fw_target_evidence",
  "fw_webauthn",
  "ipnet",
+ "libc",
  "openssl",
  "rusqlite",
  "serde",
@@ -753,6 +754,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

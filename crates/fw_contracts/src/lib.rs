@@ -189,6 +189,47 @@ pub fn canonical_bytes<T: Serialize>(value: &T) -> Result<Vec<u8>, ContractError
     Ok(bytes)
 }
 
+/// Reject oversized typed inputs before allocating their canonical JSON. The
+/// depth/float guard runs first, so the counting serializer cannot traverse an
+/// arbitrarily deep value before reaching its byte limit.
+pub fn canonical_bytes_with_limit<T: Serialize>(
+    value: &T,
+    limit: usize,
+) -> Result<Vec<u8>, ContractError> {
+    struct Budget {
+        remaining: usize,
+        exceeded: bool,
+    }
+    impl std::io::Write for Budget {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.remaining {
+                self.exceeded = true;
+                return Err(std::io::Error::other("canonical byte budget exceeded"));
+            }
+            self.remaining -= bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    value.serialize(float_guard::FloatGuard(0))?;
+    let mut budget = Budget {
+        remaining: limit,
+        exceeded: false,
+    };
+    let result = serde_json::to_writer(&mut budget, value);
+    if budget.exceeded {
+        return Err(ContractError::BodyTooLarge);
+    }
+    result?;
+    let bytes = canonical_bytes(value)?;
+    if bytes.len() > limit {
+        return Err(ContractError::BodyTooLarge);
+    }
+    Ok(bytes)
+}
+
 pub fn canonical_hash<T: Serialize>(value: &T) -> Result<String, ContractError> {
     Ok(hash_bytes(&canonical_bytes(value)?))
 }

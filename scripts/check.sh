@@ -19,7 +19,7 @@ cargo build --locked -p fw_authority --bin fw_authority_admin
 NOX_TEST_AUTHORITY_ADMIN="$PWD/target/debug/fw_authority_admin" \
   cargo test --locked -p fw_authority --lib \
   cancellation_cli_preserves_commits_retries_tenants_and_issued_unknown -- --ignored
-# Native executors consume grant verification without approval ceremony code.
+# Verify the reduced authority profile without approval ceremony dependencies.
 cargo test -p fw_authority --no-default-features --locked
 npm run check --prefix web
 npm test --prefix web -- --run

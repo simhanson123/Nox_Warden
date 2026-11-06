@@ -13,7 +13,7 @@ use std::{
         fd::{AsRawFd, FromRawFd},
         unix::{
             ffi::OsStrExt,
-            fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
+            fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
             net::{UnixListener, UnixStream},
         },
     },
@@ -147,39 +147,148 @@ fn private_leaf(directory: &File, leaf: &CString, uid: u32, max: usize) -> Resul
     Ok(file)
 }
 
-fn read_private(path: &Path, uid: u32, maximum: usize) -> Result<Zeroizing<Vec<u8>>> {
-    let mut result = Zeroizing::new(Vec::new());
-    private_file(path, uid, maximum)?
-        .take((maximum + 1) as u64)
-        .read_to_end(&mut result)
-        .map_err(|_| Failure::Config)?;
-    if result.len() > maximum {
+type DatabaseIdentity = (libc::dev_t, libc::ino_t);
+
+/// SQLite's POSIX locks belong to the process, not one descriptor. Opening and
+/// then closing any DB/WAL/SHM descriptor here would release SQLite's locks on
+/// that inode. Inspect the leaf without opening it, including before store open.
+fn metadata_leaf(
+    directory: &File,
+    leaf: &CString,
+    uid: u32,
+    maximum: usize,
+) -> Result<Option<DatabaseIdentity>> {
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    loop {
+        // SAFETY: directory is live, leaf is NUL terminated, and fstatat writes
+        // a complete stat on success. NOFOLLOW rejects symlinks by their type.
+        let result = unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                leaf.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result == 0 {
+            break;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return if error.raw_os_error() == Some(libc::ENOENT) {
+            Ok(None)
+        } else {
+            Err(Failure::Config)
+        };
+    }
+    // SAFETY: successful fstatat initialized all stat fields above.
+    let metadata = unsafe { metadata.assume_init() };
+    let size = u64::try_from(metadata.st_size).map_err(|_| Failure::Config)?;
+    if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+        || metadata.st_uid != uid
+        || metadata.st_nlink != 1
+        || metadata.st_mode & libc::S_IRUSR == 0
+        || metadata.st_mode & 0o077 != 0
+        || size > maximum as u64
+    {
         return Err(Failure::Config);
     }
-    Ok(result)
+    Ok(Some((metadata.st_dev, metadata.st_ino)))
 }
 
-fn check_database(config: &Config) -> Result<(u64, u64)> {
-    let metadata = private_file(
-        Path::new(&config.database_path),
-        config.signer_uid,
-        512 * 1024 * 1024,
-    )
-    .map_err(|_| Failure::Database)?
-    .metadata()
-    .map_err(|_| Failure::Database)?;
-    for suffix in ["-wal", "-shm"] {
-        let path = format!("{}{suffix}", config.database_path);
-        match fs::symlink_metadata(&path) {
-            Ok(_) => {
-                private_file(Path::new(&path), config.signer_uid, 512 * 1024 * 1024)
-                    .map_err(|_| Failure::Database)?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return Err(Failure::Database),
+fn database_at(
+    directory: &File,
+    leaf: &CString,
+    uid: u32,
+    input_identities: &[DatabaseIdentity],
+) -> Result<DatabaseIdentity> {
+    let inspect = |leaf: &CString| {
+        let identity = metadata_leaf(directory, leaf, uid, 512 * 1024 * 1024)
+            .map_err(|_| Failure::Database)?;
+        if identity.is_some_and(|identity| input_identities.contains(&identity)) {
+            return Err(Failure::Database);
         }
+        Ok(identity)
+    };
+    let identity = inspect(leaf)?.ok_or(Failure::Database)?;
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = leaf.as_bytes().to_vec();
+        sidecar.extend_from_slice(suffix.as_bytes());
+        let sidecar = CString::new(sidecar).map_err(|_| Failure::Database)?;
+        // Absent sidecars are valid before SQLite creates them. Every other
+        // error and every unsafe present leaf fails closed in metadata_leaf.
+        inspect(&sidecar)?;
     }
-    Ok((metadata.dev(), metadata.ino()))
+    if inspect(leaf)? != Some(identity) {
+        return Err(Failure::Database);
+    }
+    Ok(identity)
+}
+
+fn check_database(
+    config: &Config,
+    input_identities: &[DatabaseIdentity],
+) -> Result<DatabaseIdentity> {
+    let (directory, leaf) = parent(Path::new(&config.database_path), config.signer_uid)
+        .map_err(|_| Failure::Database)?;
+    database_at(&directory, &leaf, config.signer_uid, input_identities)
+}
+
+/// Opened only before SQLite. Later checks never open a replacement path, which
+/// might now alias a SQLite inode even when its permissions would be rejected.
+struct PrivateInput {
+    file: File,
+    identity: DatabaseIdentity,
+    maximum: usize,
+}
+impl PrivateInput {
+    fn open(path: &Path, uid: u32, maximum: usize) -> Result<(Self, Zeroizing<Vec<u8>>)> {
+        let file = private_file(path, uid, maximum)?;
+        let metadata = file.metadata().map_err(|_| Failure::Config)?;
+        let input = Self {
+            file,
+            identity: (metadata.dev(), metadata.ino()),
+            maximum,
+        };
+        let bytes = input.read(path, uid)?;
+        Ok((input, bytes))
+    }
+
+    fn read(&self, path: &Path, uid: u32) -> Result<Zeroizing<Vec<u8>>> {
+        let (directory, leaf) = parent(path, uid)?;
+        self.read_at(&directory, &leaf, uid)
+    }
+
+    fn read_at(&self, directory: &File, leaf: &CString, uid: u32) -> Result<Zeroizing<Vec<u8>>> {
+        let inspect = || metadata_leaf(directory, leaf, uid, self.maximum);
+        if inspect()? != Some(self.identity) {
+            return Err(Failure::Config);
+        }
+        let mut bytes = Zeroizing::new(vec![0; self.maximum + 1]);
+        let mut offset = 0;
+        loop {
+            match self.file.read_at(&mut bytes[offset..], offset as u64) {
+                Ok(0) => break,
+                Ok(count) => {
+                    offset += count;
+                    if offset > self.maximum {
+                        return Err(Failure::Config);
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return Err(Failure::Config),
+            }
+        }
+        // No replacement leaf is opened, even on refusal. Recheck after the
+        // bounded read so a rename, unlink or protection change cannot pass.
+        if inspect()? != Some(self.identity) {
+            return Err(Failure::Config);
+        }
+        bytes.truncate(offset);
+        Ok(bytes)
+    }
 }
 
 fn peer(stream: &UnixStream, allowed_uid: u32) -> Result<()> {
@@ -284,21 +393,24 @@ fn write_frame(stream: &mut UnixStream, value: &serde_json::Value) -> Result<()>
 }
 
 struct Runtime {
+    // Field drop order is significant: SQLite closes before the input files.
+    store: AuthorityStore,
+    config_input: PrivateInput,
+    key_input: PrivateInput,
     config: Config,
     config_path: std::path::PathBuf,
     config_bytes: Zeroizing<Vec<u8>>,
     key: SigningKey,
     tenant: AuthorityTenant,
     verifier: WebAuthn,
-    store: AuthorityStore,
-    database_identity: (u64, u64),
+    database_identity: DatabaseIdentity,
     worker_id: String,
 }
 impl Runtime {
     fn load(path: &Path) -> Result<Self> {
         let uid = identity()?;
         harden()?;
-        let config_bytes = read_private(path, uid, 16384)?;
+        let (config_input, config_bytes) = PrivateInput::open(path, uid, 16384)?;
         let config: Config = fw_contracts::parse_strict_with_limit(&config_bytes, 16384)
             .map_err(|_| Failure::Config)?;
         if config.schema_version != "fw.signer-config/v1"
@@ -314,22 +426,26 @@ impl Runtime {
         let tenant = AuthorityTenant::new(&config.org_id, &config.project_id)
             .map_err(|_| Failure::Config)?;
         let verifier = WebAuthn::new(&config.webauthn_origin).map_err(|_| Failure::Config)?;
-        let seed = read_private(Path::new(&config.key_file), uid, 32).map_err(|_| Failure::Key)?;
+        let (key_input, seed) =
+            PrivateInput::open(Path::new(&config.key_file), uid, 32).map_err(|_| Failure::Key)?;
         let seed_array: &[u8; 32] = seed.as_slice().try_into().map_err(|_| Failure::Key)?;
         let key = SigningKey::from_bytes(seed_array);
-        let database_identity = check_database(&config)?;
+        let input_identities = [config_input.identity, key_input.identity];
+        let database_identity = check_database(&config, &input_identities)?;
         let store = AuthorityStore::open(&config.database_path).map_err(|_| Failure::Database)?;
-        if check_database(&config)? != database_identity {
+        if check_database(&config, &input_identities)? != database_identity {
             return Err(Failure::Database);
         }
         Ok(Self {
+            store,
+            config_input,
+            key_input,
             config,
             config_path: path.into(),
             config_bytes,
             key,
             tenant,
             verifier,
-            store,
             database_identity,
             worker_id: uuid::Uuid::new_v4().to_string(),
         })
@@ -337,17 +453,25 @@ impl Runtime {
 
     fn recheck(&self) -> Result<()> {
         if identity()? != self.config.signer_uid
-            || *read_private(&self.config_path, self.config.signer_uid, 16384)?
+            || *self
+                .config_input
+                .read(&self.config_path, self.config.signer_uid)?
                 != *self.config_bytes
         {
             return Err(Failure::Config);
         }
-        let seed = read_private(Path::new(&self.config.key_file), self.config.signer_uid, 32)
+        let seed = self
+            .key_input
+            .read(Path::new(&self.config.key_file), self.config.signer_uid)
             .map_err(|_| Failure::Key)?;
         if seed.as_slice() != self.key.as_bytes() {
             return Err(Failure::Key);
         }
-        if check_database(&self.config)? != self.database_identity {
+        if check_database(
+            &self.config,
+            &[self.config_input.identity, self.key_input.identity],
+        )? != self.database_identity
+        {
             return Err(Failure::Database);
         }
         Ok(())
@@ -362,6 +486,15 @@ impl Runtime {
                 "peer_identity_verified":true,"distinct_process_identity":true,
                 "key_storage_permissions_verified":true,"signing_allowed":false,"dispatch_allowed":false,
                 "production_blockers":["BUILD_IDENTITY_UNVERIFIED","NATIVE_QUALIFICATION_UNAVAILABLE"]
+            })),
+            Request::StatusV2 { .. } => Ok(json!({
+                "schema_version":"fw.signer-status/v2","request_id":request_id,
+                "peer_identity_verified":true,"distinct_process_identity":true,
+                "key_storage_permissions_verified":true,"signing_allowed":false,"dispatch_allowed":false,
+                "production_blockers":fw_authority::authority_gate_codes(&[
+                    fw_authority::AuthorityGate::BuildIdentityRequired,
+                    fw_authority::AuthorityGate::NativeQualificationRequired,
+                ])
             })),
             Request::SignJob {
                 job_id,
@@ -435,8 +568,12 @@ pub(super) fn serve(path: &Path) -> Result<()> {
     )
     .map_err(|_| Failure::Socket)?;
     eprintln!("SIGNER_LISTENING production_signing=false production_dispatch=false");
-    for stream in listener.incoming() {
-        let mut stream = stream.map_err(|_| Failure::Socket)?;
+    loop {
+        let mut stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(Failure::Socket),
+        };
         if peer(&stream, runtime.config.controller_uid).is_err() {
             continue;
         }
@@ -460,8 +597,11 @@ pub(super) fn serve(path: &Path) -> Result<()> {
             eprintln!("SIGNER_DELIVERY_FAILED");
         }
     }
-    Err(Failure::Socket)
 }
+
+#[cfg(test)]
+#[path = "linux_locking_tests.rs"]
+mod locking_tests;
 
 #[cfg(test)]
 mod tests {

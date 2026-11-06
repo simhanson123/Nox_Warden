@@ -13,6 +13,8 @@ mod readback;
 pub use readback::{verify_readback, Comparison, ReadbackVerification};
 mod portable;
 pub use portable::*;
+mod bootstrap;
+pub use bootstrap::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {

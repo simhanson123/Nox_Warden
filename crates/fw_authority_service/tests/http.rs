@@ -2432,7 +2432,7 @@ async fn signing_readiness_rejects_repeated_route_prefixes_after_live_review_aut
     let f = Fixture::configured(true);
     let (addr, task) = f.start(NOW + 1).await;
     let auth = login(&f, addr, 1).await;
-    for version in ["v1", "v2"] {
+    for version in ["v1", "v2", "v3"] {
         let path = format!(
             "/authority/{version}/plans//authority/{version}/plans/{PLAN}/signing-readiness"
         );
@@ -2483,6 +2483,117 @@ async fn signing_readiness_rejects_repeated_route_prefixes_after_live_review_aut
             .status,
             200
         );
+    }
+    assert_no_signing_work(&f);
+    task.abort();
+}
+
+#[tokio::test]
+async fn canonical_v3_readiness_preserves_legacy_contracts_and_requires_live_review_auth() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let path = format!("/authority/v3/plans/{PLAN}/signing-readiness");
+    let anonymous = session(addr).await;
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            anonymous.cookie.as_deref(),
+            anonymous.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    let auth = login(&f, addr, 1).await;
+    for (csrf, origin) in [
+        (None, ORIGIN),
+        (auth.body["csrf_token"].as_str(), "http://localhost:8799"),
+    ] {
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &path,
+                auth.cookie.as_deref(),
+                csrf,
+                None,
+                origin
+            )
+            .await
+            .status,
+            403
+        );
+    }
+    let response = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(response.status, 200, "{}", response.raw);
+    assert_eq!(response.body.as_object().unwrap().len(), 20);
+    assert_eq!(response.body["schema_version"], "fw.signing-readiness/v3");
+    assert_eq!(response.body["bootstrap_authorization_hash"], Value::Null);
+    assert_eq!(response.body["target_bootstrap"], Value::Null);
+    assert_eq!(response.body["signing_allowed"], false);
+    assert_eq!(response.body["dispatch_allowed"], false);
+    assert!(
+        response
+            .raw
+            .to_lowercase()
+            .contains("cache-control: no-store")
+    );
+    let reasons = response.body["reasons"].as_array().unwrap();
+    for reason in [
+        "BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED",
+        "BOOTSTRAP_AUTHORIZATION_REQUIRED",
+        "TARGET_EPOCH_CONFIRMATION_REQUIRED",
+        "BUILD_IDENTITY_REQUIRED",
+        "NATIVE_QUALIFICATION_REQUIRED",
+        "POLICY_SIGNER_KEY_REQUIRED",
+        "PROTECTED_SIGNER_UNAVAILABLE",
+    ] {
+        assert!(reasons.contains(&json!(reason)), "{reason}");
+    }
+    for old in [
+        "PROTECTED_BOOTSTRAP_REQUIRED",
+        "BUILD_IDENTITY_UNVERIFIED",
+        "NATIVE_QUALIFICATION_UNAVAILABLE",
+    ] {
+        assert!(!reasons.contains(&json!(old)), "{old}");
+    }
+    for version in ["v1", "v2"] {
+        let legacy = request(
+            addr,
+            "GET",
+            &path.replace("/v3/", &format!("/{version}/")),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN,
+        )
+        .await;
+        assert_eq!(legacy.status, 200);
+        assert_eq!(
+            legacy.body["schema_version"],
+            format!("fw.signing-readiness/{version}")
+        );
+        assert!(
+            legacy.body["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("PROTECTED_BOOTSTRAP_REQUIRED"))
+        );
+        assert!(legacy.body.get("target_bootstrap").is_none());
+        assert!(legacy.body.get("bootstrap_authorization_hash").is_none());
     }
     assert_no_signing_work(&f);
     task.abort();

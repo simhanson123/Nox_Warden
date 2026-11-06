@@ -18,6 +18,23 @@ and ensure the controller cannot rewrite authority storage or read signer keys.
 Configuration is limited to 16 KiB; the database and each checked sidecar to
 512 MiB. Exceeding these bounds is a refusal, not a retention/archival procedure.
 
+Database/WAL/SHM checks use metadata-only `fstatat` through a protected parent
+directory with `AT_SYMLINK_NOFOLLOW`. They must never independently open and close
+those inodes after SQLite opens them: POSIX `fcntl` locks belong to the process,
+and closing another descriptor can release SQLite's locks. Config/key descriptors
+are opened before SQLite and retained for bounded `pread`; later checks compare
+path/device/inode/ownership/permissions before and after reading. Startup refuses
+input aliases with SQLite files, and the store drops before those descriptors.
+Config/key replacement requires restart even with identical bytes; restoring
+permissions on the same safe inode can recover normal checks.
+
+The [PR27 review](../../docs/reviews/pr27-claude-review.md) found High S-1 in the
+previous file-check lifecycle. Metadata-only source checks alone are not runtime
+durability evidence: the [follow-up](../../docs/pr27-follow-up.md) records the new
+passing external-reader/DMS and termination/restart exact-retry regressions.
+Current integrated validation belongs in [reports](../../reports/README.md);
+SIGTERM/restart in tmpfs does not qualify host power-loss recovery.
+
 The Unix socket checks kernel `SO_PEERCRED` against the configured controller
 UID. Its parent may allow directory traversal while remaining protected from
 controller writes. Socket mode alone is not authentication. Existing socket
@@ -33,6 +50,10 @@ with the monotonic clock. The `fw.signer-request/v1` operations are:
 
 ```json
 {"schema_version":"fw.signer-request/v1","request_id":"00000000-0000-4000-8000-000000000001","operation":"status"}
+```
+
+```json
+{"schema_version":"fw.signer-request/v1","request_id":"00000000-0000-4000-8000-000000000001","operation":"status_v2"}
 ```
 
 ```json
@@ -61,9 +82,15 @@ The result remains `authorized_pending_target_confirmation`, with policy
 signing/dispatch false. This initial local/Lab single-owner profile does not
 complete Team multi-party bootstrap governance.
 
-`status` reports the verified process/key/peer boundary with
-`signing_allowed:false` and `dispatch_allowed:false`. Its production blockers
-include `BUILD_IDENTITY_UNVERIFIED` and `NATIVE_QUALIFICATION_UNAVAILABLE`.
+`status` returns the exact legacy `fw.signer-status/v1` process/key/peer summary
+with `signing_allowed:false`, `dispatch_allowed:false` and the original
+`BUILD_IDENTITY_UNVERIFIED`/`NATIVE_QUALIFICATION_UNAVAILABLE` labels.
+Clients that need shared canonical gate codes explicitly request `status_v2` and
+receive `fw.signer-status/v2`, with `BUILD_IDENTITY_REQUIRED` and
+`NATIVE_QUALIFICATION_REQUIRED`. Its verified peer/key fields and false policy
+permissions have the same meaning. Both operations use the closed v1 request
+envelope and the same bounds/deadlines. Process status does not infer target
+confirmation or current target-specific authority.
 Production authority resolution remains closed. This is not a generic signing
 endpoint or evidence that a target accepted its epoch/baseline, a native backend
 is qualified, or production policy signing/dispatch is available. See the

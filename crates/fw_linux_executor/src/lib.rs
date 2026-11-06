@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 mod core_access;
 pub use core_access::*;
+mod bootstrap_contracts;
+pub use bootstrap_contracts::*;
 
 pub const CONFIRM_TYPE: &str = "application/vnd.fw.experimental-confirm.v1+json";
 pub const PROBE_TYPE: &str = "application/vnd.fw.isolated-probes.v1+json";

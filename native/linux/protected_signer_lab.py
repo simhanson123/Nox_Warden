@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Disposable-container-only actual-process UID, key, framing and bootstrap tests."""
 import base64
+from contextlib import closing
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -36,8 +38,31 @@ def drop(uid):
     return apply
 
 
-def command(args, uid=SIGNER, **kwargs):
-    return subprocess.run(args, preexec_fn=drop(uid), capture_output=True, timeout=15, **kwargs)
+def command(args, uid=SIGNER, timeout=15, **kwargs):
+    body = kwargs.pop('input', None)
+    process = subprocess.Popen(args, preexec_fn=drop(uid),
+                               stdin=subprocess.PIPE if body is not None else None,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    try:
+        stdout, stderr = process.communicate(body, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # The root fixture parent intentionally lacks CAP_KILL. Signal a
+        # timed-out child from its actual UID, then reap both bounded children.
+        code = ('import os,signal,sys;signal.alarm(4)\n'
+                'try:os.kill(int(sys.argv[1]),signal.SIGKILL)\n'
+                'except ProcessLookupError:pass')
+        try:
+            cleanup = subprocess.Popen(['python3', '-c', code, str(process.pid)],
+                                       preexec_fn=drop(uid), stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            cleanup.communicate(timeout=5)
+            if cleanup.returncode:
+                raise RuntimeError('FIXTURE_COMMAND_TIMEOUT_CLEANUP_FAILED')
+            process.communicate(timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            raise RuntimeError('FIXTURE_COMMAND_TIMEOUT_CLEANUP_FAILED') from None
+        raise RuntimeError('FIXTURE_COMMAND_TIMEOUT') from None
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
 
 
 def signer_chmod(path, mode):
@@ -108,6 +133,32 @@ def discard_reply(socket_path, payload):
         raise RuntimeError('discarded output client failed')
 
 
+def sqlite_locks(database):
+    """Observe SQLite locks from another PID without opening a SQL connection."""
+    code = r'''
+import errno,fcntl,json,os,sys
+fd=os.open(sys.argv[1],os.O_RDWR|os.O_NOFOLLOW|os.O_CLOEXEC)
+try:
+ try:
+  fcntl.lockf(fd,fcntl.LOCK_EX|fcntl.LOCK_NB,int(sys.argv[3]),int(sys.argv[2]),os.SEEK_SET)
+  state='ACQUIRED'
+ except OSError as error:
+  if error.errno not in (errno.EACCES,errno.EAGAIN):raise
+  state='BLOCKED'
+ print(json.dumps({'state':state}))
+finally:os.close(fd)
+'''
+    observed = {}
+    for name, path, offset, length in (
+            ('main_shared', database, 1073741826, 510),
+            ('shm_dms', str(database) + '-shm', 128, 1)):
+        result = command(['python3', '-c', code, str(path), str(offset), str(length)])
+        if result.returncode:
+            raise RuntimeError('independent SQLite lock observation failed')
+        observed[name] = json.loads(result.stdout)['state']
+    return observed
+
+
 def main():
     if os.geteuid() != 0 or not (ROOT / 'DISPOSABLE_SIGNER_LAB').is_file() or (ROOT / 'DISPOSABLE_SIGNER_LAB').read_text() != 'fw-disposable-protected-signer-lab-v1\n':
         raise RuntimeError('explicit disposable container marker required')
@@ -119,10 +170,10 @@ def main():
     for directory, mode in ((state, 0o700), (runtime, 0o711)):
         directory.mkdir(mode=mode)
         os.chown(directory, SIGNER, SIGNER)
-    fixture = command([str(ROOT / 'protected_signer_fixture'), str(state), '--admin', str(ROOT / 'fw_authority_admin')])
+    fixture = command([str(ROOT / 'protected_signer_fixture'), str(state), '--admin', str(ROOT / 'fw_authority_admin')], timeout=90)
     check('actual owner proof and bootstrap inputs created', fixture.returncode == 0)
     metadata = json.loads(fixture.stdout)
-    check('actual operator CLI provisions all bootstrap inputs', metadata.get('operator_cli_used') is True and metadata.get('operator_commands_executed') == 17)
+    check('actual operator CLI provisions all bootstrap inputs', metadata.get('operator_cli_used') is True and metadata.get('operator_commands_executed') == 18)
     config = {'schema_version': 'fw.signer-config/v1', 'signer_uid': SIGNER, 'controller_uid': CONTROLLER,
               'org_id': metadata['org_id'], 'project_id': metadata['project_id'],
               'database_path': metadata['database_path'], 'key_file': metadata['seed_file'],
@@ -232,9 +283,16 @@ def main():
             unreadable = command(['python3', '-c', 'import sys;open(sys.argv[1],"rb").read(1)', str(private_path)], CONTROLLER)
             check('controller cannot read ' + ('private key' if private_path == seed else 'authority database'), unreadable.returncode != 0)
         start()
+        sqlite_evidence = {'locks_after_startup': sqlite_locks(config['database_path'])}
+        check('live SQLite locks held after signer startup', sqlite_evidence['locks_after_startup'] == {'main_shared': 'BLOCKED', 'shm_dms': 'BLOCKED'})
         status = client(config['socket_path'], request('status'))
         check('kernel authenticated distinct controller accepted', status['peer_identity_verified'] and status['distinct_process_identity'])
         check('protected local keys reported without production authority', status['key_storage_permissions_verified'] and not status['signing_allowed'] and not status['dispatch_allowed'])
+        check('legacy signer status preserves exact v1 blocker labels', status['schema_version'] == 'fw.signer-status/v1' and status['production_blockers'] == ['BUILD_IDENTITY_UNVERIFIED', 'NATIVE_QUALIFICATION_UNAVAILABLE'])
+        status_v2 = client(config['socket_path'], request('status_v2'))
+        check('opt-in signer status uses canonical v2 blocker labels', status_v2['schema_version'] == 'fw.signer-status/v2' and status_v2['production_blockers'] == ['BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED'] and status_v2['peer_identity_verified'] and status_v2['distinct_process_identity'] and status_v2['key_storage_permissions_verified'] and not status_v2['signing_allowed'] and not status_v2['dispatch_allowed'])
+        sqlite_evidence['locks_after_status'] = sqlite_locks(config['database_path'])
+        check('live SQLite locks held after status request', sqlite_evidence['locks_after_status'] == {'main_shared': 'BLOCKED', 'shm_dms': 'BLOCKED'})
         check('another process UID refused before response', client(config['socket_path'], request('status'), OTHER) is None)
         check('root peer is not accepted as configured controller', client(config['socket_path'], request('status'), 0) is None)
         check('caller actor assertion rejected', client(config['socket_path'], request('status', actor='owner')) is None)
@@ -264,22 +322,46 @@ def main():
         check('unretained bootstrap manifest refused', missing['code'] == 'SIGNER_AUTHORITY_UNAVAILABLE')
         grant = client(config['socket_path'], request('sign_job', job_id=str(uuid.uuid4()), expected_claim_generation='0'))
         check('unretained policy job cannot obtain signature', grant['code'] == 'SIGNER_AUTHORITY_UNAVAILABLE')
-        discard_reply(config['socket_path'], request('authorize_bootstrap', manifest_id=metadata['manifest_id']))
-        committed_bytes = None
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            with sqlite3.connect(config['database_path']) as retained:
-                row = retained.execute("SELECT canonical_bytes FROM authority_registry_objects WHERE object_kind='bootstrap_authorization'").fetchone()
-            if row:
-                committed_bytes = bytes(row[0])
-                break
+        external_reader = command(['python3', '-c',
+            'import json,sqlite3,sys\n'
+            'db=sqlite3.connect(sys.argv[1],timeout=2)\n'
+            'try:\n'
+            ' floor=db.execute("SELECT MAX(observed_at) FROM authority_registry_clocks").fetchone()[0]\n'
+            ' count=db.execute("SELECT count(*) FROM authority_registry_objects WHERE object_kind=\'bootstrap_authorization\'").fetchone()[0]\n'
+            ' print(json.dumps({"floor":floor,"authorization_rows":count}))\n'
+            'finally:db.close()\n', config['database_path']])
+        check('ordinary external reader closes before first authorization', external_reader.returncode == 0)
+        before_authorize = json.loads(external_reader.stdout)
+        check('durability scenario begins without an authorization', before_authorize['authorization_rows'] == 0)
+        sqlite_evidence['floor_before_authorization'] = before_authorize['floor']
+        deadline = time.monotonic() + 10
+        while int(time.time()) <= before_authorize['floor']:
+            if time.monotonic() >= deadline:
+                raise RuntimeError('fixture clock is unexpectedly ahead')
             time.sleep(.01)
-        check('disconnected caller leaves committed bootstrap authorization', committed_bytes is not None)
+        discard_reply(config['socket_path'], request('authorize_bootstrap', manifest_id=metadata['manifest_id']))
         authorized = client(config['socket_path'], request('authorize_bootstrap', manifest_id=metadata['manifest_id']))
         check('retained real owner proof receives bootstrap authorization', authorized['schema_version'] == 'fw.signer-bootstrap-outcome/v1')
         authorization = authorized['authorization']
         canonical = json.dumps(authorization, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+        # No SQLite read, poll, verifier or checkpoint until the signer exits.
+        stop()
+        with closing(sqlite3.connect(config['database_path'])) as retained:
+            rows = retained.execute("SELECT canonical_bytes FROM authority_registry_objects WHERE object_kind='bootstrap_authorization'").fetchall()
+            durable_floor = retained.execute('SELECT MAX(observed_at) FROM authority_registry_clocks').fetchone()[0]
+        committed_bytes = bytes(rows[0][0]) if len(rows) == 1 else None
+        check('disconnected caller leaves durable authorization after SIGTERM', committed_bytes is not None)
         check('retry recovers original bytes after actual lost output', canonical == committed_bytes)
+        issued_at = int(datetime.fromisoformat(authorization['payload']['issued_at'].replace('Z', '+00:00')).timestamp())
+        check('new registry clock floor survives SIGTERM', durable_floor > before_authorize['floor'] and durable_floor >= issued_at)
+        sqlite_evidence.update(floor_after_first_stop=durable_floor, authorization_issued_at=issued_at,
+                               no_sqlite_read_before_first_stop=True,
+                               authorization_hash_after_first_stop='sha256:' + hashlib.sha256(committed_bytes).hexdigest())
+        start()
+        recovered = client(config['socket_path'], request('authorize_bootstrap', manifest_id=metadata['manifest_id']))
+        check('ordinary reader and SIGTERM preserve exact restart bytes', recovered['authorization'] == authorization)
+        sqlite_evidence['locks_after_restart_retry'] = sqlite_locks(config['database_path'])
+        check('live SQLite locks held after restart retry', sqlite_evidence['locks_after_restart_retry'] == {'main_shared': 'BLOCKED', 'shm_dms': 'BLOCKED'})
         check('bootstrap signature has exact purpose and size', authorization['dsse']['payloadType'] == 'application/vnd.f.authority-bootstrap.v1+json' and len(base64.b64decode(authorization['dsse']['signatures'][0]['sig'])) == 64)
         check('bootstrap result preserves closed production gates', not authorized['status']['signing_allowed'] and not authorized['status']['dispatch_allowed'])
         signed_file = state / 'authorization.json'
@@ -314,11 +396,15 @@ def main():
         start()
         restarted = client(config['socket_path'], request('authorize_bootstrap', manifest_id=metadata['manifest_id']))
         check('process restart preserves original signed authorization', restarted['authorization'] == authorization)
+        stop()
         db = sqlite3.connect(config['database_path'])
         count = db.execute("SELECT count(*) FROM authority_registry_objects WHERE object_kind='bootstrap_authorization'").fetchone()[0]
         check('one durable bootstrap authorization after retries', count == 1)
         for table in ('authority_signing_results', 'authority_signing_outbox', 'authority_signing_quota_usage'):
             check('bootstrap creates no ' + table, db.execute('SELECT count(*) FROM ' + table).fetchone()[0] == 0)
+        final_floor = db.execute('SELECT MAX(observed_at) FROM authority_registry_clocks').fetchone()[0]
+        check('registry clock floor never decreases across restarts', final_floor >= durable_floor)
+        sqlite_evidence['floor_after_final_stop'] = final_floor
         db.close()
         return {'schema_version': 'fw.protected-signer-smoke/v1', 'status': 'PASS', 'checks': len(checks),
                 'check_names': checks, 'production_supported': False, 'packet_tests_executed': 0,
@@ -327,6 +413,7 @@ def main():
                 'actual_owner_proof': True, 'actual_ed25519_signature': True,
                 'operator_cli_used': metadata['operator_cli_used'],
                 'operator_commands_executed': metadata['operator_commands_executed'],
+                'sqlite_durability': sqlite_evidence,
                 'production_signing_allowed': False, 'production_dispatch_allowed': False}
     finally:
         stop()

@@ -269,6 +269,13 @@ impl WorkloadBinding {
         dsse_shape(&self.dsse, &self.payload, WORKLOAD_BINDING_TYPE, 8)?;
         Ok(())
     }
+    /// Current registry admission supports one authoritative signer. The
+    /// original F contract still permits multiple signatures; historical
+    /// verification and exact retained bytes deliberately keep that contract.
+    pub fn validate_current_admission_profile(&self) -> Result<()> {
+        self.validate_shape()?;
+        current_signature_profile(&self.dsse, &self.payload.issuer_key_id)
+    }
 }
 impl WorkloadBindingPayload {
     pub fn validate(&self) -> Result<()> {
@@ -293,9 +300,7 @@ impl WorkloadBindingPayload {
         ordered(&self.asset_ids, 1, 16, uuid_ok)?;
         ordered(&self.asset_revision_hashes, 1, 16, hash_ok)?;
         // The sets are independent: never zip their sorted arrays to infer an ID→hash mapping.
-        if self.asset_ids.len() != self.asset_revision_hashes.len()
-            || !(1..=16).contains(&self.addresses.len())
-        {
+        if !(1..=16).contains(&self.addresses.len()) {
             return Err(invalid());
         }
         let mut addresses = BTreeSet::new();
@@ -513,6 +518,12 @@ pub struct BootstrapAuthorization {
     pub dsse: DsseEnvelope,
 }
 impl BootstrapAuthorization {
+    /// Admission profile, not a restriction of the preserved F wire schema.
+    /// Unsigned supplemental envelope bytes cannot select a new retained hash.
+    pub fn validate_current_admission_profile(&self) -> Result<()> {
+        self.validate_shape()?;
+        current_signature_profile(&self.dsse, &self.payload.signer_key_id)
+    }
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let authorization: Self =
             parse_strict_with_limit(bytes, MAX_AUTHORITY_REGISTRY_BYTES).map_err(|_| invalid())?;
@@ -848,6 +859,15 @@ fn identity(
         Ok(())
     }
 }
+fn current_signature_profile(dsse: &DsseEnvelope, key_id: &str) -> Result<()> {
+    if dsse.signatures.len() != 1 || dsse.signatures[0].keyid != key_id {
+        return Err(AuthorityError::Invalid(
+            "unsupported registry signature profile",
+        ));
+    }
+    Ok(())
+}
+
 fn verify_dsse<T: Serialize>(
     dsse: &DsseEnvelope,
     payload: &T,

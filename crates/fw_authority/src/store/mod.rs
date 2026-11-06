@@ -12,9 +12,14 @@ mod admission;
 mod audit_log;
 mod authority_registry;
 pub use authority_registry::*;
+mod bootstrap_origin;
+pub use bootstrap_origin::*;
+mod target_bootstrap;
+pub use target_bootstrap::*;
 #[cfg(test)]
 #[path = "../../tests/support/core_access_review_fixture.rs"]
 mod core_access_review_fixture;
+mod target_bootstrap_validation;
 #[cfg(test)]
 use core_access_review_fixture::core as core_access_fixture;
 mod live_integrity;
@@ -185,11 +190,12 @@ impl AuthorityStore {
                 migrations::apply_v13(&tx)?;
                 migrations::apply_v14(&tx)?;
                 migrations::apply_v15(&tx)?;
+                migrations::apply_v16(&tx)?;
                 let marker = live_integrity::data_version(&tx)?;
                 tx.commit()?;
                 break Some(marker);
             }
-            if application != APPLICATION_ID || !(1..=15).contains(&version) {
+            if application != APPLICATION_ID || !(1..=16).contains(&version) {
                 return Err(invalid("foreign or unsupported authority database"));
             }
             let identity: Option<String> = tx
@@ -202,13 +208,13 @@ impl AuthorityStore {
             if identity.as_deref() != Some(SCHEMA) {
                 return Err(invalid("authority database identity"));
             }
-            if version < 15 {
+            if version < 16 {
                 return Err(AuthorityError::MigrationRequired {
                     found: version,
-                    required: 15,
+                    required: 16,
                 });
             }
-            migrations::validate_v15(&tx)?;
+            migrations::validate_v16(&tx)?;
             let unchanged = marker == live_integrity::data_version(&tx)?;
             tx.commit()?;
             break unchanged.then_some(marker);

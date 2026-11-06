@@ -6,6 +6,8 @@ extern crate self as fw_authority;
 
 mod approval;
 pub use approval::*;
+mod authority_gates;
+pub use authority_gates::{AuthorityGate, authority_gate_codes};
 #[cfg(feature = "approval-proofs")]
 mod access_provenance;
 #[cfg(feature = "approval-proofs")]
@@ -34,6 +36,10 @@ pub use signing::*;
 mod authority_registry;
 #[cfg(feature = "approval-proofs")]
 pub use authority_registry::*;
+#[cfg(feature = "approval-proofs")]
+mod target_confirmation;
+#[cfg(feature = "approval-proofs")]
+pub use target_confirmation::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};

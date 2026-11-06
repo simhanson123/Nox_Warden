@@ -404,14 +404,50 @@ Readiness v1/v2 contracts are unchanged. `CORE_SIGNING_PROFILE_UNAVAILABLE`,
 [core-access enforcement](core-access-enforcement.md) for the separate Linux
 execution profile with synthetic trust and remaining production dependencies.
 
+## Explicit origin and isolated target confirmation (schema16)
+
+Schema16 adds three approval-origin tables and six isolated target-bootstrap
+tables, without changing SQL001–015. Origin pinning is explicit OOB trust; old
+challenge/proof bytes receive only separate NULL-origin classification. A late
+matching pin cannot promote them. A consumed exact proof retry can acknowledge
+original history with closed flags; an unconsumed older-revision challenge cannot
+create new consent. See [the correction contract](pr27-follow-up.md).
+
+Target key pins/revocation, exact challenges, signed confirmations and current
+head/audit preserve their own revision and predecessor history. Current receipt
+eligibility is separate from accepted history and from qualified policy authority.
+The [target contract](target-authority-confirmation.md) describes the bounded
+generation0 development profile, operator commands and explicit readiness v3.
+Every policy signing/dispatch flag stays false.
+
+Cross-purpose separation compares actual public-key bytes within the organization,
+not fingerprints whose historical raw32/SPKI encodings differ. All four key roles
+remain separate even after revocation/retirement. The released15 validator can
+accept a conflicting old assignment; current16 migration backs up that original
+history and rejects the entire upgrade. Every tenant in that database remains
+unavailable to16 until a separately authorized compatible recovery exists. No
+automatic key relabeling, history deletion or repair is implemented. Original
+rows, rowids, types, blobs and backup bytes must survive the refusal.
+
+Healthy v15 owner history migrates as readable verified history. An existing
+unconfirmed v15 pending chain has no automatic recovery: its authorization bytes
+are immutable, and a current target challenge requires genuine current authority
+plus an actual confirmed predecessor. Do not reset pending heads, generations,
+quota or issued/UNKNOWN obligations to regain genesis. This target-specific
+eligibility limitation is distinct from the whole-file conflicting14 rejection
+below. Supported rotation uses an accepted confirmed predecessor and the same
+protected target config/boot/netns/journal at generation0; native key/boot recovery
+remains unsupported.
+
 ## Conflicting legacy core windows and recovery
 
 Earlier schema14 binaries could retain a provenance-only plan outside an
 existing fixed request window, or create a first window that conflicted with
 earlier bindings. At the corrected schema14 checkpoint, complete retained
 validation rejected such a database at `AuthorityStore::open` with `Binding`.
-The current schema15 binary first returns `MigrationRequired` for a recognized
-schema14 database. Explicit migration revalidates that original graph and rejects the
+The reviewed schema15 binary first returned `MigrationRequired` for a recognized
+schema14 database; the current schema16 binary likewise requires explicit upgrade
+from recognized older versions. Migration revalidates that original graph and rejects the
 conflict with `Binding` before creating a new maintenance backup. The
 administration executable reports `DATABASE_REJECTED` for ordinary open and
 `MIGRATION_REJECTED` for explicit migration refusal.
@@ -458,15 +494,14 @@ or external rollback protection has been implemented.
 
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 15. The stable family identity
+Fresh authority databases use schema version 16. The stable family identity
 `fw.authority-store/v1` and SQLite application ID remain unchanged.
 
-This batch preserves SQL001–014 and adds SQL015. Once this feature is published,
-SQL015 and its schema/guard contract also become published history. Subsequent
-schema work must use a new migration rather than rewriting any SQL001–015 file
-or silently changing the retained version15 contract.
+This batch preserves SQL001–015 and adds SQL016. Once published, SQL016 and its
+schema/guard contract also become immutable history. Subsequent schema work must
+use a new migration rather than rewriting released migration/schema contracts.
 
-Opening a populated version 1–14 database returns `MigrationRequired` without
+Opening a populated version 1–15 database returns `MigrationRequired` without
 adding tables or treating its keys as newly enrolled. Use the explicit maintenance
 operation below.
 
@@ -478,9 +513,11 @@ mandatory at open and adds atomic audit/work bindings and independent accounting
 membership checks. Schema14 adds immutable reviewed-core lease windows without
 changing the published SQL001–013 or legacy provenance bytes. Schema15 adds the
 signed workload/bootstrap registry while preserving all published SQL001–014.
+Schema16 adds explicit origin trust and isolated target confirmation while
+preserving all SQL001–015 and their retained contracts.
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v15.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v16.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -520,8 +557,8 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version15 database makes no new backup or state change. Version14
-requires an explicit backed-up upgrade. Opening version15 and current-version
+on a valid version16 database makes no new backup or state change. Version15
+requires an explicit backed-up upgrade. Opening version16 and current-version
 maintenance compare checksums and the exact known object inventory, including
 autoindexes; optional sqlite_stat1/stat4 tables require exact structural metadata.
 Neither sqlite_-prefixed objects nor lookalikes such as sqliteX_hidden are exempt.

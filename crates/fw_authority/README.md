@@ -95,9 +95,11 @@ structural checks never open production core signing or dispatch. See the
 [fixed-window contract](../../docs/core-access-enforcement.md).
 
 The challenge and proof modules use the default-enabled `approval-proofs` Cargo
-feature. Native executor and lab consumers disable default features, keeping
-these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
-Grant, recovery and quota verification remain available without this feature.
+feature. Minimal consumers can disable it and exclude the approval APIs and their
+WebAuthn/OpenSSL dependencies; grant, recovery and quota verification remain
+available. The Linux executor and testlab currently opt into approval contracts
+and include those dependencies. That choice does not expose an approval ceremony
+or policy signing endpoint in the native driver.
 
 Schema15 adds signed workload bindings and exact original envelope/delegation
 staging, independently pinned purpose-specific keys, actual owner-bound WebAuthn
@@ -117,6 +119,27 @@ issuing exact DSSE; policy jobs retain current-authority, quota, original-window
 and claim fences. Production policy resolution remains closed pending target
 confirmation, qualified build/native evidence and policy-signer trust. A private
 test witness exercises core grant mechanics without opening that production gate.
+
+The follow-up adds explicit schema16 project approval-origin pins. Trusted local
+pin/CAS/read APIs do not import trust from a caller origin or retained challenge;
+legacy15 challenges gain separate NULL-origin classification only and their
+original proof bytes never become current through a matching late pin. New
+challenges bind the current revision. New workload/bootstrap registry admissions
+use one authoritative signature; published F multi-signature shapes and old
+history/primary verification remain intact. Shared gate codes and versioned
+readiness describe missing authority with every policy permission false.
+The new [isolated target-confirmation contract](../../docs/target-authority-confirmation.md)
+retains actual confirmed predecessors and signed receipts without qualifying
+release or production dispatch. Readiness v3 exposes current versus historical state.
+
+The [PR27 follow-up](../../docs/pr27-follow-up.md) records High S-1 in the signer
+wrapper's file-check lifecycle. SQLite's process-owned POSIX locks must not be
+released by independently opening/closing its database/WAL/SHM in the same process.
+The signer source now uses metadata-only checks and pre-SQLite pinned input
+descriptors. New focused external-reader/termination/restart regressions pass;
+their exact source and runtime evidence are recorded separately in the follow-up.
+The prior passing suites did not cover that lifecycle, and SIGTERM tests do not
+qualify host power-loss recovery.
 
 `QuotaLedger` uses SQLite `BEGIN IMMEDIATE`, WAL, and FULL synchronous writes.
 Root and project limits are checked in the same transaction: active leases,

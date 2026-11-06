@@ -601,6 +601,7 @@ pub fn restore_v13(path: &std::path::Path) {
 /// downgrade; populated identity/proof history must never be silently removed.
 #[allow(dead_code)]
 pub fn restore_v14(path: &std::path::Path) {
+    restore_v15(path);
     let db = rusqlite::Connection::open(path).unwrap();
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -639,5 +640,66 @@ pub fn restore_v14(path: &std::path::Path) {
     db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=15;").unwrap();
     db.execute_batch(&guard).unwrap();
     db.pragma_update(None, "user_version", 14).unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Reconstruct only the released schema15 view of a test database with no new
+/// origin trust or target evidence. NULL legacy classifications carry no trust.
+#[allow(dead_code)]
+pub fn restore_v15(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version <= 15 {
+        return;
+    }
+    assert_eq!(version, 16);
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let tables = include_str!("../../src/store/migration_016.sql")
+        .lines()
+        .filter_map(|line| line.strip_prefix("CREATE TABLE "))
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect::<Vec<_>>();
+    for table in &tables {
+        let condition = if *table == "authority_bootstrap_challenge_origin_bindings" {
+            " WHERE origin_revision IS NOT NULL"
+        } else {
+            ""
+        };
+        let count: i64 = db
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table}{condition}"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "cannot reconstruct schema15 while new origin/target authority evidence exists"
+        );
+    }
+    for line in include_str!("../../src/store/migration_016.sql").lines() {
+        if let Some(trigger) = line.strip_prefix("CREATE TRIGGER ") {
+            let name = trigger.split_whitespace().next().unwrap();
+            db.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+        } else if let Some(index) = line.strip_prefix("CREATE INDEX ") {
+            let name = index.split_whitespace().next().unwrap();
+            db.execute_batch(&format!("DROP INDEX {name}")).unwrap();
+        }
+    }
+    for table in tables.into_iter().rev() {
+        db.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+    }
+    let guard: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=16;").unwrap();
+    db.execute_batch(&guard).unwrap();
+    db.pragma_update(None, "user_version", 15).unwrap();
     db.pragma_update(None, "foreign_keys", "ON").unwrap();
 }

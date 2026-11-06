@@ -10,9 +10,10 @@ Private fixture material stays in a temporary directory and is never reported.
 import argparse
 import copy
 from contextlib import ExitStack
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -68,6 +69,119 @@ def signing_readiness_matches_fixture(value, detail):
             and value['quota_configured'] is False and value['target_generation'] is None
             and value['latest_intent'] is None and value['latest_dispatch_unknown_seen'] is None
             and value['quota_scope'] is None and value['quota_root_id'] is None)
+
+
+V3_PERMANENT_BLOCKERS = frozenset({
+    'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED',
+    'POLICY_SIGNER_KEY_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE',
+})
+V3_SIGNING_REASONS = V3_PERMANENT_BLOCKERS | frozenset({
+    'BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED', 'BOOTSTRAP_AUTHORIZATION_REQUIRED',
+    'BOOTSTRAP_AUTHORIZATION_NOT_CURRENT', 'TARGET_EPOCH_CONFIRMATION_REQUIRED',
+    'WORKLOAD_SOURCE_ATTESTATION_REQUIRED', 'WORKLOAD_BINDING_NOT_CURRENT',
+    'OWNER_PROOF_REQUIRED', 'PLAN_STALE', 'REVIEW_EVIDENCE_MISSING',
+    'APPROVAL_SET_MISSING', 'TARGET_METADATA_MISSING', 'NATIVE_BASELINE_UNAVAILABLE',
+    'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED',
+    'CORE_REQUEST_BINDING_UNAVAILABLE', 'CORE_SIGNING_PROFILE_UNAVAILABLE',
+})
+
+
+def canonical_readiness_time(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{4}(?:-[0-9]{2}){2}T[0-9]{2}(?::[0-9]{2}){2}Z', value):
+        return None
+    try:
+        seconds = int(datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc).timestamp())
+        return seconds if seconds >= 0 else None
+    except (ValueError, OverflowError):
+        return None
+
+
+def readiness_hash(value):
+    return isinstance(value, str) and re.fullmatch(r'sha256:[0-9a-f]{64}', value) is not None
+
+
+def readiness_counter(value, *, positive=False):
+    return (isinstance(value, str) and re.fullmatch(r'0|[1-9][0-9]{0,19}', value) is not None
+            and int(value) <= 18446744073709551615 and (not positive or value != '0'))
+
+
+def signing_readiness_v3_matches_profile(value, detail):
+    """Closed v3 evidence for the smoke's no-quota, no-job diagnostic profile.
+
+    Accepted target history and current plan eligibility are separate. This
+    parser never derives production permission from either of them.
+    """
+    keys = {'schema_version', 'org_id', 'project_id', 'target_id', 'plan_id', 'plan_hash',
+            'checked_at', 'valid_until', 'signing_allowed', 'dispatch_allowed', 'reasons',
+            'approval_set_hash', 'quota_configured', 'target_generation', 'latest_intent',
+            'quota_scope', 'quota_root_id', 'latest_dispatch_unknown_seen',
+            'bootstrap_authorization_hash', 'target_bootstrap'}
+    if not isinstance(value, dict) or set(value) != keys or not isinstance(detail, dict) or not isinstance(detail.get('plan'), dict):
+        return False
+    try:
+        if (value['schema_version'] != 'fw.signing-readiness/v3'
+                or any(value[field] != detail['plan'][field] for field in ('org_id', 'project_id', 'target_id', 'plan_id'))
+                or value['plan_hash'] != detail['plan_hash']
+                or value['signing_allowed'] is not False or value['dispatch_allowed'] is not False
+                or value['quota_configured'] is not False or value['target_generation'] is not None
+                or value['latest_intent'] is not None or value['latest_dispatch_unknown_seen'] is not None
+                or value['quota_scope'] is not None or value['quota_root_id'] is not None):
+            return False
+        checked = canonical_readiness_time(value['checked_at'])
+        deadline = canonical_readiness_time(value['valid_until'])
+        plan_end = canonical_readiness_time(detail['plan']['valid_until'])
+        if None in (checked, deadline, plan_end) or deadline > plan_end or deadline - checked > 60:
+            return False
+        reasons = value['reasons']
+        if (not isinstance(reasons, list) or any(not isinstance(reason, str) for reason in reasons)
+                or len(reasons) > len(V3_SIGNING_REASONS) or len(set(reasons)) != len(reasons)
+                or not set(reasons) <= V3_SIGNING_REASONS or not V3_PERMANENT_BLOCKERS <= set(reasons)):
+            return False
+        reasons = set(reasons)
+        approval = value['approval_set_hash']
+        authorization = value['bootstrap_authorization_hash']
+        if (approval is not None and not readiness_hash(approval)
+                or ('APPROVAL_SET_MISSING' in reasons) != (approval is None)
+                or 'QUOTA_CONFIGURATION_MISSING' not in reasons
+                or 'TARGET_GENERATION_UNINITIALIZED' not in reasons
+                or authorization is not None and not readiness_hash(authorization)
+                or ('BOOTSTRAP_AUTHORIZATION_REQUIRED' in reasons) != (authorization is None)
+                or authorization is not None and 'BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED' in reasons):
+            return False
+        target = value['target_bootstrap']
+        current_for_plan = False
+        if target is not None:
+            target_keys = {'state', 'target_id', 'confirmation_revision', 'accepted_epoch', 'highest_generation',
+                           'confirmation_hash', 'observed_at', 'admitted_at', 'valid_until',
+                           'current_confirmation_eligibility', 'current_for_plan', 'signing_allowed', 'dispatch_allowed'}
+            if (not isinstance(target, dict) or set(target) != target_keys
+                    or target['state'] != 'target_confirmed_pending_qualification' or target['target_id'] != value['target_id']
+                    or not readiness_counter(target['confirmation_revision'], positive=True)
+                    or not readiness_counter(target['accepted_epoch'], positive=True) or target['highest_generation'] != '0'
+                    or not readiness_hash(target['confirmation_hash'])
+                    or type(target['current_confirmation_eligibility']) is not bool or type(target['current_for_plan']) is not bool
+                    or target['signing_allowed'] is not False or target['dispatch_allowed'] is not False):
+                return False
+            observed = canonical_readiness_time(target['observed_at'])
+            admitted = canonical_readiness_time(target['admitted_at'])
+            target_end = canonical_readiness_time(target['valid_until'])
+            if (None in (observed, admitted, target_end) or not observed <= admitted <= checked or target_end <= admitted
+                    or target['current_confirmation_eligibility'] and target_end <= checked):
+                return False
+            current_for_plan = target['current_for_plan']
+            if current_for_plan and (not target['current_confirmation_eligibility']
+                    or target['accepted_epoch'] != detail['plan']['authority_epoch']
+                    or authorization is None or deadline > target_end):
+                return False
+        return ('TARGET_EPOCH_CONFIRMATION_REQUIRED' in reasons) == (not current_for_plan)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def signing_readiness_v3_matches_fixture(value, detail):
+    """Human plan approvals never create bootstrap authority in this fixture."""
+    return (signing_readiness_v3_matches_profile(value, detail)
+            and value['bootstrap_authorization_hash'] is None and value['target_bootstrap'] is None)
 
 
 def retain_service_diagnostic(report, path):
@@ -313,7 +427,7 @@ def run(args, report):
                 login()
                 check(report, 'pinned authority credential signs in through browser WebAuthn', True)
                 evidence_url = ORIGIN + '/authority/v1/plans/' + fixture['plan_id'] + '/native-evidence'
-                signing_url = ORIGIN + '/authority/v2/plans/' + fixture['plan_id'] + '/signing-readiness'
+                signing_url = ORIGIN + '/authority/v3/plans/' + fixture['plan_id'] + '/signing-readiness'
                 with page.expect_response(lambda response: response.request.method == 'GET'
                                           and response.url == evidence_url) as evidence_response:
                     with page.expect_response(lambda response: response.request.method == 'GET'
@@ -338,11 +452,10 @@ def run(args, report):
                 expect(native_panel).to_contain_text('These lab results do not qualify host protection or permit policy signing or deployment.')
                 check(report, 'native evidence panel distinguishes missing compilation and observation from qualification', True)
                 readiness = signing_response.value.json()
-                permanent_blockers = {'PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED',
-                                      'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE'}
+                permanent_blockers = V3_PERMANENT_BLOCKERS
                 check(report, 'authenticated signing readiness binds the plan and refuses unqualified issuance',
                       signing_response.value.status == 200
-                      and signing_readiness_matches_fixture(readiness, detail)
+                      and signing_readiness_v3_matches_fixture(readiness, detail)
                       and permanent_blockers <= set(readiness['reasons'])
                       and 'APPROVAL_SET_MISSING' in readiness['reasons']
                       and readiness['approval_set_hash'] is None
@@ -351,13 +464,17 @@ def run(args, report):
                 signing_panel = page.get_by_role('region', name='Signing readiness', exact=True)
                 expect(signing_panel).to_be_visible()
                 expect(signing_panel.get_by_role('button')).to_have_count(1)
+                target_panel = signing_panel.get_by_role('region', name='Target bootstrap confirmation', exact=True)
+                expect(target_panel).to_contain_text('No accepted target confirmation is retained.')
+                expect(signing_panel).to_contain_text('An independently protected policy signing key is required.')
+                check(report, 'v3 target panel distinguishes absent target history from production qualification', True)
                 before_signing_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
                 with page.expect_response(lambda response: response.request.method == 'GET'
                                           and response.url == signing_url) as refreshed_signing:
                     signing_panel.get_by_role('button', name='Refresh signing readiness', exact=True).click()
                 check(report, 'signing readiness refresh neither consumes a passkey assertion nor enables consent',
                       refreshed_signing.value.status == 200
-                      and signing_readiness_matches_fixture(refreshed_signing.value.json(), detail)
+                      and signing_readiness_v3_matches_fixture(refreshed_signing.value.json(), detail)
                       and before_signing_refresh == cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
                       and not page.get_by_role('checkbox').is_checked())
                 before_evidence_refresh = cdp.send('WebAuthn.getCredentials', {'authenticatorId': authenticator})['credentials'][0]['signCount']
@@ -414,7 +531,7 @@ def run(args, report):
                 approved_signing = approved_readiness.value.json()
                 check(report, 'current human quorum remains separate from missing production signer qualification',
                       approved_readiness.value.status == 200
-                      and signing_readiness_matches_fixture(approved_signing, current)
+                      and signing_readiness_v3_matches_fixture(approved_signing, current)
                       and isinstance(approved_signing['approval_set_hash'], str)
                       and 'APPROVAL_SET_MISSING' not in approved_signing['reasons']
                       and permanent_blockers <= set(approved_signing['reasons'])
@@ -514,7 +631,7 @@ def run(args, report):
                 restarted_signing = restarted_readiness.value.json()
                 check(report, 'restart and signed dissent do not create signing jobs or dispatch authority',
                       restarted_readiness.value.status == 200
-                      and signing_readiness_matches_fixture(restarted_signing, detail)
+                      and signing_readiness_v3_matches_fixture(restarted_signing, detail)
                       and restarted_signing['approval_set_hash'] is None
                       and restarted_signing['latest_intent'] is None
                       and restarted_signing['signing_allowed'] is False
