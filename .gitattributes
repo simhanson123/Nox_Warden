@@ -3,3 +3,8 @@ docs/specs/** -text -whitespace
 # Preserve the supplied review verbatim, including CRLF line endings.
 docs/reviews/pr19-claude-review.md -text whitespace=cr-at-eol
 docs/reviews/pr20-claude-review.md -text whitespace=cr-at-eol
+docs/reviews/pr26-follow-up-claude-review.md -text whitespace=cr-at-eol
+docs/reviews/pr27-claude-review.md -text whitespace=cr-at-eol
+# Preserve the deliberately retained synthetic v15 migration fixture bytes.
+crates/fw_authority/tests/fixtures/authority-v15-owner-bootstrap.json -text
+crates/fw_authority/tests/fixtures/authority-v15-cross-purpose-alias.json -text

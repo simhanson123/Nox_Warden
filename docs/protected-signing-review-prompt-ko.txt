@@ -1,0 +1,84 @@
+Nox_Warden의 보호 bootstrap/독립 signer 통합 묶음을 Claude Opus5.5 하나로 독립 검토하라.
+저장소: https://github.com/simhanson123/Nox_Warden
+비교 기준: dded7e94e84ef0e59a0552e961c5c57eaaabdd81
+대상: feat/protected-signing-authority의 최종 feature commit과 그 PR 완료기록에
+고정된 head/tree. 이 문서를 포함한 commit 자체의 hash를 문서에 넣는 순환을 피하기
+위한 지정이다. 검토 시작 전 실제 전체 head/tree를 확인하고 보고서에 고정하라.
+PR26/feat/core-access-enforcement 위의 stacked PR이며 PR26은 아직 미병합이다.
+main a624a1e684a8fc0065ac4f4609101410f56c50bb와 기준을 혼동하지 마라.
+이미 받은 dded 대상 PR26 후속 검토를 반복하지 말고 이번 실제 diff를 검토하라.
+
+독립 worktree에서 제품 수정/commit/push/merge 없이 진행하라. AGENTS.md,
+docs/session-handoff.md, review-continuity.md, protected-signing-authority.md,
+authority-store.md, signing-coordination.md, pr26-follow-up.md,
+reports/README.md와 task-ledger.json을 먼저 읽어라. 원본 F00/F01 우선순위와
+F02/F03/F04/F07/F08/F12 및 원본 확장/내부통신 schema를 확인하라.
+원본 SQL001–014/schema/specs/기존 검토 bytes를 변경하지 마라.
+
+집중 범위:
+1. 순수 authority_registry 계약의 closed JSON, 필수 nullable 항목, 크기 제한,
+   canonical bytes/base64/DSSE PAE, 64-byte Ed25519 서명, 목적/tenant/target/key,
+   배타적 만료와 uint64 epoch. asset ID와 revision hash의 정렬 배열을 index로
+   암묵 대응하지 않는지, 원본 envelope/delegation/service ID 의미를 보존하는지.
+2. Schema15의 독립 trust pin/영구 revocation, 원본 객체/owner proof/authorization/
+   pending head/audit의 원자성, 새 9개 table의 rowid/PK/UNIQUE 및 INSERT OR REPLACE
+   거절 matrix와 rollback-only positive controls(무관한 FK/제약에서 미리 실패하지
+   않는지), exact canonical retained bytes, 실제 old14 migration/backup 전 검증과
+   retry/output loss/restart/동시성, retained/current 상태와 shared clock floor.
+   다른 연결이 expiry를 관측한 뒤 final transaction에서 되살아나는지 확인하라.
+3. 독립 principal/human/public credential pin과 실제 activation/owner WebAuthn,
+   exact manifest subject/origin/RP/role/nonce/assertion/proof hash 결합.
+   proof hash만으로 owner consent를 만들거나 controller login을 가져오는지.
+   현재 한-owner local/Lab 초기 profile과 기존 Team plan 다중인 quorum를
+   완전한 Team bootstrap governance로 혼동하지 마라.
+4. 실제 fw_signer authorize_bootstrap가 retained manifest ID만 받아 protected
+   key와 현재 genuine owner proof를 해결한 뒤 exact DSSE를 발급/보존하는지.
+   별도 UID/OS peer credential, private path/권한/키/DB device+inode, 전체 frame의
+   monotonic deadline/크기/EOF, key loss/DB replacement/잘못된 UID/재시작/응답유실.
+   임의 payload/actor/PASS 입력이나 signer key 노출 경로가 없는지.
+5. bootstrap root는 exact independently pinned key hash여야 한다. 새 초기화가
+   기존 target epoch/generation/issued/UNKNOWN/quota를 reset하지 못해야 한다.
+   local authorization은 authorized_pending_target_confirmation이며 실제 target
+   durable epoch/baseline/probe 확인이나 운영 policy grant/dispatch가 아니다.
+   management baseline B hash와 full StateIR baseline hash를 구분하라.
+6. core grant adapter의 실제 typed payload/signature와 원래 [S,E), full original
+   cost, current approval/quota/claim/generation/finalization/replay. private test
+   witness를 production resolver와 혼동하지 마라. BUILD_IDENTITY_REQUIRED,
+   NATIVE_QUALIFICATION_REQUIRED, TARGET_EPOCH_CONFIRMATION_REQUIRED,
+   POLICY_SIGNER_KEY_REQUIRED, WORKLOAD_SOURCE_ATTESTATION_REQUIRED가 빠진 상태에서
+   운영 signing/dispatch가 열리는지 검토하라. unsigned delivery는 환급 근거가 아니다.
+7. D6a/D6b: inner/outer 검사기 typed U=1/e=0/C=5, deduction6, exact E−8,
+   binding wall/monotonic 대응 ±1s, 독립 token minimum과 1ms truncation allowance,
+   malformed report의 StageFailure. 실제 packets/captures와 primitive unit 결과를
+   구분하고 원래 5s 설치예산/그 안의 2s process reserve/복구기한을 늘리지 마라.
+8. 충돌 legacy14 전체 DB refusal은 모든 tenant에 적용된다. 현재15 open의
+   MigrationRequired/DATABASE_REJECTED와 explicit migrate의 Binding/
+   MIGRATION_REJECTED를 구분하라. 실패로 새 backup이 생겼다고 추론하지 말고,
+   원본/기존 backup 보존, 신뢰할 수 있는 compatible authority/generation 복원,
+   genuine request/strict review, rollback resurrection/역사편집/issued 환급 금지를
+   확인하라. 자동 repair/완전한 운영 restore가 구현됐다고 주장하지 마라.
+
+실제 실행은 원본 lock/toolchain을 사용하고, Cargo/build/runtime을 순차 조율하라.
+source scripts/dev-env.sh
+bash scripts/check.sh
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
+cargo test --locked -p fw_authority --test authority_registry_contracts --test authority_registry_store --test authority_registry_integrity --test authority_registry_admin --test authority_registry_matrix
+cargo test --locked -p fw_authority --lib schema15_
+cargo test --locked -p fw_signer
+python native/linux/test_core_snapshot_runner.py
+python native/linux/test_signed_runner.py
+python scripts/smoke_protected_signer.py --report reports/protected-signer-smoke.json
+
+관리 Docker가 가능하면 기존 linux/signed/core/native evidence lab도 폐기 격리
+namespace에서 실행하라. 실제 packet/capture/CLI 수를 분리하라. host firewall/
+운영망/paid resource/계정결제/CI우회/배포를 변경하지 마라. 실행 불가면 NOT_RUN이며
+이전 count나 문서 PASS를 재사용하지 마라. 0-match filter는 PASS가 아니다.
+가상 authenticator/실험 UID/Linux lab은 실제 사람동의/설치형 3OS 자격이 아니다.
+
+보고서는 한국어로 작성하고 실제 base/head/tree, 명령/종료/실측 수, 첫 실패와
+정정/cleanup, 미실행 범위를 구분하라. 확정 결함은 심각도/file:line/최소 재현/
+기대·실제/영향을 적고 추측은 분리하라. 비밀/key/원본 private assertion은 출력하지
+마라. remote CI/PR merge/main CI는 실제 evidence만 인정하라. billing 실행전실패는
+local test 실패나 remote PASS가 아니다. 다음 개발 blocker와 production/release
+blocker를 구분하고 완료율/날짜를 추정하지 마라.

@@ -44,6 +44,15 @@ pub(super) struct ValidatedSubject {
     pub requirements_bytes: Vec<u8>,
 }
 
+impl ValidatedSubject {
+    pub(super) fn require_current(&self, now: i64) -> Result<()> {
+        if now < self.created_at || now >= self.valid_until {
+            return Err(AuthorityError::Time);
+        }
+        Ok(())
+    }
+}
+
 fn invalid() -> AuthorityError {
     AuthorityError::Invalid("immutable approval subject")
 }
@@ -377,6 +386,20 @@ pub(super) fn validate_subject(
     requirements: &Value,
     now: i64,
 ) -> Result<ValidatedSubject> {
+    let subject = validate_subject_structure(org_id, project_id, plan, requirements)?;
+    subject.require_current(now)?;
+    Ok(subject)
+}
+
+/// Validate closed, bounded immutable input without observing wall time. An
+/// expired but well-formed attempt still needs the durable clock observation;
+/// malformed bytes must never change that clock or bypass historical retries.
+pub(super) fn validate_subject_structure(
+    org_id: &str,
+    project_id: &str,
+    plan: &Value,
+    requirements: &Value,
+) -> Result<ValidatedSubject> {
     let plan_bytes = bounded_canonical(plan, PLAN_LIMIT)?;
     let requirements_bytes = bounded_canonical(requirements, REQUIREMENTS_LIMIT)?;
     let (required_roles, max_approval_age_seconds, author_may_approve, profile) =
@@ -483,7 +506,7 @@ pub(super) fn validate_subject(
     counter(string(plan, "target_generation")?)?;
     let created_at = timestamp(string(plan, "created_at")?)?;
     let valid_until = timestamp(string(plan, "valid_until")?)?;
-    if created_at < 0 || created_at > now || now >= valid_until || valid_until > 253_402_300_799 {
+    if created_at < 0 || created_at >= valid_until || valid_until > 253_402_300_799 {
         return Err(AuthorityError::Time);
     }
     validate_gates(&plan["gates"])?;

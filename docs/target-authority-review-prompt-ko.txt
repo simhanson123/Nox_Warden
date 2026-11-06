@@ -1,0 +1,120 @@
+Nox_Warden의 서명기 내구성 수정과 Linux target 확인 기능을 Claude Opus 5.5 하나로 독립 검토하라.
+
+저장소: https://github.com/simhanson123/Nox_Warden
+비교 기준: 5fc576f672c2e0671164b73a667e3452b99ea82a
+검토 대상: feat/target-authority-confirmation의 최종 feature commit.
+실제 전체 head/tree는 해당 PR의 완료 기록에서 확인하고 보고서에 고정하라.
+이 문서 자체의 commit SHA 순환을 피하기 위한 지정이다.
+PR27(feat/protected-signing-authority) 위에 쌓인 변경이며 PR26에도 의존한다.
+main a624a1e684a8fc0065ac4f4609101410f56c50bb를 비교 기준으로 혼동하지 마라.
+이미 받은 PR27 검토를 반복하지 말고 새 diff와 관련 회귀를 검토하라.
+
+독립 worktree에서 진행하고 제품 수정, commit, push, merge는 하지 마라.
+AGENTS.md, docs/session-handoff.md, docs/review-continuity.md,
+docs/pr27-follow-up.md, docs/target-authority-confirmation.md,
+docs/remaining-work.md, docs/authority-store.md, reports/README.md,
+reports/task-ledger.json과 F00/F01 우선순위, 관련 F02/F03/F04/F07/F08/F12를 읽어라.
+공개 SQL001–015, 원본 specs와 기존 검토 bytes는 보존해야 한다.
+새016, 새 fw 계약, 공개 synthetic v15 fixture는 이번 검토 범위다.
+원시 로그, 비밀키, seed, 인증 assertion은 출력하거나 커밋하지 마라.
+
+집중 검토 범위:
+1. PR27 High S-1: DB/WAL/SHM 검사가 SQLite의 프로세스 fcntl 잠금을 보존하는지.
+   metadata 검사에서 별도 File open/close를 재도입하지 않아야 한다.
+   config/key/bundle/marker/anchor 입력 FD는 SQLite보다 먼저 열고 유지하며,
+   bounded pread, inode alias/교체/권한 검사와 정리 순서가 안전해야 한다.
+   main/DMS 잠금 및 외부 reader → 승인 → 출력 유실 → SQLite 조회 없이 SIGTERM →
+   재시작의 exact DSSE/clock floor 보존을 확인하라. 이전20단계 PASS는 이를 놓쳤다.
+   새488-Gitblob baseline 재현과 수신 보고서의 비공개 probe를 구분하라.
+2. R1/L1/L2: 철회 키 re-pin은 명시 거절하며 권한을 복구하지 않아야 한다.
+   프로젝트 origin은 독립 OOB/CAS pin이고 caller/challenge에서 신뢰를 추론하면 안 된다.
+   v15 NULL-origin 이력은 나중에 일치 origin을 pin해도 current로 승격되면 안 된다.
+   소비된 proof의 exact retry는 원본 hash/replayed=true/닫힌 권한/추가 audit 없음으로
+   허용할 수 있으나 owner_approved를 복구하면 안 된다. 미소비 stale challenge는 거절한다.
+3. I1/I2/L3: asset ID와 revision hash는 독립된 bounded 집합이다. 동수/index 대응을
+   만들어내지 마라. 신규 registry admission은 authoritative 서명 하나만 허용한다.
+   원본 F의 다중서명 cardinality와 old multi bytes/primary 검증은 보존해야 하며,
+   완전한 co-sign 지원이라고 쓰면 안 된다. 회전은 실제 target-confirmed predecessor를 요구한다.
+4. 새 challenge/bundle/confirmation은 closed/bounded이고 정규 JSON/base64/DSSE,
+   단일 서명, 목적·tenant·target·key revision·fingerprint·배타적 만료·uint64·nonce·
+   원본 authorization·manifest·관리B·capability·program·predecessor를 결합해야 한다.
+   할당 전 depth/float/budget 검사와 정확한44/88바이트 base64 길이 검사를 확인하라.
+   proof 참조만으로 실제 WebAuthn 동의를 대신할 수 없다.
+5. isolated-linux-bootstrap-v1은 실제 non-loopback IPv4/30 관리B를 컴파일한다.
+   empty-management loopback fixture나 fullStateIR hash를 관리B로 바꾸어 부르면 안 된다.
+   정확한 입출력 tuple, default drop, forward drop, 전체 ruleset genesis/predecessor/
+   readback, boot/netns/interface/routes/capability 전후 검사와 atomic 교체를 확인하라.
+   raw readback이나 packet PASS를 입력받아 신뢰하는 경로가 없어야 한다.
+   positive TCP/UDP 응답은 별도 peer 키와 challenge/hash/nonce/domain에 결합해야 한다.
+   negative timeout과 local denial을 구분하라. os_error는 required-nullable이며
+   EPERM1만 local_send_denied/전송0/수신0으로 인정한다. 실패 send는 timeout이 아니다.
+   nft1.0.6 정규화는 실제로 생략되는 IPv4/typed-transport 동등 가드에 한정해야 하며,
+   tuple/family/direction/추가 객체 변경은 거절해야 한다. listener preflight는 lab 대조이며
+   차단의 암호학적 증명이 아니다. 성공해도 production qualification은 생기지 않는다.
+6. 별도 target journal은 grant journal/issued/UNKNOWN/quota를 reset하지 않아야 한다.
+   fresh state만 genesis이며 partial loss, legacy state, boot/key 변경은 거절한다.
+   generation0 회전은 같은 config/boot/netns/journal과 실제 confirmed predecessor를 요구한다.
+   PENDING→UNKNOWN, 재시작, 정확한 과거 retry, 출력 유실과 writer fencing을 확인하라.
+   accepted_epoch/current_epoch/current_journal_state와 시간만 보는 challenge_unexpired를
+   구분하라. 과거 receipt로 새 UNKNOWN을 숨기거나 legacy chain에서 predecessor를 만들면 안 된다.
+7. schema16의 key/challenge/receipt/head/audit 원자성, 별도 target/key revision CAS,
+   원본 서명 bytes, 현재 eligibility와 plan 결합을 확인하라. 과거 trust/owner/credential/
+   role/revocation을 당시 audit 순서로 검증하며 같은 초의 사건과 늦은 장애도 검사하라.
+   registry/transport/observer/target 키 목적 분리는 양쪽 등록 순서에 적용해야 한다.
+   raw32/SPKI fingerprint가 달라도 org별 실제 public_key bytes로 비교해야 한다.
+   revoked/retired 이력도 포함한다. released15의 충돌 키는16 이관에서 전 DB를 거절하며
+   원본과 private backup을 보존한다. 자동 복구/재할당은 없다. 공개 v15 fixture는 실제
+   구버전 정상 흐름의 typed cells를 재구성한 시험 DB이며 whole DB 원문이 아니다.
+8. signer status/v1과 readiness v1/v2의 기존 closed wire는 유지한다. status_v2는 명시
+   선택하며 readiness v3는 정확한 target 요약/current_for_plan을 반환한다.
+   accepted target 이력이 있으면 만료 뒤에도 legacy는 SIGNING_READINESS_V3_REQUIRED로
+   거절해야 한다. UI는 v3 closed parser이며 fallback하지 않는다. 이력, 수신, 서명,
+   target 확인, 시간 미만료와 운영 권한을 하나의 bool로 취급하지 마라.
+9. 실제 남은 범위를 확인하라. qualified build/native/workload/source/policy-key,
+   인증 dispatch·완료·reconciliation, 설치 Linux watchdog/reboot/복구,
+   Windows WFP/callout, macOS Network Extension, Team/외부 감사 앵커/릴리스는 남아 있다.
+   테스트 수나 격리 lab 성공으로 완성도·일정을 추정하지 마라.
+10. CI는 canonical/shared-authority/runtime/target 네 작업을 독립 실행하고 기존
+    required 이름의 always/needs 집계가 네 success만 인정해야 한다.
+    failure/cancelled/skipped가 통과하면 안 된다. Runtime의 별도 bins/examples와
+    두 web build, 기존 검사와 artifact14+1/7일/pinned action을 확인하라.
+    CI42277449076의 준비 실패 뒤 진단CI42289070927은 실제
+    mount_private_propagation/EACCES13과 docker-default(enforce)를 기록했다.
+    실패 증거 확보 후 다른 job을 취소했으며 aggregate도 FAIL이었다.
+    mount-free 수정은 Docker 초기 target namespace의 고정 tcp_loose0과 별도
+    coordinator/peer namespace1을 사용한다. docker exec는 초기 target에 들어간다.
+    실제 fixture 이동과 target setns, 3개 namespace의 값·격리·자식 정리를 확인하라.
+    mount/inner sysctl write/host 설정 변경이나 capability/profile 완화가 없어야 한다.
+    512B 고정단계/errno/제한된 UID/cap/LSM 진단은 최초 실패와 cleanup 실패를
+    구분하고 raw예외/argv/env/stderr를 출력하면 안 된다. 로컬55/Python52 결과와
+    원격 최종 CI를 구분하고, 로컬 unavailable LSM을 GitHub와 같다고 가정하지 마라.
+11. lab timeout/UID cleanup 변경도 확인하라. 제품 권한이나 인증 조건을 약화하지 않고,
+    준비 명령의 명시 시간 제한과 실제 자식 UID의 bounded 종료/reap를 사용해야 한다.
+    이전 frozen source 결과와 이후 lab-only 수정 결과를 각 source에 정확히 연결하라.
+
+원본 lock/toolchain으로 복원하고 Cargo/build/runtime은 순차 조율하라.
+실제 새로 실행한 결과만 기록하라. 기본 명령:
+source scripts/dev-env.sh
+bash scripts/check.sh
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
+cargo test --locked -p fw_signer
+cargo test --locked -p fw_authority --test target_confirmation_contracts
+cargo test --locked -p fw_authority --lib origin_migration_tests
+cargo test --locked -p fw_authority --test target_bootstrap_guard_matrix
+cargo test --locked -p fw_backend_linux --test bootstrap
+cargo test --locked -p fw_executor --features target-bootstrap
+python scripts/smoke_protected_signer.py --report reports/protected-signer-smoke.json
+python scripts/target-bootstrap-linux-lab.py --report reports/target-bootstrap-linux-lab.json
+
+가능하면 기존 Linux/signed/core/native-evidence lab과 API/browser/v3도 실제 실행하라.
+Docker가 없으면 NOT_RUN이다. host firewall/운영망/유료 자원/결제/CI 우회/배포는 변경하지 마라.
+새 정상 회귀에 불필요한 old crash-stress를 반복하지 마라. 0-match filter는 PASS가 아니다.
+가상 인증기/실험 UID/격리 Linux/cross-compile은 실제 사람 동의나 설치3OS 검증이 아니다.
+
+한국어 보고서에 실제 base/head/tree, 명령·종료 코드·실측 수, packet/capture/probe,
+최초 실패와 수정 결과, cleanup과 미실행 범위를 구분하라. 결함은 severity/file:line/
+최소 반례/기대·실제/영향으로 제시하고 추론은 따로 적어라. 내부 검토나 프롬프트 준비를
+새 Claude 검토 실행으로 쓰지 마라. 원격 CI/병합/main CI는 실제 증거만 인정하라.
+billing 실행 전 실패는 제품 테스트 실패도 CI PASS도 아니다.
+다음 개발을 막는 결함과 운영 출시를 막는 미완료 범위를 구분하라.

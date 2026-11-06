@@ -20,6 +20,7 @@ const originalCredentials = Object.getOwnPropertyDescriptor(navigator, 'credenti
 let submitted: Record<string, unknown>[];
 let requests: { path: string; init?: RequestInit }[];
 let nextDetail: unknown;
+let nextCoreEvidence: unknown;
 let assertionError: 'network' | 'stale' | undefined;
 function browser() {
   vi.stubGlobal('isSecureContext', true); vi.stubGlobal('PublicKeyCredential', class {});
@@ -35,19 +36,27 @@ function server(authenticated = true) {
     if (path.endsWith('/auth/verify')) return reply(session);
     if (path.endsWith('/plans')) return reply({ plans: [{ plan_id: 'plan-1', plan_hash: hash, change_kind: 'policy_change', valid_until: '2099-01-01T00:00:00Z' }] });
     if (path.endsWith('/plans/plan-1')) return reply(nextDetail);
+    if (path.endsWith('/plans/plan-1/core-access-evidence')) {
+      if (nextCoreEvidence) return reply(nextCoreEvidence);
+      const current = nextDetail as typeof detail;
+      return reply({ schema_version: 'fw.core-access-evidence/v1', org_id: current.plan.org_id, project_id: current.plan.project_id,
+        target_id: current.plan.target_id, plan_id: current.plan.plan_id, plan_hash: current.plan_hash,
+        checked_at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z'),
+        lease_window: null, signing_allowed: false, dispatch_allowed: false, gates: ['CORE_SIGNING_PROFILE_UNAVAILABLE'] });
+    }
     if (path.endsWith('/plans/plan-1/native-evidence')) return reply({ schema_version: 'fw.native-evidence-status/v1', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash, checked_at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z'), production_qualified: false, dispatch_allowed: false, compilation: null, observation: null, observation_head_hash: null, reasons: ['NATIVE_QUALIFICATION_REQUIRED', 'SIGNER_DISPATCH_UNAVAILABLE', 'COMPILATION_MISSING', 'OBSERVATION_MISSING'] });
     if (path.endsWith('/plans/plan-1/signing-readiness')) {
       const current = (nextDetail as { current_approval_set?: { hash: string; valid_until: string } }).current_approval_set;
       const utc = (value: number) => new Date(Math.floor(value / 1000) * 1000).toISOString().replace('.000Z', 'Z');
-      return reply({ schema_version: 'fw.signing-readiness/v2', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash,
+      return reply({ schema_version: 'fw.signing-readiness/v3', org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: detail.plan_hash,
         checked_at: utc(Date.now()), valid_until: utc(Math.min(Date.now() + 60000, Date.parse(current?.valid_until ?? detail.plan.valid_until))),
         signing_allowed: false, dispatch_allowed: false, approval_set_hash: current?.hash ?? null, quota_configured: false, target_generation: null, latest_intent: null,
-        quota_scope: null, quota_root_id: null, latest_dispatch_unknown_seen: null,
-        reasons: ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED', ...current ? [] : ['APPROVAL_SET_MISSING']] });
+        quota_scope: null, quota_root_id: null, latest_dispatch_unknown_seen: null, bootstrap_authorization_hash: null, target_bootstrap: null,
+        reasons: ['BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'POLICY_SIGNER_KEY_REQUIRED', 'PROTECTED_SIGNER_UNAVAILABLE', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED', ...current ? [] : ['APPROVAL_SET_MISSING']] });
     }
     if (path.endsWith('/challenges')) {
       const body = JSON.parse(String(init?.body));
-      return reply({ challenge: { challenge_id: 'bound-challenge', decision: body.decision, role: body.role, requirements_hash: requirementsHash, principal_id: session.principal_id, org_id: session.org_id, project_id: session.project_id, subject: { subject_type: 'plan', plan_ref: { plan_id: 'plan-1', plan_hash: hash, plan_kind: 'policy_change' } }, rp_id: 'localhost', origin: 'http://localhost:8790', expires_at: '2099-01-01T00:00:00Z' }, options });
+      return reply({ challenge: { challenge_id: 'bound-challenge', decision: body.decision, role: body.role, requirements_hash: requirementsHash, principal_id: session.principal_id, org_id: session.org_id, project_id: session.project_id, subject: { subject_type: 'plan', plan_ref: { plan_id: 'plan-1', plan_hash: hash, plan_kind: (nextDetail as typeof detail).plan.change_kind } }, rp_id: 'localhost', origin: 'http://localhost:8790', expires_at: '2099-01-01T00:00:00Z' }, options });
     }
     if (path.endsWith('/assertions')) {
       submitted.push(JSON.parse(String(init?.body)));
@@ -58,7 +67,7 @@ function server(authenticated = true) {
     throw new Error('Unexpected request: ' + path);
   });
 }
-beforeEach(() => { localStorage.clear(); sessionStorage.clear(); submitted = []; requests = []; nextDetail = structuredClone(detail); assertionError = undefined; window.history.replaceState({}, '', '/'); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); submitted = []; requests = []; nextDetail = structuredClone(detail); nextCoreEvidence = undefined; assertionError = undefined; window.history.replaceState({}, '', '/'); });
 afterEach(() => { vi.unstubAllGlobals(); if (originalCredentials) Object.defineProperty(navigator, 'credentials', originalCredentials); else Reflect.deleteProperty(navigator, 'credentials'); });
 async function open() { render(<Authority/>); await userEvent.click(await screen.findByRole('button', { name: /plan-1/ })); await screen.findByRole('heading', { name: 'Review immutable plan' }); }
 async function consent() { await userEvent.selectOptions(screen.getByLabelText('Decision role'), 'owner'); await userEvent.click(screen.getByRole('checkbox')); }
@@ -74,7 +83,7 @@ test('signing readiness refresh does not submit consent, request a passkey or cr
   expect(screen.getByRole('checkbox')).not.toBeChecked();
   const reads = requests.filter(r => r.path.endsWith('/signing-readiness'));
   expect(reads).toHaveLength(2);
-  expect(reads.every(r => r.path === '/authority/v2/plans/plan-1/signing-readiness')).toBe(true);
+  expect(reads.every(r => r.path === '/authority/v3/plans/plan-1/signing-readiness')).toBe(true);
   expect(reads.every(r => r.init?.method === 'GET' && r.init.body === undefined)).toBe(true);
 });
 
@@ -377,4 +386,35 @@ test('a historical receipt does not prevent a fresh approval after the previous 
   await consent(); expect(screen.getByRole('button', { name: 'Approve plan' })).toBeEnabled();
   await userEvent.click(screen.getByRole('button', { name: 'Approve plan' }));
   await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+});
+
+test('a reviewed original core plan uses the human passkey decision flow and shows its full before and after scopes', async () => {
+  const get = browser(); server();
+  const now = Math.floor(Date.now() / 1000) * 1000;
+  const at = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z');
+  const policy = { scope: { source_cidrs: ['192.0.2.7/32'], destination_cidrs: ['198.51.100.8/32'], protocol: 'tcp', ports: [{ start: 443, end: 443 }] },
+    lifetime: { kind: 'lease', not_before: at(now), expires_at: at(now + 3600000) } };
+  const core = structuredClone(detail) as unknown as Record<string, unknown>;
+  core.plan = { ...detail.plan, schema_version: 'f.plan/v1', change_kind: 'add_access_lease', valid_until: at(now + 300000),
+    request_id: '55555555-5555-4555-8555-555555555555', request_revision: 1, request_hash: hash, requested_policies: [policy],
+    effect_summary: { newly_allowed_flow_count: 1, removed_flow_count: 0, effect_hash: hash } };
+  core.review = { available: true, before: { policies: [] }, after: { policies: [policy] } };
+  const identity = { org_id: detail.plan.org_id, project_id: detail.plan.project_id, target_id: detail.plan.target_id, plan_id: detail.plan.plan_id, plan_hash: hash };
+  nextCoreEvidence = { ...identity, schema_version: 'fw.core-access-evidence/v1', checked_at: at(now), signing_allowed: false, dispatch_allowed: false,
+    gates: ['CORE_SIGNING_PROFILE_UNAVAILABLE'], lease_window: { ...identity, schema_version: 'fw.core-access-lease-window-status/v1',
+      request_id: '55555555-5555-4555-8555-555555555555', request_revision: 1, request_hash: hash, provenance_hash: hash,
+      lease_id: '66666666-6666-4666-8666-666666666666', lease_seconds: 3600, window_hash: hash,
+      not_before: at(now), expires_at: at(now + 3600000), admitted_at: at(now), checked_at: at(now), current: true, signing_allowed: false, dispatch_allowed: false } };
+  nextDetail = core;
+  await open();
+  expect(screen.getByRole('region', { name: 'Before' })).toHaveTextContent('"policies": []');
+  expect(screen.getByRole('region', { name: 'After' })).toHaveTextContent('198.51.100.8/32');
+  const panel = screen.getByRole('region', { name: 'Core access lease window' });
+  expect(await within(panel).findByText('Current at last read')).toBeInTheDocument();
+  expect(panel).toHaveTextContent('CORE_SIGNING_PROFILE_UNAVAILABLE');
+  await consent();
+  await userEvent.click(screen.getByRole('button', { name: 'Approve plan' }));
+  await waitFor(() => expect(submitted).toHaveLength(1));
+  expect(get).toHaveBeenCalledTimes(1);
+  expect(requests.filter(item => item.path.endsWith('/core-access-evidence')).every(item => item.init?.method === 'GET')).toBe(true);
 });

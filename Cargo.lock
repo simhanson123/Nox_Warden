@@ -580,6 +580,7 @@ dependencies = [
  "fw_target_evidence",
  "fw_webauthn",
  "ipnet",
+ "libc",
  "openssl",
  "rusqlite",
  "serde",
@@ -602,6 +603,7 @@ dependencies = [
  "fw_authority",
  "fw_backend_linux",
  "fw_contracts",
+ "fw_domain",
  "fw_native_evidence",
  "fw_planner",
  "fw_target_evidence",
@@ -746,11 +748,13 @@ dependencies = [
  "fw_contracts",
  "fw_executor",
  "fw_native_evidence",
+ "fw_planner",
  "libc",
  "serde",
  "serde_json",
  "tempfile",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -788,6 +792,23 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fw_signer"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "ed25519-dalek",
+ "fw_authority",
+ "fw_contracts",
+ "fw_webauthn",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -851,6 +872,7 @@ dependencies = [
  "fw_domain",
  "fw_executor",
  "fw_linux_executor",
+ "fw_native_evidence",
  "fw_planner",
  "libc",
  "serde",

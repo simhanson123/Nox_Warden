@@ -1,7 +1,9 @@
 //! Deterministic composition primitives. Full semantic-region proofs are not
 //! inferred from operation names. Unproved changes remain UNKNOWN and cannot dispatch.
+mod core_review;
 mod review;
 mod semantic;
+pub use core_review::{CoreAccessReviewBinding, core_access_authority_basis_hash};
 use fw_contracts::canonical_hash;
 use fw_domain::{Action, Policy, timestamp, validate_uuid};
 pub use review::{MAX_POLICY_REVIEW_BYTES, PolicyReviewEvidence, VerifiedPolicyReview};
@@ -418,5 +420,7 @@ pub fn ensure_dispatchable(gates: &[Gate], relation: &Relation, complete: bool) 
     }
     Ok(())
 }
+#[cfg(test)]
+mod core_review_tests;
 #[cfg(test)]
 mod tests;

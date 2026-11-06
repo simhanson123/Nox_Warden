@@ -1,58 +1,70 @@
 Nox_Warden 개발을 이전 대화 없이 저장소에서 이어서 진행하라.
 저장소: https://github.com/simhanson123/Nox_Warden
+현재 브랜치: feat/target-authority-confirmation
+작업 기준: 5fc576f672c2e0671164b73a667e3452b99ea82a
+기준 트리: 719b80f88255921711ede7b4f4da81876568f7e3
+의존 PR26/PR27은 open/unmerged, 확인 당시 main은 a624a1e684a8fc0065ac4f4609101410f56c50bb.
 
-먼저 저장소/브랜치/git status를 확인하고 사용자 변경을 보존하라.
-AGENTS.md, docs/session-handoff.md, docs/review-continuity.md,
-reports/task-ledger.json, reports/README.md, docs/implementation.md를 읽어라.
-F00/F01 우선순위와 해당 작업의 F03/F04/F07/F08/F12 원본을 확인하라.
-원본 specs와 외부 검토 원문, 공개 migration001–013을 수정하지 마라.
+현재 저장소/브랜치/git status/원격 PR/CI를 확인하고 사용자 변경을 보존하라.
+PR28은 PR26/27 커밋도 포함해 main으로 통합하지만 아직 미병합이다.
+첫 CI42277449076은 protected signer까지 PASS, target 준비만 marker1/packet0 FAIL이다.
+진단CI42289070927은 mount_private_propagation/EACCES13과 docker-default(enforce)를 기록했다.
+실패 증거 확보 후 남은 development job을 취소했고 필수aggregate도 FAIL이다.
+mount-free 수정은 새 로컬target55/관련Python52 PASS다. 권한/profile/제품guard는 그대로다.
+canonical/shared-authority/runtime/target 네 job 모두 성공해야 한다.
+로컬 결과로 원격PASS를 추론하지 말고 PR28 완료기록에서 실제head/CI/병합/mainCI를 확인하라.
+AGENTS.md, docs/session-handoff.md, review-continuity.md, pr27-follow-up.md,
+remaining-work.md, reports/task-ledger.json, reports/README.md와 implementation.md를 읽어라.
+F00/F01 우선순위와 F02/F03/F04/F07/F08/F12 및 원본 schema를 확인하라.
+공개 SQL001–016과 schema/guard계약, 원본 specs/검토 bytes는 보존하라.
+새 schema변경은 새로운 migration으로 구현하고 기존016까지의 이력을 고치지 마라.
 
-완료된 PR24 head: ac027412c88eade8d3674c75c2ba6203df023ee6
-PR24 비교 기준: 4cef6acf7e46289b156fcd56ad0ab2f2920fabd6
-PR24 main 병합: 59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8 (동일 트리)
-PR CI41819099169와 별도 main CI41824170284는 모두 성공했다.
-Claude의 PR24 보고서는 docs/reviews/pr24-claude-review.md에 업로드 바이트 그대로
-보존했다. 15585바이트, SHA256:
-ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501
-R1–R4는 원래 반례 기준 수정됐고, 새 보안 결함이나 개발 blocker는 보고되지 않았다.
+새로 받은 Claude Opus5.5 PR27 검토(수신일2026-11-07 Asia/Seoul):
+기준 dded7e94e84ef0e59a0552e961c5c57eaaabdd81
+대상 5fc576f672c2e0671164b73a667e3452b99ea82a
+원문 docs/reviews/pr27-claude-review.md (17066바이트,207CRLF)
+SHA256 8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357
+High S-1이 수신당시 다음개발을 막았다. signer의 같은프로세스 DB/WAL/SHM open-close가
+SQLite POSIX fcntl잠금을 해제해 반환commit/clockfloor유실, 재시작후 다른DSSE중복,
+SIGBUS를 일으킬 수 있다. author직접 잠금재현과 병렬검토자 실제signer반례를 구분하라.
+private probe/log는 제공되지 않았다. 새 로컬 재현·수정검사 결과는 ledger/reports만 따른다.
+S1 독립 재현/수정 회귀와 R1/L1/L2, I1/I2 교정을 구현했다.
+Schema16 origin/target history, 별도 durable target journal, 실제 nonloopback
+관리 baseline/서명 probe/target confirmation, CLI/readiness v3/8locale가 한 묶음이다.
+선택한21개 로컬 단계가 통과했다.18단계는08d snapshot, lab helper만 바꾼 뒤3단계는
+a0e snapshot이며 제품 Rust/UI는 동일하다. Python/실제timeout회귀도 새로 통과했다.
+정확한 수·소스·감사·원격 상태는 ledger/reports와 PR완료기록을 따르라.
 
-현재 후속 브랜치: fix/validated-clock-and-rollback-coverage
-현재 PR/HEAD/CI와 docs/pr24-follow-up.md를 읽어라.
-현재 묶음의 새 로컬 전체 검증은 완료됐다: workspace905, 별도 CLI1, 축소32,
-UI190, shared umask510, 모든14실행 명령과 격리 lab 통과. 중첩2요약은 제외했다.
-원격 완료 여부는 보존된 브랜치 PR의 정확한 head·PR CI·merge·main CI로 확인하라.
-I1 검증 밖의 retained job/clock 조회, T1 서명/generation 테스트 도달성,
-T2 실제 transition 실패 롤백, T3 누락된 승인 중간 장애 조건을 함께 다룬다.
-T3는 원문과 소스를 구분하라: native12지점과 review-evidence INSERT 장애는
-이미 있었다. 삭제됐던 not_after+=1은 reference pin의 정상 재시도 입력 변경이다.
-이것을 관측값 변조 회귀가 없어졌다는 뜻으로 바꾸지 마라.
-실제 구현/검증 상태는 최신 ledger/reports를 따르며 과거 수치를 재사용하지 마라.
-종료코드0이어도 필터 일치 테스트가0개면 검증으로 세지 마라.
+이전 PR27 local20단계PASS/f55..427입력/workspace1016/umask593/UI211/protected47는
+역사적 사실이며 S1의 descriptor/외부reader수명주기를 검사하지 못했다.
+이전PASS나 수신검토의 숫자를 현재수정의 PASS로 재사용하거나 S1반증으로 쓰지 마라.
+외부검토의 Docker보호signer는 NOT_RUN/exit2/check0였고 native4종도 NOT_RUN이었다.
+외부 numericUID 실제signer프로브는 그와 별도다. 새로 못 돌리면 NOT_RUN으로 기록하라.
 
-검증된 스냅샷에서 retained job을 선택하고 최종 사용 시 결합을 재확인하라.
-과거 root시계와 독립적으로 보존되는 거절 시 clock floor를 약화하지 마라.
-장애 주입은 실제 목표 단계에 도달했음과 이전 SQL 쓰기, 전체 rowid/type/bytes
-보존, reopen/건전한 재시도/정확한 재생을 입증해야 한다.
-Authorizer는 준비 시점에 거절하므로 거절된 문장이 행을 썼다고 주장하지 마라.
-운영 hook이나 예외를 추가하지 말고 공개 스키마를 테스트 때문에 바꾸지 마라.
-외부 비공개 반례는 확보하지 않았으며 새 로컬 검사와 구분해야 한다.
+다음 큰 범위는 qualified build/native/workload/source와 정책 signer 신뢰,
+인증 dispatch·완료 증명·reconciliation, 설치 Linux 계정/ACL/키·watchdog/
+재부팅/업데이트/복구다. Windows WFP+callout·macOS NE·Team·운영 UX·
+외부 감사 앵커·release도 남는다. 격리 target 확인은 운영 권한이 아니다.
+원래 [S,E), generation fence, issued/UNKNOWN 점유와 닫힌 정책 서명/dispatch를 보존하라.
+negative UDP EPERM은 local_send_denied/bytes_sent0이며 timeout과 구별한다.
+15의 충돌 키 이관은 전 DB를 거절하고 원본/백업을 보존하며 자동 복구하지 않는다.
+NULL legacy origin은 나중 matching pin으로 승격하지 않는다.
+remaining-work.md의 완료 조건으로 설명하고 완료율/날짜를 추정하지 마라.
 
-작업자는 GPT-6.1 Sol ultra로 역할/파일을 나누고 리드는 조율하라.
-큰 묶음을 병렬 구현하고 필요한 국소 검사 후 한 번에 통합 검토하라.
-검사와 결함수정 후 commit/push/PR/CI/병합과 별도 main CI까지 마무리하라.
-통상 단계마다 확인을 요구하지 말고 원격브랜치 삭제/history 재작성은 하지 마라.
-이미 받은 고정 대상의 외부 검토는 다시 요청하지 마라.
-다음 외부 검토는 Claude Opus5.5 하나에 실제 새 base/head SHA를 고정한
-전체 복사용 프롬프트로 통합 요청하라. 준비는 외부 검토 실행이 아니다.
+PR26 CI42150829408, PR27 CI42216796210 attempt1은 billing lock 실행전실패로 기록됐다.
+PR27은 steps/artifacts0이다. 결제변경/CI우회 없이 가능한 개발과 통상Git작업을 계속하라.
+localPASS/검토수신은 remotePASS/merge/mainCI가 아니다. 실제head/tree/PR/CI는 완료기록에 고정하라.
+원격branch삭제/공유history재작성은 하지 마라. selfSHA를 위해 metadata전용커밋을 만들지 마라.
 
-이 묶음 뒤에는 M03/M04L/M05 의존성에 따라 core 의미/native/signing 통합,
-단일 절대 임대창과 서명된 workload/delegation 권위, 보호 bootstrap/OS계정,
-독립 signer/초기 generation, 인증 dispatch/완료증명/reconciliation,
-Linux 설치/복구/watchdog과 실제 Windows WFP+callout/macOS NE 구현이 남는다.
-Linux 격리lab은 실제 패킷을 제어하지만 관리앱은 운영호스트를 보호하지 않는다.
-보호경로 완성 전에 운영 signer/dispatch를 열거나 issued/UNKNOWN/미인증 전달
-점유를 환급하지 마라. 감사/작업/완료 증거를 만들어 채우지 마라.
-3OS 네이티브/8locale 영어기본+저장선택/Apache2.0/통계OFF/선택후원/
-AI자기승인금지를 유지하라. 운영망 실험/유료자원/패키지공개/운영배포는 제외다.
-새 Cloud 도구/네트워크/Docker/browser를 확인하고 잠금파일대로 복원하라.
-원시 로그/스크린샷/반복 일지는 커밋하지 말고 미실행은 NOT_RUN으로 기록하라.
+구현 Sol6.1ultra, architecture/독립검토 Astraultra를 모두 최대추론으로 사용하고
+파일소유권을 나눠 병렬구현하라. Cargo/build/runtime은 한 검증조율자가 순차실행한다.
+필요국소검사후 큰묶음 통합검토 한 번으로 진행하고 원시로그/반복일지는 Git에 넣지 마라.
+다음외부검토는 실제새base/head/tree의 완전복사용프롬프트를 대화와PR에 보존하라.
+준비/내부검토를 실제Claude검토라고 쓰지 마라.
+
+충돌legacy14는 모든tenant거절, 현재15open MigrationRequired/DATABASE_REJECTED와
+명시migrate Binding/MIGRATION_REJECTED를 구분하라. 실패로 새검증백업을 추론하지 마라.
+원본/sidecar/백업을 보존하고 history편집/임의승인/issued환급/rollbackresurrection을 금지하라.
+신뢰가능한compatible authority/epoch/generation 복원문맥 없으면 닫아라. auto repair는 없다.
+3OS/8locale/영어기본+저장선택/Apache2.0/통계OFF/선택후원/AI자기승인금지를 유지하라.
+운영망/hostfirewall실험/유료자원/패키지공개/운영배포는 제외하며 managed도구/잠금을 보존하라.

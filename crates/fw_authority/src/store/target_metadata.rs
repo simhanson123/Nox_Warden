@@ -298,8 +298,8 @@ impl AuthorityStore {
         // Purpose ownership is bidirectional and retained after revocation.
         // A lab observer key must never later become a transport identity.
         let observer_key: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM authority_native_observer_keys WHERE org_id=? AND key_fingerprint=?)",
-            params![tenant.org_id, hash(&fingerprint)?],
+            "SELECT EXISTS(SELECT 1 FROM authority_native_observer_keys WHERE org_id=? AND public_key=?) OR EXISTS(SELECT 1 FROM authority_registry_keys WHERE org_id=? AND public_key=?) OR EXISTS(SELECT 1 FROM authority_target_bootstrap_key_pins WHERE org_id=? AND public_key=?)",
+            params![tenant.org_id,pin.public_key.as_slice(),tenant.org_id,pin.public_key.as_slice(),tenant.org_id,pin.public_key.as_slice()],
             |r| r.get(0),
         )?;
         if observer_key {

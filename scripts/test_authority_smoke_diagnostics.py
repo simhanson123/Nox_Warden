@@ -1,5 +1,6 @@
 """Keep authority smoke failures useful after private fixture cleanup, without secrets."""
 import contextlib
+import copy
 from contextlib import ExitStack
 import importlib.util
 import io
@@ -247,6 +248,128 @@ class DiagnosticsTests(unittest.TestCase):
         with patch.object(smoke.urllib.request, 'urlopen', return_value=response):
             with self.assertRaises(smoke.CheckFailed):
                 smoke.wait_ready(process)
+
+
+class ReadinessContractsTests(unittest.TestCase):
+    @staticmethod
+    def detail():
+        return {'plan_hash': 'sha256:' + 'a' * 64,
+                'plan': {'org_id': 'org', 'project_id': 'project', 'target_id': 'target', 'plan_id': 'plan',
+                         'authority_epoch': '1', 'valid_until': '2026-11-06T01:00:00Z'}}
+
+    def legacy(self):
+        detail = self.detail()
+        return {'schema_version': 'fw.signing-readiness/v2',
+                **{key: detail['plan'][key] for key in ('org_id', 'project_id', 'target_id', 'plan_id')},
+                'plan_hash': detail['plan_hash'], 'checked_at': '2026-11-06T00:00:00Z',
+                'valid_until': '2026-11-06T00:00:30Z', 'signing_allowed': False, 'dispatch_allowed': False,
+                'reasons': ['PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED',
+                            'PROTECTED_SIGNER_UNAVAILABLE', 'APPROVAL_SET_MISSING',
+                            'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED'],
+                'approval_set_hash': None, 'quota_configured': False, 'target_generation': None,
+                'latest_intent': None, 'quota_scope': None, 'quota_root_id': None,
+                'latest_dispatch_unknown_seen': None}
+
+    def canonical(self):
+        value = self.legacy()
+        value.update(schema_version='fw.signing-readiness/v3', bootstrap_authorization_hash=None,
+                     target_bootstrap=None,
+                     reasons=['BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'POLICY_SIGNER_KEY_REQUIRED',
+                              'PROTECTED_SIGNER_UNAVAILABLE', 'BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED',
+                              'BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED',
+                              'APPROVAL_SET_MISSING', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED'])
+        return value
+
+    def confirmed(self):
+        value = self.canonical()
+        value['bootstrap_authorization_hash'] = 'sha256:' + 'b' * 64
+        value['reasons'] = [reason for reason in value['reasons'] if reason not in
+                            ('BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED', 'BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED')]
+        value['target_bootstrap'] = {'state': 'target_confirmed_pending_qualification', 'target_id': 'target',
+            'confirmation_revision': '1', 'accepted_epoch': '1', 'highest_generation': '0',
+            'confirmation_hash': 'sha256:' + 'c' * 64, 'observed_at': '2026-11-05T23:59:55Z',
+            'admitted_at': '2026-11-05T23:59:58Z', 'valid_until': '2026-11-06T00:00:30Z',
+            'current_confirmation_eligibility': True, 'current_for_plan': True,
+            'signing_allowed': False, 'dispatch_allowed': False}
+        return value
+
+    def test_legacy_v2_fixture_helper_keeps_its_versioned_shape(self):
+        value = self.legacy()
+        self.assertTrue(smoke.signing_readiness_matches_fixture(value, self.detail()))
+        self.assertFalse(smoke.signing_readiness_matches_fixture(self.canonical(), self.detail()))
+        self.assertFalse(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
+        for field in ('quota_scope', 'quota_root_id', 'latest_dispatch_unknown_seen'):
+            wrong = copy.deepcopy(value)
+            del wrong[field]
+            self.assertFalse(smoke.signing_readiness_matches_fixture(wrong, self.detail()))
+
+    def test_v3_human_quorum_does_not_create_fixture_bootstrap_or_target_authority(self):
+        value = self.canonical()
+        self.assertTrue(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
+        value['approval_set_hash'] = 'sha256:' + 'd' * 64
+        value['reasons'].remove('APPROVAL_SET_MISSING')
+        self.assertTrue(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
+        self.assertIsNone(value['bootstrap_authorization_hash'])
+        self.assertIsNone(value['target_bootstrap'])
+        self.assertFalse(smoke.signing_readiness_v3_matches_fixture(self.confirmed(), self.detail()))
+
+    def test_v3_current_target_and_expired_accepted_history_are_distinct(self):
+        current = self.confirmed()
+        self.assertTrue(smoke.signing_readiness_v3_matches_profile(current, self.detail()))
+        history = copy.deepcopy(current)
+        history['target_bootstrap'].update(current_for_plan=False, current_confirmation_eligibility=False,
+                                           valid_until='2026-11-05T23:59:59Z')
+        history['reasons'].append('TARGET_EPOCH_CONFIRMATION_REQUIRED')
+        self.assertTrue(smoke.signing_readiness_v3_matches_profile(history, self.detail()))
+        self.assertEqual(history['target_bootstrap']['accepted_epoch'], '1')
+        self.assertFalse(smoke.signing_readiness_v3_matches_fixture(history, self.detail()))
+
+    def test_v3_missing_duplicate_or_legacy_blockers_cannot_pass(self):
+        for missing in ('BUILD_IDENTITY_REQUIRED', 'NATIVE_QUALIFICATION_REQUIRED', 'POLICY_SIGNER_KEY_REQUIRED',
+                        'PROTECTED_SIGNER_UNAVAILABLE', 'BOOTSTRAP_AUTHORIZATION_REQUIRED', 'TARGET_EPOCH_CONFIRMATION_REQUIRED',
+                        'APPROVAL_SET_MISSING', 'QUOTA_CONFIGURATION_MISSING', 'TARGET_GENERATION_UNINITIALIZED'):
+            with self.subTest(missing=missing):
+                value = self.canonical()
+                value['reasons'].remove(missing)
+                self.assertFalse(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
+        for extra in ('PROTECTED_BOOTSTRAP_REQUIRED', 'BUILD_IDENTITY_UNVERIFIED', 'BUILD_IDENTITY_REQUIRED'):
+            value = self.canonical()
+            value['reasons'].append(extra)
+            self.assertFalse(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
+        value = self.canonical()
+        value['bootstrap_authorization_hash'] = 'sha256:' + 'b' * 64
+        self.assertFalse(smoke.signing_readiness_v3_matches_profile(value, self.detail()))
+
+    def test_v3_contradictory_target_claims_or_private_fields_are_rejected(self):
+        for field, invalid in [('accepted_epoch', '2'), ('highest_generation', '1'), ('confirmation_revision', '0'),
+                               ('target_id', 'another-target'), ('current_confirmation_eligibility', False),
+                               ('dispatch_allowed', True), ('raw_assertion', PRIVATE)]:
+            with self.subTest(field=field):
+                value = self.confirmed()
+                value['target_bootstrap'][field] = invalid
+                self.assertFalse(smoke.signing_readiness_v3_matches_profile(value, self.detail()))
+        for invalid in ('2026-11-05T23:59:58Z', '2026-11-05T23:59:57Z'):
+            value = self.confirmed()
+            value['target_bootstrap'].update(current_for_plan=False, current_confirmation_eligibility=False, valid_until=invalid)
+            value['reasons'].append('TARGET_EPOCH_CONFIRMATION_REQUIRED')
+            self.assertFalse(smoke.signing_readiness_v3_matches_profile(value, self.detail()))
+        value = self.confirmed()
+        value['target_bootstrap']['valid_until'] = '2026-11-06T00:00:20Z'
+        self.assertFalse(smoke.signing_readiness_v3_matches_profile(value, self.detail()))
+
+    def test_v3_unknown_shape_binding_permissions_and_unbounded_times_fail(self):
+        for field, invalid in [('schema_version', 'fw.signing-readiness/v2'), ('project_id', 'another-project'),
+                               ('plan_hash', 'sha256:' + 'f' * 64), ('signing_allowed', True), ('dispatch_allowed', 0),
+                               ('private_key', PRIVATE), ('checked_at', '2026-02-31T00:00:00Z'),
+                               ('valid_until', '2026-11-06T00:01:01Z')]:
+            with self.subTest(field=field):
+                value = self.canonical()
+                value[field] = invalid
+                self.assertFalse(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
+        for field in ('bootstrap_authorization_hash', 'target_bootstrap'):
+            value = self.canonical()
+            del value[field]
+            self.assertFalse(smoke.signing_readiness_v3_matches_fixture(value, self.detail()))
 
 
 if __name__ == '__main__':

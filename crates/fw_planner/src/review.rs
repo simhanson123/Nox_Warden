@@ -40,8 +40,11 @@ impl PolicyReviewEvidence {
             },
         )
         .map_err(|_| invalid())?;
-        if plan["schema_version"] != "f.policy-change-plan/v1"
-            || plan["change_kind"] != "policy_change"
+        let core =
+            plan["schema_version"] == "f.plan/v1" && plan["change_kind"] == "add_access_lease";
+        if (!core
+            && (plan["schema_version"] != "f.policy-change-plan/v1"
+                || plan["change_kind"] != "policy_change"))
             || plan["org_id"]
                 .as_str()
                 .is_none_or(|s| fw_domain::validate_uuid(s).is_err())
@@ -59,13 +62,14 @@ impl PolicyReviewEvidence {
                 != self.after.state_hash().map_err(|_| invalid())?
             || plan["baseline_hash"] != self.before.state_hash().map_err(|_| invalid())?
             || plan["desired_state_hash"] != self.after.state_hash().map_err(|_| invalid())?
-            || plan["candidate_state_ref"]["object_hash"] != plan["desired_state_hash"]
-            || plan["candidate_state_ref"]["size_bytes"].as_u64()
-                != Some(
-                    fw_contracts::canonical_bytes(&self.after)
-                        .map_err(|_| invalid())?
-                        .len() as u64,
-                )
+            || (!core
+                && (plan["candidate_state_ref"]["object_hash"] != plan["desired_state_hash"]
+                    || plan["candidate_state_ref"]["size_bytes"].as_u64()
+                        != Some(
+                            fw_contracts::canonical_bytes(&self.after)
+                                .map_err(|_| invalid())?
+                                .len() as u64,
+                        )))
             || plan["target_id"] != self.before.target_id
             || self.before.target_id != self.after.target_id
             || plan["source_snapshot_hash"] != self.before.source_snapshot_hash
@@ -82,6 +86,10 @@ impl PolicyReviewEvidence {
             if plan["org_id"] != policy.org_id || plan["project_id"] != policy.project_id {
                 return Err(invalid());
             }
+        }
+        if core {
+            let binding = crate::core_review::verify_core(self, plan)?;
+            return self.verified(plan, Some(binding));
         }
         let operations: Vec<PolicyMutation> =
             serde_json::from_value(plan["operations"].clone()).map_err(|_| invalid())?;
@@ -115,12 +123,22 @@ impl PolicyReviewEvidence {
         {
             return Err(invalid());
         }
+        self.verified(plan, None)
+    }
+
+    fn verified(
+        &self,
+        plan: &Value,
+        core_binding: Option<crate::CoreAccessReviewBinding>,
+    ) -> Result<VerifiedPolicyReview> {
+        let invalid = || PlanError("policy review evidence unavailable");
         let canonical = fw_contracts::canonical_bytes(self).map_err(|_| invalid())?;
         Ok(VerifiedPolicyReview {
             plan_hash: canonical_hash(plan).map_err(|_| invalid())?,
             evidence_hash: fw_contracts::hash_bytes(&canonical),
             evidence: self.clone(),
             canonical,
+            core_binding,
         })
     }
 }
@@ -132,6 +150,7 @@ pub struct VerifiedPolicyReview {
     evidence_hash: String,
     evidence: PolicyReviewEvidence,
     canonical: Vec<u8>,
+    core_binding: Option<crate::CoreAccessReviewBinding>,
 }
 impl VerifiedPolicyReview {
     pub fn plan_hash(&self) -> &str {
@@ -145,6 +164,11 @@ impl VerifiedPolicyReview {
     }
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical
+    }
+    /// Structural core lease correspondence. The authority must independently
+    /// match this to retained original provenance and its immutable window.
+    pub fn core_binding(&self) -> Option<&crate::CoreAccessReviewBinding> {
+        self.core_binding.as_ref()
     }
 }
 pub const MAX_POLICY_REVIEW_BYTES: usize = 128 * 1024;

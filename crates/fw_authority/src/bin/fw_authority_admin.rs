@@ -2,7 +2,8 @@
 //! Operating-system access to the protected authority database is the trust
 //! boundary. Inputs are public pins/proofs; this program accepts no private key.
 use fw_authority::{
-    AuthorityStore, AuthorityTenant, CoreAccessProvenance, NativeObserverPin, NativeReferencePin,
+    AuthorityStore, AuthorityTenant, CoreAccessPlanRegistration, CoreAccessProvenance,
+    MAX_CORE_ACCESS_PLAN_REGISTRATION_BYTES, NativeObserverPin, NativeReferencePin,
     SigningProjectQuotaPin, SigningRequest, SigningRootQuotaPin, TargetTransportPin,
 };
 use fw_backend_linux::Installation;
@@ -20,7 +21,12 @@ use std::{
     path::Path,
 };
 
-const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|read-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Recover a retained project pin revision with read-signing-project-quota using an empty JSON object; the read never authorizes signing. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
+#[path = "authority_admin/registry.rs"]
+mod registry;
+#[path = "authority_admin/target_bootstrap.rs"]
+mod target_bootstrap;
+
+const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-core-access-plan|read-core-access-lease-window|register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|read-signing-readiness-v3|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|read-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. The approval-origin flag configures a verifier; bootstrap ceremonies require its exact match with the independently pinned project origin. The flag never provisions that pin. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. Register a complete immutable core plan, review, provenance and absolute lease window with schema_version fw.reviewed-core-access-plan/v1. Recover committed registration after lost output with read-core-access-lease-window; its retained window never moves with approval or retry. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Recover a retained project pin revision with read-signing-project-quota using an empty JSON object; the read never authorizes signing. Read canonical current blockers through the explicit v3 command; published v1/v2 retain their legacy diagnostic contracts and refuse states they cannot represent. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
 type Result<T> = std::result::Result<T, &'static str>;
@@ -62,8 +68,39 @@ impl Arguments {
             | "read-signing-intent"
             | "cancel-signing-job"
             | "register-core-access-provenance"
-            | "read-core-access-provenance" => &["--database", "--org-id", "--project-id"],
-            "read-signing-readiness" | "read-signing-readiness-v2" | "request-signing" => &[
+            | "read-core-access-provenance"
+            | "register-reviewed-core-access-plan"
+            | "read-core-access-lease-window"
+            | "pin-registry-trust-key"
+            | "revoke-registry-trust-key"
+            | "pin-bootstrap-approval-origin"
+            | "read-bootstrap-approval-origin"
+            | "pin-target-bootstrap-key"
+            | "revoke-target-bootstrap-key"
+            | "challenge-target-bootstrap"
+            | "import-target-bootstrap-confirmation"
+            | "read-target-bootstrap-status"
+            | "import-workload-binding"
+            | "import-access-envelope"
+            | "import-delegation"
+            | "import-bootstrap-manifest"
+            | "read-authority-registry"
+            | "revoke-authority-registry-object"
+            | "provision-authority-principal"
+            | "pin-authority-credential"
+            | "grant-authority-role"
+            | "bind-authority-human"
+            | "revoke-authority-credential"
+            | "revoke-authority-role" => &["--database", "--org-id", "--project-id"],
+            "read-signing-readiness"
+            | "read-signing-readiness-v2"
+            | "read-signing-readiness-v3"
+            | "request-signing"
+            | "challenge-bootstrap"
+            | "admit-bootstrap-proof"
+            | "import-bootstrap-authorization"
+            | "challenge-authority-credential"
+            | "activate-authority-credential" => &[
                 "--database",
                 "--org-id",
                 "--project-id",
@@ -255,6 +292,14 @@ fn revision(value: &str) -> Result<u64> {
     }
     Ok(n)
 }
+fn readiness_error(error: fw_authority::AuthorityError) -> &'static str {
+    match error {
+        fw_authority::AuthorityError::Invalid(fw_authority::SIGNING_READINESS_V3_REQUIRED) => {
+            fw_authority::SIGNING_READINESS_V3_REQUIRED
+        }
+        _ => "SIGNING_READINESS_REJECTED",
+    }
+}
 
 fn counter(value: &str) -> Result<u64> {
     let n = value.parse::<u64>().map_err(|_| "INPUT_REJECTED")?;
@@ -326,6 +371,12 @@ fn run() -> Result<Value> {
     let tenant = AuthorityTenant::new(args.value("--org-id"), args.value("--project-id"))
         .map_err(|_| "TENANT_REJECTED")?;
     let mut store = AuthorityStore::open(database).map_err(|_| "DATABASE_REJECTED")?;
+    if registry::handles(&args.command) {
+        return registry::run(&args, &mut store, &tenant);
+    }
+    if target_bootstrap::handles(&args.command) {
+        return target_bootstrap::run(&args, &mut store, &tenant);
+    }
     match args.command.as_str() {
         "init-project" => {
             let _: Empty = request()?;
@@ -418,6 +469,43 @@ fn run() -> Result<Value> {
                 )
                 .map_err(|_| "CORE_ACCESS_PROVENANCE_REJECTED")?;
             serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "register-reviewed-core-access-plan" => {
+            // Keep the complete plan/review/provenance/window under one closed,
+            // bounded codec. The clock is sampled only after stdin completes.
+            let mut bytes = Vec::new();
+            std::io::stdin()
+                .lock()
+                .take((MAX_CORE_ACCESS_PLAN_REGISTRATION_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            let input = CoreAccessPlanRegistration::parse(&bytes)
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            let now = chrono::Utc::now().timestamp();
+            let status = store
+                .register_reviewed_core_access_plan(
+                    &tenant,
+                    &input.plan,
+                    &input.requirements,
+                    &input.evidence,
+                    &input.provenance,
+                    &input.window,
+                    now,
+                )
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "read-core-access-lease-window" => {
+            let input: CoreAccessProvenanceReadRequest =
+                request().map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            let now = chrono::Utc::now().timestamp();
+            let window = store
+                .read_core_access_lease_window(&tenant, &input.plan_id, now)
+                .map_err(|_| "CORE_ACCESS_LEASE_WINDOW_REJECTED")?;
+            Ok(json!({
+                "schema_version":"fw.core-access-lease-window-query/v1",
+                "window":window,"signing_allowed":false,"dispatch_allowed":false
+            }))
         }
         "read-core-access-provenance" => {
             let input: CoreAccessProvenanceReadRequest =
@@ -613,7 +701,7 @@ fn run() -> Result<Value> {
                     &verifier,
                     chrono::Utc::now().timestamp(),
                 )
-                .map_err(|_| "SIGNING_READINESS_REJECTED")?;
+                .map_err(readiness_error)?;
             serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
         }
         "read-signing-readiness-v2" => {
@@ -627,7 +715,21 @@ fn run() -> Result<Value> {
                     &verifier,
                     chrono::Utc::now().timestamp(),
                 )
-                .map_err(|_| "SIGNING_READINESS_REJECTED")?;
+                .map_err(readiness_error)?;
+            serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
+        }
+        "read-signing-readiness-v3" => {
+            let input: NativeReadRequest = request()?;
+            let verifier = WebAuthn::new(args.value("--approval-origin"))
+                .map_err(|_| "APPROVAL_ORIGIN_REJECTED")?;
+            let status = store
+                .signing_readiness_v3(
+                    &tenant,
+                    &input.plan_id,
+                    &verifier,
+                    chrono::Utc::now().timestamp(),
+                )
+                .map_err(readiness_error)?;
             serde_json::to_value(status).map_err(|_| "OUTPUT_FAILED")
         }
         "request-signing" => {
@@ -707,7 +809,15 @@ fn main() {
     let outcome = if std::env::args_os().skip(1).collect::<Vec<_>>()
         == [std::ffi::OsString::from("--help")]
     {
-        write_stdout(format!("{HELP}\n").as_bytes())
+        write_stdout(
+            format!(
+                "{HELP}\n\n{}\n\n{}\n\n{}\n",
+                registry::HELP,
+                registry::PROVISION_HELP,
+                target_bootstrap::HELP
+            )
+            .as_bytes(),
+        )
     } else {
         run().and_then(|value| {
             let bytes = canonical_bytes(&value).map_err(|_| "OUTPUT_FAILED")?;

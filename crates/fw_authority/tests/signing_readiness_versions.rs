@@ -5,7 +5,9 @@ mod core_access_fixture;
 #[path = "support/private_directory.rs"]
 mod private_directory;
 
-use fw_authority::{AuthorityStore, AuthorityTenant, SigningProjectQuotaPin, SigningRootQuotaPin};
+use fw_authority::{
+    AuthorityGate, AuthorityStore, AuthorityTenant, SigningProjectQuotaPin, SigningRootQuotaPin,
+};
 use fw_webauthn::WebAuthn;
 use serde_json::{Value, json};
 
@@ -109,4 +111,41 @@ fn rooted_core_readiness_requires_retained_provenance_on_both_versions() {
         serde_json::to_value(versioned).unwrap()["latest_intent"],
         Value::Null
     );
+    let canonical = store
+        .signing_readiness_v3(&tenant, plan_id, &verifier, now)
+        .unwrap();
+    assert!(canonical.bootstrap_authorization_hash.is_none());
+    assert!(canonical.target_bootstrap.is_none());
+    assert!(!canonical.snapshot.snapshot.signing_allowed);
+    assert!(!canonical.snapshot.snapshot.dispatch_allowed);
+    for gate in [
+        AuthorityGate::BootstrapApprovalOriginRequired,
+        AuthorityGate::BootstrapAuthorizationRequired,
+        AuthorityGate::TargetEpochConfirmationRequired,
+        AuthorityGate::BuildIdentityRequired,
+        AuthorityGate::NativeQualificationRequired,
+        AuthorityGate::PolicySignerKeyRequired,
+        AuthorityGate::WorkloadSourceAttestationRequired,
+        AuthorityGate::CoreSigningProfileUnavailable,
+    ] {
+        assert!(
+            canonical
+                .snapshot
+                .snapshot
+                .reasons
+                .iter()
+                .any(|r| r == gate.code())
+        );
+    }
+    assert!(
+        !canonical
+            .snapshot
+            .snapshot
+            .reasons
+            .iter()
+            .any(|r| r == "PROTECTED_BOOTSTRAP_REQUIRED")
+    );
+    let canonical = serde_json::to_value(canonical).unwrap();
+    assert_eq!(canonical["schema_version"], "fw.signing-readiness/v3");
+    assert_eq!(canonical.as_object().unwrap().len(), 20);
 }

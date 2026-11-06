@@ -8,7 +8,7 @@ license = "Apache-2.0"
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-fw_authority = { path = "../fw_authority", default-features = false }
+fw_authority = { path = "../fw_authority", default-features = false, features = ["approval-proofs"] }
 fw_backend_linux = { path = "../fw_backend_linux" }
 fw_contracts = { path = "../fw_contracts" }
 fw_domain = { path = "../fw_domain" }
@@ -18,4 +18,5 @@ ed25519-dalek = "2.2.0"
 base64 = "0.22.1"
 chrono = { version = "0.4.42", default-features = false, features = ["std"] }
 fw_linux_executor = { path = "../fw_linux_executor" }
+fw_native_evidence = { path = "../fw_native_evidence" }
 libc = "0.2"

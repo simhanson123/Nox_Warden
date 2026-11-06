@@ -39,6 +39,17 @@ not establish an independent security boundary. Protected ownership and ACLs,
 separate accounts/processes, authenticated IPC and a signer inaccessible to the
 controller remain required. The library does not protect against an attacker
 who can replace the authority database or execute privileged provisioning calls.
+As specified in [F_01 section 3](specs/F_01_제품_구현_기준.md), compromise of the
+host administrator/root or authority trust root is outside this boundary. A
+schema-capable writer can remove clock guards, rewind a retained floor and
+restore the exact schema. Local integrity
+checks can then accept that coherent state; neither SQL guards nor a local audit
+hash chain prove monotonicity against the same writer. Protected authority
+deployment and independently protected external anchors remain required work.
+Protected authority storage is a precondition, and OS-account/ACL separation
+remains unfinished. A deployment in which the controller can rewrite the
+authority schema does not satisfy that precondition. The root-compromise
+exclusion does not establish protection from every SQL writer.
 The independent review daemon exposes possession proofs and decisions, never
 these privileged provisioning methods. Its explicit isolated example provisioner
 is test-only machinery, not a production initial-owner bootstrap ceremony.
@@ -86,14 +97,20 @@ the plan. Trusted plan admission and a future signer must resolve and verify
 those referenced objects and current authority independently. A plan containing
 `PASS` gate strings is not sufficient authority for a firewall write.
 
-Authority-bootstrap manifests are supported by the lower-level challenge
-primitive, but this storage slice accepts plan decisions only. It does not
-produce bootstrap approval proofs, reserve signing work, issue grants or
-dispatch policies.
+Schema15 separately retains signed workload bindings, staged original
+envelope/delegation/manifest objects, owner-bound WebAuthn bootstrap proofs and
+DSSE bootstrap authorizations. These are distinct from plan decisions and raw
+provisioning. An imported authorization remains
+`authorized_pending_target_confirmation`, with signing/dispatch false until
+target durable epoch/baseline confirmation and production qualification exist.
+The separate [bootstrap and signer contract](protected-signing-authority.md)
+describes that boundary; this store is not a host enforcement or delivery service.
 
 ## Durable policy review evidence
 
-`register_reviewed_plan` is a trusted local importer, not a browser endpoint.
+`register_reviewed_plan` is a trusted local importer for general policy changes,
+not a browser endpoint. Core access uses the combined importer described below;
+the general importer rejects `add_access_lease` plans.
 It uses the shared `fw_planner::PolicyReviewEvidence` verifier to recompose the
 exact policy change from normalized full before/after StateIR. Tenant, target,
 source/capability references, candidate size/hash, patch hash and semantic effects
@@ -117,6 +134,9 @@ their configuration does not remove admitted review evidence. The service uses
 review evidence for new approving decisions inside the same database transaction.
 A rejection remains possible without available review evidence, and an exact
 retry acknowledges its original decision without renewing authority.
+For core plans, source configuration can confirm an exact already-retained
+review, but cannot import review authority without its original provenance and
+fixed window through this general-plan path.
 
 The low-level `register_plan`, `issue_challenge` and `admit_decision` APIs still
 serve trusted embeddings and preserved evidence tests. They do not certify that
@@ -193,7 +213,7 @@ issuance endpoint or maintenance deletion operation is supplied by this slice.
 
 ## Recomputed compilation and signed lab observations
 
-Schema 6 adds explicitly provisioned development native evidence. Its local
+Schema 6 introduced explicitly provisioned development native evidence. Its local
 maintenance APIs do not create a production observer, authority bootstrap,
 compiler qualification or signing permission. Every compilation/observation
 receipt and status response retains `production_qualified:false` and
@@ -263,13 +283,14 @@ archival maintenance and protected collector/IPC deployment remain future work.
 
 ## Original core-access cost provenance
 
-Schema 9 retains the original `f.access-request/v1`, `f.access-envelope/v1` and
-`f.delegation/v1` objects in a bounded `fw.core-access-provenance/v1` record.
+Schema 9 introduced retention of the original `f.access-request/v1`,
+`f.access-envelope/v1` and `f.delegation/v1` objects in a bounded
+`fw.core-access-provenance/v1` record.
 `register_core_access_provenance` is a trusted local operation against a previously
 registered immutable core plan. Its verifier checks exact canonical hashes and
 request, tenant, target, principal, workload, membership, scope and time bindings.
 The explicit original request/revision and lease identity remain separate from
-the signing coordinator's retry ID. The core profile requires request revision 1.
+the signing coordinator's retry ID. Provenance v1 requires request revision 1.
 
 `authority_core_access_requests` holds immutable original bytes and projections;
 `authority_core_access_plan_bindings` attaches those same bytes to compatible
@@ -295,27 +316,208 @@ Both permission fields remain false. See the [local CLI guide](core-access-prove
 Cost derivation uses the full original requested duration, retained lease ID and
 sorted destination set, and independently checks that the configured quota root
 matches the delegation root. A shorter remaining plan window cannot lower that
-cost. Import does not authenticate envelope/delegation approval hashes or the
+cost. This existing provenance-v1 behavior also permits compatible shifted policy
+windows within the original inputs' validity. Those records remain valid cost
+history. Once a request has a retained fixed window, every provenance-only plan
+binding for that request must stay within it. Before the first window is admitted,
+all existing bindings are checked; an out-of-window legacy binding rejects the
+whole combined admission without rewriting that history. Provenance-only plans
+may use a shorter interval inside the window, but are not reviewed plans merely
+because they share its original evidence.
+
+New live cost derivation and readiness require the plan's complete retained core
+review and fixed window. Legacy evidence without them remains readable with its
+original full-duration cost, and existing reservation snapshots and accounting
+remain unchanged. Issued, UNKNOWN and unsigned-delivered work keeps its capacity.
+An existing legacy plan can be upgraded through combined registration when all
+strict plan, requirements, full-state review, provenance and exact-window checks
+pass; migration or provenance import alone never grants that qualification.
+Import does not authenticate envelope/delegation approval hashes or the
 referenced workload, and does not create quota pins, native qualification,
 approval sets or grants. Complete core signing and protected production authority
 remain separate requirements.
 
+## Reviewed core access and one absolute window
+
+`register_reviewed_core_access_plan` atomically retains a closed original
+`f.plan/v1` plan, requirements, full `PolicyReviewEvidence`, original provenance
+and a `fw.core-access-lease-window/v1` sidecar. The shared review keeps its
+existing `{before, after}` wire shape. Its core verifier recomposes normalized
+requested policies against the complete baseline, preserving denies, unrelated
+allows, associations and tombstones, and checks exact state, patch, policy and
+semantic-effect hashes. Unknown or oversized semantic proofs are refused.
+New associations must bind the request, one structural lease ID and the
+recomputed `f.policy-authority-basis/v1` digest. The core plan itself has no
+lease-ID field; retained original provenance supplies that identity binding.
+
+The closed window is at most 4096 bytes and binds tenant, target, original
+request ID/revision/hash, provenance hash, lease ID and canonical UTC
+`not_before`/`expires_at`. Every requested policy shares this exact `[S,E)`;
+`E-S` equals the full original request duration of 60–86400 seconds. The interval
+must fit the envelope/delegation intersection and the plan's declared workload
+lifetime. These checks establish structural correspondence, not an authenticated
+workload issuer or delegated approval. Scope may be narrowed, but this profile
+cannot shorten, shift or extend the original fixed interval.
+
+Schema14 adds `authority_core_access_lease_windows`. Plan, requirements,
+provenance, window, review, security revision and mandatory audits commit in one
+admission transaction. Failure rolls that admission back. Exact retry validates
+retained bytes without replacing evidence or adding audit events. Another
+compatible plan can bind the same original lease only with that same window.
+Immutable identity/rowid guards reject replacement; complete retained validation
+also rejects missing references or altered projections. Migration infers no
+window or review for legacy cost-only provenance. Existing accounting retains
+one reservation per lease and unchanged issued/UNKNOWN/unsigned-delivered capacity.
+
+Closed structural plan and requirements validation precedes admission's clock
+observation. Malformed objects cannot advance the floor. A well-formed attempt
+can still persist conservative time before later current-time, conflict or
+admission refusal; exact historical retries retain their original admission time.
+Window reads and admission independently persist the existing durable project
+quota-clock floor, including before a quota pin exists, and respect relevant
+original-root and target floors. This clock observation can commit before a
+later admission refusal; it creates no quota pin, capacity, reservation, job or
+executor generation. Under the protected-database boundary, once expiry has been
+observed, backward wall-clock samples cannot
+make retained evidence current again, including after reopening. Historical
+verification uses the durable floor, while `checked_at` reports the actual
+sample. `read_core_access_lease_window` returns verified historical status after
+plan expiry or retirement, or `None` if that plan has no retained reviewed
+window. This durable floor does not detect a privileged coherent database rewind
+or restore; local expiry persistence is not external rollback protection.
+`current` concerns only structural window/plan/time state.
+
+Provenance registration/read and window read compare the window selected for
+clock observation with the final transaction's selection. If a peer creates the
+first window in between, the operation returns `Conflict` for retry rather than
+using a window whose clock was never observed. This preserves durable expiry
+across that concurrent transition; a retry does not move the original window.
+
+The [administration guide](core-access-provenance-cli.md) describes combined
+registration and output-loss recovery. The authenticated
+`GET /authority/v1/plans/{plan_id}/core-access-evidence` route exposes bounded
+window summaries with no original proofs or credentials. Existing passkey review
+and native compilation/observation paths consume the retained core evidence;
+baseline and candidate artifacts remain independently rebuilt and observed.
+Readiness v1/v2 contracts are unchanged. `CORE_SIGNING_PROFILE_UNAVAILABLE`,
+`signing_allowed:false` and `dispatch_allowed:false` remain explicit. See
+[core-access enforcement](core-access-enforcement.md) for the separate Linux
+execution profile with synthetic trust and remaining production dependencies.
+
+## Explicit origin and isolated target confirmation (schema16)
+
+Schema16 adds three approval-origin tables and six isolated target-bootstrap
+tables, without changing SQL001–015. Origin pinning is explicit OOB trust; old
+challenge/proof bytes receive only separate NULL-origin classification. A late
+matching pin cannot promote them. A consumed exact proof retry can acknowledge
+original history with closed flags; an unconsumed older-revision challenge cannot
+create new consent. See [the correction contract](pr27-follow-up.md).
+
+Target key pins/revocation, exact challenges, signed confirmations and current
+head/audit preserve their own revision and predecessor history. Current receipt
+eligibility is separate from accepted history and from qualified policy authority.
+The [target contract](target-authority-confirmation.md) describes the bounded
+generation0 development profile, operator commands and explicit readiness v3.
+Every policy signing/dispatch flag stays false.
+
+Cross-purpose separation compares actual public-key bytes within the organization,
+not fingerprints whose historical raw32/SPKI encodings differ. All four key roles
+remain separate even after revocation/retirement. The released15 validator can
+accept a conflicting old assignment; current16 migration backs up that original
+history and rejects the entire upgrade. Every tenant in that database remains
+unavailable to16 until a separately authorized compatible recovery exists. No
+automatic key relabeling, history deletion or repair is implemented. Original
+rows, rowids, types, blobs and backup bytes must survive the refusal.
+
+Healthy v15 owner history migrates as readable verified history. An existing
+unconfirmed v15 pending chain has no automatic recovery: its authorization bytes
+are immutable, and a current target challenge requires genuine current authority
+plus an actual confirmed predecessor. Do not reset pending heads, generations,
+quota or issued/UNKNOWN obligations to regain genesis. This target-specific
+eligibility limitation is distinct from the whole-file conflicting14 rejection
+below. Supported rotation uses an accepted confirmed predecessor and the same
+protected target config/boot/netns/journal at generation0; native key/boot recovery
+remains unsupported.
+
+## Conflicting legacy core windows and recovery
+
+Earlier schema14 binaries could retain a provenance-only plan outside an
+existing fixed request window, or create a first window that conflicted with
+earlier bindings. At the corrected schema14 checkpoint, complete retained
+validation rejected such a database at `AuthorityStore::open` with `Binding`.
+The reviewed schema15 binary first returned `MigrationRequired` for a recognized
+schema14 database; the current schema16 binary likewise requires explicit upgrade
+from recognized older versions. Migration revalidates that original graph and rejects the
+conflict with `Binding` before creating a new maintenance backup. The
+administration executable reports `DATABASE_REJECTED` for ordinary open and
+`MIGRATION_REJECTED` for explicit migration refusal.
+This is a database-wide refusal: every tenant in that file
+is unavailable, including tenants whose own history is consistent. It does not
+quarantine just the conflicting request. Opening does not rewrite the conflicting
+evidence, and migration cannot repair or bypass that validation. Existing private
+backups remain evidence; the failed upgrade does not establish a new verified
+backup.
+
+Stop the authority service and workers before investigating. Preserve the
+original database and any associated WAL/journal files, existing private backups
+and manifests as restricted evidence. Obtain a consistent copy through an
+appropriate SQLite backup procedure; copying only the main file while a writer
+is active does not establish a consistent backup. Keep the rejected source
+available for comparison. Do not delete bindings, edit canonical history, remove
+guards, fabricate a window or approval, or downgrade the binary to resume writes.
+Never refund issued, UNKNOWN or unsigned-delivered capacity to make recovery fit.
+
+Recovery requires an independently trustworthy, consistent backup whose retained
+history is compatible with current trust, revocations, clock floors, authority
+epoch and executor generation. A file digest establishes which bytes were saved;
+it does not establish that an older backup is safe to activate. Follow the
+governing restore ceremony in [F_01 section 7](specs/F_01_제품_구현_기준.md)
+and [F_09 section 3](specs/F_09_멀티플랫폼_설치_집행_명세.md): authorize the
+new authority epoch through the trust root, re-enroll/reconcile affected targets
+as required, retain generation fences and issued obligations, and prevent old
+grants, expired allows or revoked credentials from becoming current again.
+Replacing the live file with an older backup alone is not a safe recovery.
+
+If authentic original request material must be registered again in a recovered
+authority, use the normal strict combined registration and full-state review
+under valid current authority. Only a genuine request and its independently
+verified original evidence justify that admission; a rejected legacy record does
+not authorize a replacement request, inferred window, invented approval or
+renewed lease. Preserve the original request/window, replay and quota obligations
+when evaluating it. Where a trustworthy compatible authority/generation context
+cannot be established, leave the database unavailable and new signing blocked.
+
+The current tools supply no automatic repair, history editor or complete
+operational backup-restore/re-enrollment command. The steps above state the
+required recovery boundary; they do not claim that production restore acceptance
+or external rollback protection has been implemented.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 13. The stable family identity
-`fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1–12 database returns `MigrationRequired` without adding tables
-or treating its keys as newly enrolled. The explicit maintenance operation is:
+Fresh authority databases use schema version 16. The stable family identity
+`fw.authority-store/v1` and SQLite application ID remain unchanged.
+
+This batch preserves SQL001–015 and adds SQL016. Once published, SQL016 and its
+schema/guard contract also become immutable history. Subsequent schema work must
+use a new migration rather than rewriting released migration/schema contracts.
+
+Opening a populated version 1–15 database returns `MigrationRequired` without
+adding tables or treating its keys as newly enrolled. Use the explicit maintenance
+operation below.
 
 Stop the authority service and its workers before migration, then restart them
 with the new binary. Do not mix older running binaries with a migrated database;
-Schema11 strengthens retained history, audit and reference validation; schema12
+schema11 strengthens retained history, audit and reference validation; schema12
 adds nullable project-only quota roots. Schema13 makes full retained validation
 mandatory at open and adds atomic audit/work bindings and independent accounting
-membership checks.
+membership checks. Schema14 adds immutable reviewed-core lease windows without
+changing the published SQL001–013 or legacy provenance bytes. Schema15 adds the
+signed workload/bootstrap registry while preserving all published SQL001–014.
+Schema16 adds explicit origin trust and isolated target confirmation while
+preserving all SQL001–015 and their retained contracts.
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v13.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v16.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -355,8 +557,8 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version13 database makes no new backup or state change. Version12
-requires an explicit backed-up upgrade. Opening version13 and current-version
+on a valid version16 database makes no new backup or state change. Version15
+requires an explicit backed-up upgrade. Opening version16 and current-version
 maintenance compare checksums and the exact known object inventory, including
 autoindexes; optional sqlite_stat1/stat4 tables require exact structural metadata.
 Neither sqlite_-prefixed objects nor lookalikes such as sqliteX_hidden are exempt.
@@ -424,6 +626,25 @@ path also checks the full defined quota/work guard set against cached canonical
 SQL. These integrity checks do not protect against coherent replacement of the
 entire authority database and its trust records.
 See [durable signing coordination](signing-coordination.md).
+
+Version 14 preserves migrations 001–013 and adds an empty immutable window table.
+Existing cost provenance, plans, approvals, quota reservations and native history
+retain their original bytes; no historical activation/expiry, semantic review,
+completion or signing authority is manufactured. Legacy provenance without a
+reviewed window remains readable through its original API. Current open and
+maintenance validation also replays retained reviewed-core/window bindings.
+Populated schema13 migration regressions reconstruct the released schema around
+genuine old-API rows; they are not newly executed old-binary fixtures.
+
+Version 15 preserves SQL001–014 and adds separate trust-key, immutable object,
+revocation, clock, workload-head and bootstrap challenge/proof records. It does
+not populate them from controller credentials, historical plan booleans or
+structural provenance. A validated signed workload head describes issuer
+authentication and retained freshness, while staged bootstrap material and an
+owner-approved authorization remain unable to sign or dispatch policies. Target
+durable epoch/generation acceptance, baseline/probes and production qualification
+are still required. The [registry contract](protected-signing-authority.md)
+distinguishes retained authorization from those missing target facts.
 
 ## Issuance and atomic decision admission
 
@@ -670,7 +891,7 @@ refund. Current schema inventory compares exact known object metadata, including
 autoindexes; optional ANALYZE tables have explicit structural checks. A reserved
 SQLite-looking name never exempts an unknown trigger, table, index or view.
 
-Schema13 open and current-version maintenance run physical SQLite integrity,
+Since schema13, open and current-version maintenance run physical SQLite integrity,
 reference graph, complete audit chain, quota transition/projection and retained
 work/lifecycle validation within one consistent read snapshot. Existing-database
 validation does not reserve the writer for that complete replay. Empty database
@@ -739,9 +960,9 @@ mandatory; populated databases require explicit maintenance and retired old hand
 See [project quota](project-policy-quota-design.md) for cutover and shared-capacity
 semantics. Rootless quota grants no OS privilege and opens no signer/dispatch gate.
 
-Schema13 audit INSERT requires the exact unsigned successor and matching previous
-hash, and atomically advances its head. A work-event INSERT consumes the current
-unclaimed audit event and atomically inserts its unique binding and projects its
+The schema13 audit INSERT guard requires the exact unsigned successor and matching
+previous hash, and atomically advances its head. A work-event INSERT consumes the
+current unclaimed audit event and atomically inserts its unique binding and projects its
 work head. Standalone bindings cannot be staged for later consumption, including
-with foreign keys disabled. All previously published SQL through012 is retained;
-the new guards and indexes are installed by migration013.
+with foreign keys disabled. Migration013 installed these guards and indexes while
+preserving SQL001–012; schema14 retains all published SQL001–013 unchanged.

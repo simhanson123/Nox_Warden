@@ -115,6 +115,9 @@ fn reject_transition(f: &signing_test_support::Fixture) -> Arc<FaultEvidence> {
         false
     }));
     let observed = evidence.clone();
+    // SQLite has one authorizer per connection: this temporarily replaces the
+    // production schema observer. No DDL runs while it is installed; reopening
+    // restores the production authorizer before healthy retry.
     // Installing this authorizer expires cached SQLite VMs. record_transition
     // itself uses uncached tx.execute; its preceding cached statements only
     // read. An authorization count alone is still not execution evidence:

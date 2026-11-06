@@ -14,6 +14,11 @@ name = "native_evidence_fixture"
 path = "examples/native_evidence_fixture.rs"
 required-features = ["approval-proofs"]
 
+[[example]]
+name = "protected_signer_fixture"
+path = "examples/protected_signer_fixture.rs"
+required-features = ["approval-proofs"]
+
 [features]
 default = ["approval-proofs"]
 approval-proofs = ["dep:fw_webauthn", "dep:fw_domain", "dep:fw_planner", "dep:fw_target_evidence", "dep:fw_native_evidence", "dep:fw_backend_linux", "dep:ipnet", "dep:openssl", "dep:sha2", "rusqlite/backup", "rusqlite/hooks"]
@@ -39,5 +44,6 @@ uuid = "1.18.1"
 rusqlite = { workspace = true }
 
 [dev-dependencies]
+libc = "=0.2.191"
 serde_cbor_2 = "=0.13.0"
 tempfile = "3.23"

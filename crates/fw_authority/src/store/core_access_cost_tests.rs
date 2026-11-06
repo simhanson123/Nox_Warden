@@ -1,4 +1,5 @@
 use super::super::core_access_fixture as fixture;
+use super::super::core_access_review_fixture as reviewed_fixture;
 use super::*;
 use signing_test_support::private_directory;
 
@@ -13,7 +14,7 @@ impl CoreFixture {
     fn new() -> Self {
         let directory = private_directory::private_directory();
         let mut store = AuthorityStore::open(directory.path().join("authority.sqlite3")).unwrap();
-        let (plan, provenance) = fixture::fixture();
+        let (plan, requirements, review, provenance, window) = reviewed_fixture::fixture();
         let tenant = AuthorityTenant::new(
             plan["org_id"].as_str().unwrap(),
             plan["project_id"].as_str().unwrap(),
@@ -23,13 +24,13 @@ impl CoreFixture {
             .provision_target_metadata_project(&tenant, fixture::NOW)
             .unwrap();
         store
-            .register_plan(&tenant, &plan, &fixture::requirements(), fixture::NOW)
-            .unwrap();
-        store
-            .register_core_access_provenance(
+            .register_reviewed_core_access_plan(
                 &tenant,
-                plan["plan_id"].as_str().unwrap(),
+                &plan,
+                &requirements,
+                &review,
                 &provenance,
+                &window,
                 fixture::NOW,
             )
             .unwrap();
@@ -106,7 +107,7 @@ fn core_cost_keeps_full_original_duration_and_destination_membership() {
 }
 
 #[test]
-fn shorter_plan_cannot_admit_full_request_through_smaller_budget() {
+fn full_original_request_cannot_fit_a_smaller_budget() {
     let mut f = CoreFixture::new();
     let mut pin = f.pin();
     pin.limits.cumulative_seconds_per_day = 1800;
@@ -257,4 +258,70 @@ fn core_readiness_distinguishes_cost_binding_from_unavailable_signing_profile() 
             .unwrap();
         assert_eq!(count, 0, "{table}");
     }
+}
+
+#[test]
+fn legacy_full_original_cost_is_retained_without_fresh_window_eligibility() {
+    let directory = private_directory::private_directory();
+    let path = directory.path().join("authority.sqlite3");
+    let mut store = AuthorityStore::open(&path).unwrap();
+    let (plan, provenance) = fixture::fixture();
+    let original = canonical_bytes(&provenance).unwrap();
+    let tenant = AuthorityTenant::new(
+        plan["org_id"].as_str().unwrap(),
+        plan["project_id"].as_str().unwrap(),
+    )
+    .unwrap();
+    store
+        .provision_target_metadata_project(&tenant, fixture::NOW)
+        .unwrap();
+    store
+        .register_plan(&tenant, &plan, &fixture::requirements(), fixture::NOW)
+        .unwrap();
+    let status = store
+        .register_core_access_provenance(
+            &tenant,
+            plan["plan_id"].as_str().unwrap(),
+            &provenance,
+            fixture::NOW,
+        )
+        .unwrap();
+    assert_eq!(status.lease_seconds, 3600);
+    let mut f = CoreFixture {
+        _directory: directory,
+        store,
+        tenant,
+        plan,
+        provenance,
+    };
+    f.configure(&f.pin());
+    assert!(matches!(f.cost(fixture::NOW), Err(AuthorityError::Binding)));
+    let ready = f
+        .store
+        .signing_readiness(
+            &f.tenant,
+            f.plan["plan_id"].as_str().unwrap(),
+            &WebAuthn::new("http://localhost:8787").unwrap(),
+            fixture::NOW,
+        )
+        .unwrap();
+    assert!(
+        ready
+            .reasons
+            .iter()
+            .any(|reason| reason == "CORE_REQUEST_BINDING_UNAVAILABLE")
+    );
+    assert!(!ready.signing_allowed && !ready.dispatch_allowed);
+    f.store = AuthorityStore::open(&path).unwrap();
+    let retained: Vec<u8> = f
+        .store
+        .connection
+        .query_row(
+            "SELECT canonical_bytes FROM authority_core_access_requests",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained, original);
+    assert!(f.cost(fixture::NOW).is_err());
 }

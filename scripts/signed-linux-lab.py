@@ -7,8 +7,10 @@ suite does not create human approvals, production capability claims or host rule
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import uuid
 
@@ -21,13 +23,94 @@ class StageFailure(RuntimeError):
     pass
 
 
-def main():
+def validate_core_evidence(result):
+    """A prior two-capture PASS cannot stand in for the strengthened profile."""
+    try:
+        _validate_core_evidence(result)
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as error:
+        raise StageFailure('invalid original core expiry boundary evidence') from error
+
+
+def _validate_core_evidence(result):
+    captures = result.get('native_captures', [])
+    boundaries = result.get('original_expiry_boundary_observations', [])
+    original_end = result.get('original_lease_window', {}).get('expires_at_unix')
+    valid_hash = lambda value: isinstance(value, str) and re.fullmatch(r'sha256:[0-9a-f]{64}', value)
+    if (result.get('capture_count') != 2 or len(captures) != 2
+            or [capture.get('artifact_role') for capture in captures] != ['baseline', 'candidate']
+            or len(boundaries) != 2 or [entry.get('kind') for entry in boundaries] != ['positive', 'negative']
+            or type(original_end) is not int):
+        raise StageFailure('missing core native capture or original expiry boundary evidence')
+    for capture in captures:
+        if (capture.get('reference_source') != 'separate-trusted-lab-input'
+                or capture.get('reference_revision') != '1'
+                or any(not valid_hash(capture.get(field)) for field in
+                       ('reference_pin_hash', 'references_hash', 'expected_artifact_hash', 'submitted_artifact_hash',
+                        'compilation_hash', 'challenge_hash', 'proof_hash', 'readback_hash', 'observed_state_hash'))
+                or capture['expected_artifact_hash'] != capture['submitted_artifact_hash']):
+            raise StageFailure('missing independently pinned core capture provenance')
+    if any(captures[0][field] != captures[1][field] for field in
+           ('reference_pin_hash', 'references_hash', 'reference_revision', 'compilation_hash')):
+        raise StageFailure('core capture reference pin changed')
+    positive, negative = boundaries
+    # Independently recompute bounds from the original E and sampled clocks.
+    # Neither the manifest's chosen constants nor its reported minimum can
+    # define which timing model counts as evidence for this executor profile.
+    expected_integers = {'clock_uncertainty_seconds': 1, 'elapsed_seconds': 0, 'commit_budget_seconds': 5,
+                         'conservative_binding_deduction_seconds': 6, 'packet_sampling_margin_seconds': 2,
+                         'nft_representation_tolerance_seconds': 1, 'monotonic_sampling_tolerance_millis': 1,
+                         'target_unix': original_end - 8}
+    if any(type(positive[field]) is not int or positive[field] != expected
+           for field, expected in expected_integers.items()):
+        raise StageFailure('invalid original core expiry boundary evidence')
+    integer_fields = ('binding_wall_time_unix', 'binding_monotonic_millis', 'sample_observed_at_unix',
+                      'sample_started_monotonic_millis', 'sample_finished_monotonic_millis',
+                      'initial_timeout_seconds', 'minimum_remaining_seconds', 'maximum_remaining_seconds')
+    if any(type(positive[field]) is not int or positive[field] < 0 for field in integer_fields):
+        raise StageFailure('invalid original core expiry boundary evidence')
+    wall, monotonic = positive['binding_wall_time_unix'], positive['binding_monotonic_millis']
+    observed = positive['sample_observed_at_unix']
+    sample_start, sample_finish = positive['sample_started_monotonic_millis'], positive['sample_finished_monotonic_millis']
+    timeout = original_end - wall - 6
+    minimum = max(0, (timeout * 1000 - (sample_finish - monotonic) - 1) // 1000)
+    maximum = min(timeout, original_end - 1 - observed,
+                  (monotonic + (original_end - 1 - wall) * 1000 - sample_start + 999) // 1000)
+    times = [positive[field] for field in ('started_at_unix', 'finished_at_unix', 'actual_elapsed_monotonic_seconds')]
+    times.append(negative['sampled_at_unix'])
+    if any(type(value) not in (int, float) or not math.isfinite(value) for value in times):
+        raise StageFailure('invalid original core expiry boundary evidence')
+    started, finished, duration, _ = times
+    actual = positive['actual_remaining_seconds']
+    if (positive.get('original_expires_at_unix') != original_end
+            or negative.get('original_expires_at_unix') != original_end
+            or not monotonic <= sample_start <= sample_finish
+            or abs((observed - wall) * 1000 - (sample_start - monotonic)) > 1000
+            or positive['initial_timeout_seconds'] != timeout
+            or positive['minimum_remaining_seconds'] != minimum or minimum <= 0
+            or positive['maximum_remaining_seconds'] != maximum
+            or not isinstance(actual, dict) or not actual
+            or any(type(value) is not int or not minimum <= value <= maximum for value in actual.values())
+            or not positive['target_unix'] <= started <= finished < original_end - 6
+            or not 0 <= duration < 2 or abs((finished - started) - duration) >= .1
+            or not started - 1 < observed <= finished
+            or not negative.get('sampled_at_unix', 0) >= original_end + 1
+            or negative.get('core_tokens_absent') is not True
+            or negative.get('new_and_established_tcp_blocked') is not True):
+        raise StageFailure('invalid original core expiry boundary evidence')
+
+
+def main(profile='legacy'):
+    core_access = profile == 'core-access'
+    if profile not in ('legacy', 'core-access'):
+        raise ValueError('unsupported isolated profile')
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--report', type=Path, default=ROOT / 'reports/signed-linux-lab.json')
+    parser.add_argument('--report', type=Path, default=ROOT / ('reports/core-access-linux-lab.json' if core_access else 'reports/signed-linux-lab.json'))
     parser.add_argument('--skip-image-build', action='store_true')
     parser.add_argument('--scenario', choices=('all', 'crash', 'recovery-write-crash', 'unsubmitted', 'orphan-writer', 'recovery-prepare-crash', 'recovery-claim-crash', 'recovery-submit-crash'), default='all',
                         help='Run a named crash regression; CI runs the complete default suite.')
     args = parser.parse_args()
+    if core_access and args.scenario != 'all':
+        parser.error('the core-access profile runs its complete separate scenario')
     environment = os.environ.copy()
     for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_TLS', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH'):
         environment.pop(key, None)
@@ -64,6 +147,8 @@ def main():
                         ROOT / 'native/linux/Dockerfile.lab', ROOT / 'native/linux/signed_lifecycle.py',
                         ROOT / 'scripts/signed-linux-lab.py', ROOT / 'target/debug/fw_linux_executor',
                         ROOT / 'target/debug/fw_signed_lab_fixture']
+        if core_access:
+            source_paths.extend([ROOT / 'native/linux/core_access_lifecycle.py', ROOT / 'scripts/core-access-linux-lab.py'])
         for crate in ('fw_linux_executor', 'fw_backend_linux', 'fw_authority', 'fw_executor',
                       'fw_contracts', 'fw_domain', 'fw_planner', 'fw_testlab',
                       'fw_native_evidence', 'fw_target_evidence'):
@@ -88,9 +173,12 @@ def main():
         transfer_code = ('import os,sys; p="/lab/"+sys.argv[1]; '
                          'f=open(p,"xb"); f.write(sys.stdin.buffer.read()); '
                          'f.close(); os.chmod(p,0o700)')
-        for source, name in [('target/debug/fw_linux_executor', 'fw_linux_executor'),
-                             ('target/debug/fw_signed_lab_fixture', 'fw_signed_lab_fixture'),
-                             ('native/linux/signed_lifecycle.py', 'signed_lifecycle.py')]:
+        transfers = [('target/debug/fw_linux_executor', 'fw_linux_executor'),
+                     ('target/debug/fw_signed_lab_fixture', 'fw_signed_lab_fixture'),
+                     ('native/linux/signed_lifecycle.py', 'signed_lifecycle.py')]
+        if core_access:
+            transfers.append(('native/linux/core_access_lifecycle.py', 'core_access_lifecycle.py'))
+        for source, name in transfers:
             execute(docker + ['exec', '-i', container, 'python3', '-c', transfer_code, name],
                     'fixture transfer', input_bytes=source_bytes[source])
         execute(docker + ['exec', '-i', container, 'python3', '-c', transfer_code,
@@ -100,12 +188,16 @@ def main():
         # The complete suite now waits through several independent signed
         # confirmation/expiry windows and orphan-writer lock contention. This is
         # only the outer test budget; native and signed deadlines are unchanged.
-        completed = subprocess.run(docker + ['exec', container, 'python3', '/lab/signed_lifecycle.py', '--scenario', args.scenario],
+        scenario = ['/lab/core_access_lifecycle.py'] if core_access else ['/lab/signed_lifecycle.py', '--scenario', args.scenario]
+        completed = subprocess.run(docker + ['exec', container, 'python3', *scenario],
                                    cwd=ROOT, env=environment, capture_output=True, text=True, timeout=300)
         result = json.loads(completed.stdout)
         code = completed.returncode
-        if result.get('status') not in ('PASS', 'FAIL') or code not in (0, 1) or (code == 0) != (result['status'] == 'PASS'):
+        expected_schema = 'fw.core-access-linux-lab/v1' if core_access else 'fw.signed-linux-lab/v1'
+        if result.get('schema_version') != expected_schema or result.get('status') not in ('PASS', 'FAIL') or code not in (0, 1) or (code == 0) != (result['status'] == 'PASS'):
             raise StageFailure('unexpected signed lifecycle result')
+        if core_access and result['status'] == 'PASS':
+            validate_core_evidence(result)
         result.update(image_id=image_id, base_image=BASE_IMAGE, commit=commit,
                       working_tree_dirty=dirty, source_sha256=source_hashes,
                       container_configuration={'network': 'none', 'cap_drop': ['ALL'],
@@ -116,7 +208,7 @@ def main():
     except BaseException as error:
         code = 1 if runner_started else 2
         known_packet_count = result.get('packet_tests_executed') if isinstance(result, dict) else None
-        result = {'schema_version': 'fw.signed-linux-lab/v1',
+        result = {'schema_version': 'fw.core-access-linux-lab/v1' if core_access else 'fw.signed-linux-lab/v1',
                   'status': 'FAIL' if runner_started else 'NOT_RUN',
                   'production_supported': False, 'synthetic_fixture_authority': True,
                   'runner_started': runner_started, 'packet_tests_executed': known_packet_count if runner_started else 0,

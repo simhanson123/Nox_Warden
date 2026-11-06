@@ -5,6 +5,9 @@ retain the resulting artifacts, and verify signed observations against those
 exact artifacts. A protected read-only API and the authority review screen expose
 the retained evidence and its current eligibility. This development workflow
 connects plan review, target metadata, compilation, collection and durable history.
+It accepts retained general policy-change reviews and original core-access
+reviews registered with their provenance and fixed window through the
+[combined core-access importer](core-access-provenance-cli.md).
 
 Three claims remain distinct:
 
@@ -73,6 +76,8 @@ identities or synthetic test pins does not provision production authority.
 | Command | Input |
 | --- | --- |
 | `register-reviewed-plan` | `{"plan":…, "requirements":…, "evidence":{"before":…,"after":…}}` |
+| `register-reviewed-core-access-plan` | `{"schema_version":"fw.reviewed-core-access-plan/v1","plan":…, "requirements":…, "evidence":{"before":…,"after":…},"provenance":…,"window":…}` |
+| `read-core-access-lease-window` | `{"plan_id":…}` |
 | `pin-native-references` | `{"pin":{"target_id":…,"references":…,"not_before":…,"not_after":…},"expected_revision":null}` |
 | `pin-native-observer` | `{"pin":{"target_id":…,"public_key":[32 byte values],"not_before":…,"not_after":…},"expected_revision":null}` |
 | `compile-native` | `{"plan_id":…,"expected_reference_revision":"1"}` |
@@ -93,6 +98,12 @@ Compilation reads the retained reviewed plan and pinned references, rebuilds
 both artifacts, and checks the candidate's exact `artifact_hash`. It binds the
 current metadata receipt separately. Changed references or current metadata
 require a new current compilation receipt; prior evidence remains historical.
+The general review importer rejects core access plans. Their combined import
+also retains the original request, envelope/delegation and one absolute window;
+later core compilation/observation reads recheck that retained binding. Each
+requested policy uses the full original `[S,E)`, so review, native collection or
+retry cannot start a new relative lease. Baseline and candidate remain distinct
+artifact roles: a baseline capture cannot satisfy a candidate observation.
 
 Transfer the public challenge and exact expected artifact/installation through
 an authenticated protected channel to the isolated collector. In the disposable
@@ -117,8 +128,11 @@ and protected purpose-key format. Admit the proof with `admit-native`, then use
 
 ## Persistence and status
 
-Authority schema **6** requires an explicit validated private backup when
-migrating known schemas 1–5. Opening an older database does not silently import
+Schema **6** introduced this native evidence. Current authority storage uses
+schema **14**; upgrading populated known schemas 1–13 requires an explicit
+validated private backup. Schema14 preserves published SQL001–013 and existing
+native/provenance bytes, and infers no legacy core window, review, observer trust
+or completion evidence. Opening an older database does not silently import
 trust or evidence. The existing `fw_authority_admin migrate` command and
 [authority backup rules](authority-store.md) apply.
 
@@ -155,6 +169,74 @@ installation under the verifier. `mismatch` and `unknown` retain no observed
 state hash. None of these labels qualifies a host, completes a human quorum or
 authorizes dispatch. Human approval and native evidence remain separate panels
 and separate checks.
+
+For reviewed core plans, the authenticated
+`GET /authority/v1/plans/{plan_id}/core-access-evidence` route separately returns
+a bounded `fw.core-access-evidence/v1` summary of the fixed window, plan bindings
+and sample time. It uses the same current reviewer/session proof and Origin/CSRF
+boundary and no-store responses. Retained historical windows remain readable
+after plan expiry; neither this read nor a current native receipt changes
+`CORE_SIGNING_PROFILE_UNAVAILABLE`, `signing_allowed:false` or
+`dispatch_allowed:false`. The browser presents full before/after state and
+current/future/expired/historical/missing window evidence in all eight locales.
+These additive reads do not change readiness v1/v2 wire contracts.
+
+## Isolated core-access execution
+
+The separate `fw.isolated-core-access-execution-bundle/v1` carries the actual
+closed core plan, full review, original provenance and immutable lease window,
+together with signed core grant, artifacts, previous installation and explicitly
+synthetic lab approval. A separate `fw.isolated-lab-trust/v1` file pins the grant
+and confirmation keys and must set `production_authorized=false`.
+Runtime projection and journal replay preserve
+those exact objects. Legacy lab bundle bytes remain unchanged. Fresh normal
+submission checks current plan and window validity; accepted historical material
+and separately authorized restrictive recovery retain their original signed
+deadlines. Retry, reopen and recovery cannot shift `[S,E)`.
+
+The observation fixture separately loads a closed `reference-pin.json` prepared
+from its administrative reference inputs before bundle creation. Both baseline
+and candidate observation compilation use that pin and compare the submitted
+bundle/recovery references and artifacts against it. Capture records retain the
+pin hash, reference hash/revision and expected/submitted bindings. This corrects
+the fixture's previous self-reference; it does not add an external-reference gate
+to driver init/apply/replay or authenticate a production reference issuer. The
+driver retains its existing signed-material and lab-trust checks. The separate
+pin remains a synthetic trusted lab input, not an OS-protected deployment service.
+
+After the signed Linux lab builds its pinned image, run the separate profile:
+
+```sh
+python scripts/core-access-linux-lab.py --skip-image-build --report reports/core-access-linux-lab.json
+```
+
+The scenario uses a valid IPv4 INPUT TCP core request/envelope and the original
+minimum 60-second lease. Its full baseline retains existing denies and unrelated
+TCP/UDP leases. The required evidence includes signed actual baseline/candidate
+captures, new and established connection expiry at the original deadline,
+tamper refusal before native mutation/generation, replay without refresh, and
+core-specific restrictive recovery after normal-plan expiry while original
+recovery authority remains valid. This profile's results are reported separately
+from the existing packet, signed-execution and native-evidence suites.
+
+The follow-up also requires a positive new/established TCP observation before
+the documented conservative cutoff, an independently computed token-lifetime
+lower bound, and negative traffic after original `E`. Its positive target is
+`E−8`: the unchanged one-second uncertainty and five-second commit budget, plus
+a separate two-second packet-sampling margin. This margin does not increase the
+driver's five-second installation budget or its two-second process reserve.
+A correctly sized 64-byte forged signature must reach the exact signature
+refusal; each negative case checks its intended bounded reason and unchanged
+generation, journal material and owned native table. Trust-load refusal remains
+distinct from cryptographic verification. See [the review follow-up](pr26-follow-up.md)
+for the actual verification status and the known multiport readback limit.
+
+This is explicit synthetic trust in a disposable lab. It does not provision
+production workload/delegation bootstrap, protected signing generation,
+independent signer/dispatch deployment or authenticated completion. See
+[core-access enforcement](core-access-enforcement.md) for the complete profile
+and remaining dependencies. Linux lab evidence does not qualify installed-host
+lifecycle, Windows WFP/callout or macOS Network Extension enforcement.
 
 ## Reproduction
 

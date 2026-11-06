@@ -6,9 +6,572 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## PR24 validated clock selection and rollback coverage
+## Current signer durability and target-confirmation follow-up
 
-The current batch starts at `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8` on
+The initial remote run [CI42277449076](https://github.com/simhanson123/Nox_Warden/actions/runs/42277449076)
+at `2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d` passed canonical/shared storage,
+API/browser, existing Linux labs, native evidence and protected signer. Target
+setup failed after marker1 with packet/probe0 and complete container cleanup.
+The report SHA256 is `6889ceda78ed17f211303fa3da071c20e71f608e334c56ac8dd8dbaa2ac2a67f`;
+its separate receipt is `b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a`.
+All281 remote build inputs matched. The old child discarded the exact syscall.
+
+[Diagnostic CI42289070927](https://github.com/simhanson123/Nox_Warden/actions/runs/42289070927)
+at `3d9e9dabb43fef0d760779758558f696db9d1c0a` identified
+`mount_private_propagation`, EACCES13, after successful namespace creation.
+Its context reports `docker-default (enforce)`, Seccomp2, NoNewPrivs1 and the
+requested seven capabilities (0x2011c3). This identifies the failing operation;
+it does not independently prove which kernel security subsystem denied it.
+The target failed before product/packet checks. After retaining that report,
+the remaining development job was cancelled; the required aggregate failed.
+Diagnostic receipt SHA256: `07388235d1a3661fe9ddcb8604b482bbc9bd99bbca9c3e69d36aa45835044809`.
+Neither failed remote run is overwritten by local PASS.
+
+The final lab uses a fixed Docker namespace-local conntrack sysctl for the
+retained target, with separate coordinator and peer namespaces. It performs no
+mounts or inner sysctl writes and keeps the original seven capabilities, default
+security profiles and product guards. The bounded512-byte fixed-stage diagnostic
+preserves the first error separately from cleanup without raw exception, argv,
+environment or stderr. The actual setup control measured three distinct
+namespaces, target0/coordinator1/peer1, target NET_ADMIN-only E/P/B4096, zero
+inheritable/ambient capabilities, three reaped children and container removal.
+The accessible coordinator remained1→1; this is not physical-host verification.
+Local LSM context was unavailable, not assumed equal to GitHub. Setup receipt:
+`2541526a2064461abe0c942cc86ba0b6e6330910879b46d3072a41d488c9e777`.
+
+Fresh related native-runner tests passed52 (target module16), with pycompile and
+whitespace checks. One full mount-free target execution passed55 checks,
+35 actual CLI calls, two accepted epochs, six sent cases/eight probe attempts,
+in121.75s including76.38s actual expiry wait. It confirmed namespace values,
+NET_ADMIN-only target execution, output-loss/exact retry, UDP role rotation,
+expired-history ineligibility and complete cleanup. The462-input snapshot is
+`329c48cba3db8cc50668fa23e88565e2b356753283acd32ce78a16942dad56ff`;
+the report is `dffcda0cb2daffd254eb11fbf9ebfaf9e2cda53314ff9e935ba77b5a48713cea`.
+A later `native/linux/README.md` edit only corrects its topology description;
+executable inputs did not change. Independent evidence comparison found no
+mismatch. Earlier21-stage receipts below remain fixed and are not represented
+as a new whole-suite execution of this follow-up.
+
+CI now has four independent suites: canonical, shared authority, runtime and
+target. Runtime explicitly builds locked workspace binaries/examples and both
+web apps; target retains its own locked fetch and pinned image build. All prior
+checks and14+1 allowlisted JSON artifacts/seven-day retention remain. The existing
+required name uses `always()` and requires four exact successes; all1296 tested
+result combinations rejected anything else. Independent reading review found no
+concrete issue. Published SQL001–016 and product Rust/UI are unchanged by this
+lab/CI correction. A new complete remote run is required before merge; PR28's
+completion record holds the actual final source, CI and main-merge outcomes.
+
+`feat/target-authority-confirmation` starts at
+`5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`.
+The [received PR27 review](../docs/reviews/pr27-claude-review.md) is preserved as
+17,066 bytes, 207 CRLF endings and SHA256
+`8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357`.
+Its private probes were not supplied or rerun. Its author directly reproduced
+SQLite lock release; its parallel reviewer reported signer commit loss,
+differing duplicate authorization and SIGBUS. The earlier PR27 20-stage PASS
+missed that descriptor/external-reader lifecycle and remains historical evidence.
+
+The integrated change repairs signer SQLite lock preservation, revoked-key
+re-pin diagnostics, independently pinned project origins, gate consistency and
+registry profile boundaries. Schema16 and a separate target journal connect
+actual isolated non-loopback Linux management rules, signed peer responses,
+full kernel readback and retained target confirmations. Explicit CLI/readiness v3
+and eight-locale UI distinguish accepted history from current eligibility.
+Production policy signing and dispatch remain closed. See the
+[correction contract](../docs/pr27-follow-up.md),
+[target profile](../docs/target-authority-confirmation.md) and
+[remaining acceptance](../docs/remaining-work.md).
+
+Fresh independent baseline reproduction verified all 488 exact PR27 Git blobs,
+then reproduced lock loss, lost authorization/floor, differing valid DSSE and
+SIGBUS with a freshly built old signer. Its report SHA256 is
+`a7c32a4463624a7b5ead271211698292324565823e2c7fa20b904061be244d9c`.
+The earlier corrected focused run passed 7 library and 2 startup cases plus
+55 normal process checks/17 actual operator CLI calls. Its 432-input digest is
+`d0b164d2061934f8fafafbe245339aa2a1754c5cdb000c0cb722b83eb9189f5c`
+and report SHA256 is
+`c3a1311f4bc91e83007ed73c41c5f71cd105d2be9265a48a756aeafd66fc9661`.
+Those focused results are separate checkpoints, not final integrated totals.
+
+The first final-validation snapshot has 462 frozen inputs, SHA256
+`08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e`.
+The fresh canonical invocation passed 1,074 workspace Rust tests, one separate
+explicit cancellation CLI test, 33 reduced-feature tests, Python 46/6/20/3,
+UI 215 in 11 files and both UI builds, including contracts, fmt and Clippy.
+Four ignored workspace declarations include helpers invoked by parent tests
+and the separately executed CLI case. Two nested worker summaries were excluded.
+The separate shared-umask0002 authority/service invocation passed 637 tests,
+with three ignored declarations and two nested worker summaries excluded.
+The two invocations overlap and must not be added into a unique-test total.
+Fresh npm restore, preflight and workspace binaries/examples build passed.
+Canonical count receipt SHA256:
+`a8671be90fdbf89f0b65d97f3470849028ab2251f85155867f4895c7903a4c6b`;
+shared-umask count receipt SHA256:
+`b7d98e4e769de80e9d84f95a0dddc24ccbe552f6596eb9302b3c21d07ee560b5`.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Real services; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 44 | Authenticated v3, closed gates, absent-target panel and browser review |
+| Isolated Linux | 66 | 40 actual packet-test cases |
+| Signed Linux | 98 | 43 actual packet-test cases |
+| Core access Linux | 85 | 26 actual packet-test cases and two signed captures |
+| Native evidence | 33 | Five actual captures; zero packet probes |
+| Protected signer | 57 | Distinct-UID processes, 18 actual operator CLI calls and lock/restart durability |
+| Target bootstrap | 53 | 35 actual operator CLI calls; two accepted epochs; six sent request cases/eight attempts |
+| Current14→16 compatibility | 15 | Typed rows/rowids/bytes and private backups preserved; incompatible source refused |
+
+All 21 selected final stages passed: 18 bind the original snapshot; protected
+signer, target bootstrap and current 14→16 compatibility bind the corrected
+snapshot below. The original failed attempt is preserved separately.
+Independent final source/evidence/binary/report and selected-artifact audits
+passed with no mismatch or pending item. Their receipt SHA256 values are
+`75a60ed736aa95e7f2e2f57f2e15bec2b0acf4db38e0998cfc114ed4e164b30f`
+and `eb69eacfa019bc4ba4b97796e942739a3ad90813ee6b1aac12687c2d03608625`.
+They verify21 selected stages, the separate original failure/control,23-stage
+binary continuity and15 selected CI report structures, including the local
+`enrollment-api.json` to CI `enrollment-smoke.json` naming correspondence.
+This evidence audit does not claim independent source review of code written
+by that auditor or a remote CI execution.
+The combined summary was written once after those audits, SHA256
+`c2fca63998858021d3c4650d22cc5be54d0c248ba9237d0ec894b0d4f518a485`.
+
+The first final protected-signer attempt failed before any product check. Its
+18-command setup exceeded the helper's 15-second bound; Python's attempted
+cross-UID timeout cleanup lacked CAP_KILL and masked TimeoutExpired as EPERM.
+The failure report is preserved unchanged, SHA256
+`3b2fbb00cf5eab954488401cee807eaa2526b2b9067683ccc0d8c66a0e6fc3a2`.
+The sole source correction uses bounded cleanup under the child's actual UID
+and gives only that setup command 90 seconds. Ordinary commands retain 15 seconds;
+product code, Docker capabilities and authentication conditions are unchanged.
+The corrected 462-input snapshot is
+`a0e05b559055508656af4ded010832c1fc785853056ac166c52064e8912092aa`.
+Exactly one file changed; the other 461 inputs, all Rust/UI source, stayed identical.
+The source-transition receipt SHA256 is
+`be014e32ff8d74855f6841ed0ca5993692a0cff65966281490c09b502cbbe517`.
+Python 46/6/20/3 and pycompile passed again. An actual four-capability timeout
+control verified both child UIDs, termination and reap with the fixed diagnostic
+(case 1, product scenarios 0); SHA256
+`c5f9325b89ee1ce8a9e0d9729f11335bf9e59ea36bece3cb5d70763366ce8fc1`.
+The corrected protected-signer run passed on that new snapshot in 30.64s,
+report SHA256
+`83b325145cdbe79b1eb9f043868f4a12e405b30e465b087cf462413cc3f46c2d`.
+The target run passed in 122.65s, including a real 77.461s wait for signed expiry.
+Report SHA256:
+`b3cd8ba3ffcba94274dce19bcb3ae945afa5908ad844c6d3d8ba0b028c18e572`.
+It verifies actual B1/B2 UDP role exchange, signed positive TCP/UDP responses,
+output-loss recovery, changed-nonce refusal, accepted1/current2 historical retry
+and retained epoch2 after expiry with eligibility false. Two negative EPERM
+attempts sent zero bytes and are excluded from the six transmitted cases.
+Earlier successful stages retain their original 08d source binding; these results
+are not presented as one unchanged whole-source run.
+
+Current14→16 compatibility freshly executes only the current admin binary
+against retained provenance-verified old 3866 fixtures; no new old-binary build
+or fixture-generation run is claimed. All old rowids/SQLite cell types/values
+and the private backup are preserved, all 18 new tables are empty, and inherited
+incompatible history is refused unchanged without a backup/manifest/sidecar.
+The genuine released15 fixtures below were separately produced for this batch.
+
+The browser fixture exercises the v3 API/parser/common gates with an absent
+target summary. Accepted-target history/current presentation has separate Rust
+and UI tests; it is not claimed as native-target browser evidence. Native
+results use disposable namespaces, experimental identities and development keys.
+SIGTERM/restart in tmpfs does not certify host power-loss recovery or installed
+Linux, Windows or macOS. Negative UDP records actual EPERM1 denial with zero
+transmitted bytes, separately from successfully sent timeout observations.
+
+Cleanup found no remaining lab container or active service/browser and no scan
+errors. 129 exited browser/crashpad zombies owned by PID1 were separately observed;
+this is not a claim that the process table is empty.
+
+Current tools were rechecked: Rust/Cargo1.99.1, Node24.19.0/npm11.9.0,
+Python3.12.14, Chromium154 and Docker28.4/vfs. Browser runs use the formal
+`--browser-executable /usr/bin/chromium` override. No host firewall, host network,
+account billing, managed security profile or production deployment was changed.
+
+Published SQL001–015, original specifications and earlier reviews are unchanged.
+The lead compared 82 immutable files (including 53 specifications) and 247 external
+Cargo identity/checksum tuples; all matched. Preservation receipt SHA256:
+`cc6157a92a082439cc6d09b9645449c8334df23c605224934e87ea42d2794602`.
+Two public synthetic v15 fixtures come from normal released 5fc flows, not
+fabricated authority or whole-database dumps. The healthy fixture preserves all
+original typed rows/rowids through16; the released15 cross-role key fixture
+verifies whole-database refusal with original/private backup preserved.
+Three migration regressions and the nine-table guard matrix ran in canonical
+and shared-umask suites. The matrix covers 256 refusals and 60 rollback-only
+structural controls, which are not independently authenticated authority.
+
+PR26 and PR27 remain open/unmerged. Rechecked CI42150829408 and CI42216796210
+failed before execution with: “The job was not started because your account is
+locked due to a billing issue.” Local PASS is not remote PASS, merge or main CI.
+Resolve this feature's actual head/tree/PR/run from its retained completion record.
+The next Claude Opus5.5 prompt is preparation, not an executed external review.
+
+Reproduce the principal current checks with:
+
+```sh
+source scripts/dev-env.sh
+npm ci --prefix web
+bash scripts/check.sh
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
+python scripts/smoke_protected_signer.py --report reports/protected-signer-smoke.json
+python scripts/target-bootstrap-linux-lab.py --report reports/target-bootstrap-linux-lab.json
+```
+
+The other runtime commands are the smoke/lab steps in
+[CI](../.github/workflows/ci.yml), with the browser override recorded above.
+The [complete review prompt](../docs/target-authority-review-prompt-ko.txt)
+includes focused migration/guard/backend/journal commands. Raw local reports
+remain outside Git; selected CI JSON reports have seven-day retention.
+
+## PR27 protected authority and signer checkpoint (historical)
+
+`feat/protected-signing-authority` starts at
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. PR26 remains an open,
+unmerged dependency on that head; `main` remains at
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. The lead rechecked the PR's
+billing-lock annotation. Neither local validation nor this new branch establishes
+a remote CI PASS, merge or successful main CI.
+
+The [received follow-up review](../docs/reviews/pr26-follow-up-claude-review.md)
+confirms F1–F3 and reports no development blocker. Its 15,477 original bytes,
+193 CRLF endings and SHA256
+`5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa`
+are preserved. Its private probes were not supplied; its Docker/native suites
+were NOT_RUN. D6a/D6b concern conservative lab timing validation and availability.
+The [whole-database conflict recovery boundary](../docs/authority-store.md#conflicting-legacy-core-windows-and-recovery)
+now records the affected tenants, evidence preservation, trustworthy compatible
+restore context and strict genuine-request registration requirements. There is
+no automatic database repair or implemented production restore procedure.
+
+The current substantial batch implements signed authority/bootstrap admission and
+an independent signer process while retaining explicit pending target confirmation
+and unavailable production qualification. All 20 fresh final local stages and
+the independent source/report/binary/artifact audit passed. `bash scripts/check.sh`
+passed 1,016 workspace Rust tests (3 ignored; 2 nested worker summaries excluded),
+1 explicit cancellation CLI test, 32 reduced-feature tests, Python diagnostic
+suites 36/6/14/3 and 211 UI tests in 11 files, both UI builds, contracts, fmt and
+Clippy. Fresh shared-umask authority/service tests passed 593 tests (3 ignored;
+2 nested worker summaries excluded), and the workspace binaries/examples build
+passed. All 20 stages retained the same 427-input source digest:
+`f55ec761434508c86be4365f1d2afd98e1c22fc9bb5d6b429ffbdf9e004fc11b`.
+The following PR26 sections retain historical counts and source digests; they
+are not reused as validation of the changed source.
+
+The complete [Korean review prompt](../docs/protected-signing-review-prompt-ko.txt)
+fixes the comparison base and resolves the exact resulting feature head/tree from
+the branch's stacked-PR completion record. That record and the user handoff carry
+the complete actual-SHA prompt; preparation is not a Claude review execution.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Real processes; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Services and retained review |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Core access Linux | 85 | 26 actual packet probes and two signed captures |
+| Native evidence | 33 | Five actual captures; zero packet probes |
+| Protected signer | 47 | Distinct-UID processes and exactly 17 operator CLI invocations; zero packet probes |
+
+The core run checks typed `U=1/e=0/C=5`, deduction6 and exact original `E−8`.
+The independently recomputed minimum was 2 seconds and both actual tokens retained
+5 seconds in a 6.291 ms observation bracket. At `E+2.059`, core tokens were absent
+and new/established TCP was blocked. Owner activation/assertion and bootstrap DSSE issuance run through the
+actual protected signer; independent verification, lost initial response/exact
+durable retry, key loss, database replacement and restart are exercised without
+issuing a policy result or opening dispatch. These are local test identities,
+not production enrollment or native qualification.
+
+The actual legacy compatibility/migration probe passed 15 checks, separately
+covering genuine old-binary initialization/migration and the inherited conflicting
+schema14 candidate. The separately built old `3866cea` admin executable has SHA256
+`e87b4e5aa08ba27c756b5faad33c5f29c3097afd306c2b7f0fb9511dae5a8118`.
+It was freshly built in an isolated target from 169 verified old production
+inputs; the separate old private regression test is not compiled into that binary.
+The healthy CLI-seeded control preserves rows, hidden rowids, SQLite types and
+BLOB bytes across all 66 old tables; nine registry tables start empty and its
+backup matches the manifest digest. This small control does not exercise rich
+issued/UNKNOWN histories. The inherited conflicting candidate remains unchanged
+and produces the exact open/migrate refusals before backup creation.
+Cleanup found zero containers, active test services or active
+browsers; 111 browser/crashpad zombies were recorded separately and not reaped.
+The independent audit confirms 20/20 stages and source/report/binary correspondence,
+SHA256 `fbba22cd7496ed40263c599a21fee8a0c7af2656550e3c8c8b42b863b833c7a8`.
+Targeted structure inspection of all 14 selected CI artifacts passed, SHA256
+`121638baa6724f9572a6e39d4b88a76fb471dec90993004debf1e8df95ae8334`.
+That inspection is not a general secret scan or an external Claude review.
+The frozen final local summary has SHA256
+`b91472b08488522940bed35e2f555e69ec9e2dd792ddb52af6706c24903ae179`.
+The preservation audit confirms 80 immutable original files and separately
+classifies the one legitimately changed migration regression fixture.
+
+Four preliminary canonical attempts failed on Clippy findings, a test-only
+recursive-hook borrow and a stale schema9 migration table-count expectation.
+Those failures and earlier protected-fixture setup failures remain private and
+are excluded from the final passing totals. Corrections preceded the fresh final
+freeze and checks; no production qualification is inferred from their success.
+
+Reproduce the main checks from the repository root with the pinned environment:
+
+```sh
+source scripts/dev-env.sh
+bash scripts/check.sh
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
+cargo test --locked -p fw_authority --test authority_registry_contracts --test authority_registry_store --test authority_registry_integrity --test authority_registry_admin --test authority_registry_matrix
+cargo test --locked -p fw_authority --lib schema15_
+cargo test --locked -p fw_signer
+python native/linux/test_core_snapshot_runner.py
+python native/linux/test_signed_runner.py
+python scripts/smoke_protected_signer.py --report reports/protected-signer-smoke.json
+python scripts/linux-lab.py --report reports/linux-lab.json
+python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+python scripts/core-access-linux-lab.py --report reports/core-access-linux-lab.json
+python scripts/smoke_native_evidence.py --report reports/native-evidence-smoke.json
+```
+
+The last five commands require managed disposable Docker. Preserve its configured
+socket, proxy/CA and authentication; use `--skip-image-build` only after building
+the pinned lab image. No command targets a host's active firewall. Registry matrix
+tests live in [authority_registry_matrix.rs](../crates/fw_authority/tests/authority_registry_matrix.rs):
+two tests contain 144 refusal attempts and 52 rollback-only SQL controls; these
+are assertions within tests, not additional workspace test totals. Rich retained
+issued/UNKNOWN/active migration histories and hidden-rowid checks are in
+[migration_rebuild_tests.rs](../crates/fw_authority/src/store/migration_rebuild_tests.rs).
+The individual CLI migration test compares typed rows and original evidence;
+do not describe each CLI fixture as independently checking hidden rowids.
+
+D6's new regressions can be replayed against the exact old production Python
+modules without a private harness or Docker:
+
+```sh
+nox_d6_probe=$(mktemp -d /tmp/nox-d6-repro.XXXXXX)
+mkdir -p "$nox_d6_probe/native/linux" "$nox_d6_probe/scripts"
+cp native/linux/test_core_snapshot_runner.py native/linux/test_signed_runner.py "$nox_d6_probe/native/linux/"
+git show dded7e94e84ef0e59a0552e961c5c57eaaabdd81:native/linux/core_access_lifecycle.py > "$nox_d6_probe/native/linux/core_access_lifecycle.py"
+git show dded7e94e84ef0e59a0552e961c5c57eaaabdd81:native/linux/signed_lifecycle.py > "$nox_d6_probe/native/linux/signed_lifecycle.py"
+git show dded7e94e84ef0e59a0552e961c5c57eaaabdd81:scripts/signed-linux-lab.py > "$nox_d6_probe/scripts/signed-linux-lab.py"
+python -m unittest discover -s "$nox_d6_probe/native/linux" -p test_core_snapshot_runner.py
+python -m unittest discover -s "$nox_d6_probe/native/linux" -p test_signed_runner.py
+```
+
+Both old-module runs are expected to fail at the constants/shape/rounding
+assertions, including old missing-field errors; import/setup failures do not
+reproduce D6. Run both commands even when the first exits nonzero. The same
+committed tests against current modules must pass. These are new independent
+regressions, not the supplied reviewer's unavailable probes.
+
+For the genuine old CLI migration control, build the reviewed `3866cea` production
+source in a separate tree/target rather than reconstructing old SQL:
+
+```sh
+nox_old14_tree=$(mktemp -d /tmp/nox-old14-repro.XXXXXX)
+git archive 3866ceaa2b86da3ea3653da338d433a23a02b283 | tar -x -C "$nox_old14_tree"
+CARGO_TARGET_DIR="$nox_old14_tree/target" cargo build --locked --manifest-path "$nox_old14_tree/Cargo.toml" -p fw_authority --bin fw_authority_admin
+```
+
+Use that exact binary's `init`, `init-project` and `pin-target` commands with a
+private database and a synthetic public pin shaped as documented in the
+[metadata administration guide](../docs/target-metadata.md#local-maintenance-and-device-flow).
+They create a genuine schema14 namespace, target pin and two audit events. Stop
+all writers, preserve the original and migrate a consistent separate copy with
+the current `fw_authority_admin migrate --database COPY --backup UNUSED_PATH`.
+Compare original/copy/backup SQLite types and evidence bytes; this small control
+does not supply signed jobs or rich quota history.
+
+The incompatible schema14 candidate is separate preserved evidence created by
+the old `3866cea` public API in the earlier follow-up, not recreated by those three
+CLI seed commands. Its construction paths are the old full-core registration and
+legacy provenance APIs exercised by
+[core_access_window.rs](../crates/fw_authority/tests/core_access_window.rs) and the
+[F1 reproduction](../docs/pr26-follow-up.md#reproduction-and-verification).
+The current ordinary open may stop at `MigrationRequired`/`DATABASE_REJECTED`;
+explicit migration reaches strict window validation and refuses with
+`Binding`/`MIGRATION_REJECTED` before creating a new backup/manifest. The final
+report must distinguish that inherited byte-preserved candidate, the freshly
+built/CLI-seeded control and reconstructed permanent migration fixtures.
+
+<a id="current-pr26-review-follow-up"></a>
+
+## PR26 review follow-up checkpoint (historical)
+
+The [received PR26 review](../docs/reviews/pr26-claude-review.md) targets
+`3866ceaa2b86da3ea3653da338d433a23a02b283`.
+[The follow-up](../docs/pr26-follow-up.md) addresses legacy fixed-window binding,
+malformed-input clock observations, strict legacy upgrades and stronger native
+expiry/signature/refusal/reference verification. The raw report is preserved;
+its private probes were not supplied and its Docker suites were NOT_RUN.
+
+New tests against an isolated copy of that exact production source independently
+reproduced F1 in both registration orders and F2: three matching regression tests
+failed at the expected assertions, without compilation errors. Those failures
+prove the baseline defects; the corrected-code results are recorded below.
+Implementation, focused checks and independent source review are complete.
+Fresh canonical `bash scripts/check.sh` passed **957 workspace Rust tests**
+(3 ignored; two nested worker summaries excluded), **1 explicit CLI test**,
+**32 reduced-feature tests**, **211 UI tests in 11 files**, both UI builds and
+static/Python checks. Python diagnostic suites passed 27/6/14/3 tests.
+The final 406-input digest is
+`c533bbc57909184dc29fe3a1bbed2574a5c230f0e7be006644806a2409015302`.
+Fresh shared-umask authority/service tests passed **541** tests, with 3 ignored
+and two nested worker summaries excluded. The workspace binaries/examples build
+and all runtime verification also passed on unchanged inputs.
+
+The new actual core Linux run passed **85 checks, 26 actual packet probes and
+two signed captures**, with unchanged inputs and container cleanup. Original
+`E−8` new and established TCP observations succeeded within a 6.7 ms clock
+bracket; the independently computed minimum token lifetime was 1 second and
+both actual tokens retained 4 seconds. Post-`E` traffic was blocked and core
+tokens expired. All six exact refusal cases preserved journal/generation/native
+state, including a 64-byte forged signature reaching signature verification.
+Both captures bind the separate observation reference pin and independently
+recompiled artifacts. Driver init/apply/replay gained no new external-pin gate.
+
+Focused authority window19, live-cost7, primitive v1 accounting1, first-window
+concurrency1 (three real-peer paths), reference-pin3 and final Python runner27
+passed. These commands overlap and are not summed as a workspace total. The
+v1 regression covers retained full-duration charge and primitive occupancy,
+not a newly exercised complete legacy core signing lifecycle. An earlier
+native-package focused execution preceded the final Python diagnostic change
+and had a documentation-only source-map change; final canonical/core evidence
+above binds the final source instead.
+
+The first new core attempt failed its diagnostic assertion after 21 checks,
+6 packets and one capture; cleanup succeeded. Its child raw stderr was not
+retained. A separate same-binary/pinned-image help probe confirmed the existing
+exact leading GLIBC2.39 loader warning. The corrected parser classifies only
+that one known leading warning separately and requires an exact application
+primary/wrapper chain, rejecting other output. The subsequent actual core run
+passed every intended refusal. The failed attempt is preserved privately and
+excluded from passing totals. Prior checkpoint counts below are historical.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Real processes; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Services, restart and retained review |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Core access Linux | 85 | 26 actual packet probes and two signed captures |
+| Native evidence | 33 | Five actual captures; zero packet probes |
+
+An additional old-implementation compatibility probe passed four checks: a real
+`3866cea` public-API-created incompatible schema14 database is rejected by the
+new admin executable with exact `DATABASE_REJECTED`, no successful output and
+unchanged database bytes. Expected admin exit1 is the successful refusal result.
+This is distinct from the external review's schema13 migration experiment.
+
+Fourteen fresh runtime JSON reports, the separate CLI protocol and old-database
+probe were verified; thirteen reports are selected for CI. The independently
+checked final local summary has SHA256
+`771c38ffef7123e348fb18bb6d6b7dc73d746f9f00e8bf0a13603105f36b260c`.
+Reported source hashes and each executable's own execution-stage hash match;
+binary reproducibility across hosts is not claimed. All four lab containers
+were removed, with zero containers and zero live test services/browsers. The
+93 remaining Chromium/crashpad entries were confirmed PID1-owned zombies.
+
+The first unsigned Linux attempt was NOT_RUN before packets because buildx's
+metadata directory was read-only. A private writable `BUILDX_CONFIG` corrected
+that environment issue while retaining Docker/auth/proxy settings; the same
+product command then passed. The catalogue command and all 11 assertions passed
+on first execution; the private collector was corrected to understand its
+existing `passed:true` report schema, preserving the original report/metadata.
+Neither adjustment changed product source or reused previous passing reports.
+No production qualification, external rollback protection or multiport readback
+qualification is claimed. Independent source/evidence review found no remaining
+finding within this correction scope; it is not a new Claude execution.
+
+The PR's original CI42036443828 attempt1 never started a runner/test step because
+GitHub reported a billing lock; it produced no artifacts. No remote CI PASS or
+merge is inferred from local validation. The retained PR completion record holds
+subsequent exact-head remote status.
+
+## Reviewed PR26 core-access checkpoint
+
+This integrated batch starts at PR25 merge
+`a624a1e684a8fc0065ac4f4609101410f56c50bb` on
+`feat/core-access-enforcement`. The [received PR25 review](../docs/reviews/pr25-claude-review.md)
+reports no security defect or development blocker; [source-qualified corrections](../docs/pr25-review-assessment.md)
+fix the prompt filter and describe the actual fault matrix and hook/snapshot scope.
+Fresh exact baseline-filter verification passed one test. Schema14 and the
+[connected core profile](../docs/core-access-enforcement.md) are implemented.
+Focused planner, window/migration, CLI/API/UI and native-codec tests passed.
+Consolidated source review and the actual new core Linux lab are complete: the
+lab passed **72 checks, 24 actual packet probes and two signed native captures**,
+including the original 60-second expiry and autonomous restrictive recovery after
+normal-plan expiry under the original recovery deadline. The shipped authority
+browser passed **43** checks, including a fresh virtual-passkey core approval,
+unchanged fixed times and closed signing/dispatch. Fresh `bash scripts/check.sh`
+passed **943 workspace Rust tests**, 3 intentionally ignored declarations,
+**1 explicitly executed CLI test**, **32 reduced-feature tests** and **211 UI
+tests in 11 files**, both production UI builds and all static/Python checks.
+The Rust workspace total excludes two nested migration-worker summaries. Shared
+`(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)` also
+passed **530** tests with 3 ignored and two nested worker summaries excluded.
+Fresh `cargo build --locked --workspace --bins --examples` also passed. The
+complete local validation and independent integrated review are finished; fresh
+PR/main CI and merge results belong to this branch's retained PR completion
+record. No new Claude review or production qualification is claimed.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Current binaries; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Restart readiness, fixed core window and virtual-passkey approval |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Core access Linux | 72 | 24 actual packet probes and two signed native captures |
+| Native evidence | 33 | Five actual kernel captures; no packet probes |
+
+Fourteen fresh JSON reports and the separate CLI protocol result passed. Thirteen
+reports are selected for CI; the extra enrollment browser report is local only.
+The final 406 executable/test/spec/CI/toolchain inputs remained at SHA256
+`788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf`.
+Independent review found no remaining finding in the 59 changed source/test/CI
+files (manifest SHA256
+`253240115b1f7c5c66cd859f950e0156992ea92353219ac892deb07a9e46ae88`).
+The independently audited local summary has SHA256
+`4214872ce333dcdc47cd0a5a347374f408124bea6b30a9036b1e634582cebced`.
+Reported binaries were matched to their own execution-stage snapshots; this is
+not a cross-platform reproducible-build claim. The authority browser preceded
+two test-only fixture-module alias changes, independently checked to leave all
+production inputs unchanged. All four lab containers were removed, with zero
+containers and no live test services/processes at final cleanup. The 46 retained
+Chromium entries were confirmed zombies owned by PID 1, not running browsers.
+
+Initial integration failures were corrected before these final passes. Fixes
+kept original absolute windows and the five-second installation budget, bound
+baseline installation immediately before publication, reused only scoped
+immutable material while repeating current trust/signature/time checks, made
+observer journal reads genuinely read-only, and compared naturally aging nft
+tokens without masking static rule changes. Browser response decoding and
+duplicate test-fixture modules were also corrected. Failed attempts are retained
+locally and excluded from passing totals; no unavailable failure predicate is
+presented as independently proven.
+
+Pinned nftables 1.0.6 still emits ambiguous invalid-type text for anonymous
+multiport conntrack sets. The verifier refuses it. The core lab uses equivalent
+scalar-port policies and does **not** qualify that multiport readback path.
+Actual autonomous recovery occurred after the normal plan expired and before
+the original lease ended; lease expiry and recovery-at-expiry model checks are
+separate evidence. Synthetic lab trust does not authenticate production workload,
+delegation or human approval. Protected signing/dispatch, installed Linux
+lifecycle, Windows WFP/callout, macOS Network Extension, authenticated completion
+and external audit anchors remain incomplete.
+
+## Completed PR25: validated clock selection and rollback coverage
+
+The completed batch starts at `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8` on
 `fix/validated-clock-and-rollback-coverage`. The
 [received review](../docs/reviews/pr24-claude-review.md) and
 [qualified assessment](../docs/pr24-follow-up.md) distinguish attributed external
@@ -19,12 +582,13 @@ The implementation moves all three retained intent/job selections into validated
 snapshots and compares selected bindings again before final use. It removes the
 unchecked wrapper read. Separate signature/generation fixtures reach the intended
 semantic checks; genuine transition and intermediate approval failures record
-exact fault reachability, preceding SQL and complete retained rollback/retry.
+exact fault reachability, preceding table mutations and retained-row rollback/retry.
+Approval faults record ordered table/action pairs; transition faults also compare schema.
 The existing 12 native fault stages are preserved, including review-evidence
 INSERT; the original changed-expiry reference-pin retry is restored.
 
 Focused checks passed with nonzero execution: clock selectors2, signing intents10,
-live integrity6, rootless lifecycle6, approval atomicity4 (13 new fault conditions),
+live integrity6, rootless lifecycle6, approval atomicity4 (13 two-human fault conditions, including two existing audit-INSERT stages),
 late transition1, early schema refusal1, native private7 and reference-pin retry1.
 A separate precise signature rerun overlaps the signing-intent count and is not
 added. Independent Sol6.1 ultra source review verified the frozen 390-input
@@ -58,11 +622,11 @@ The native collector recorded its existing narrowly recognized optional
 GLIBC2.39 weak-symbol warning in the pinned lab image; exact refusal diagnostics
 and all capture checks passed. No lab setup failure occurred in this batch.
 
-Local implementation and verification are complete. Resolve the PR for retained
-`fix/validated-clock-and-rollback-coverage` for the exact head, PR CI, merge and
-separate main CI completion record and complete fixed Claude-only prompt. Source
-does not embed its own future commit identifier; neither prompt preparation nor
-internal review is a new external Claude review.
+PR25 completed at head `89684e055f01a1c87113e4ea4a713ebbff77afe1`, merged as
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. PR CI41945354850 and separate main
+CI41950760489 passed, with matching fresh counts and source/artifact audits.
+The retained branch and PR preserve the completion record and historical prompt.
+The subsequently received external PR25 review is recorded above.
 
 Initial targeted attempts caught Rust test-pattern issues and inaccurate fixture
 assumptions: result/outbox hashes must agree before the signature check, neither
@@ -364,6 +928,7 @@ python scripts/smoke_enrollment.py --authority-metadata --report reports/target-
 python scripts/smoke_authority_review.py --service-binary target/debug/fw_authority_service --fixture-binary target/debug/examples/review_fixture
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+python scripts/core-access-linux-lab.py --skip-image-build --report reports/core-access-linux-lab.json
 python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json
 ```
 

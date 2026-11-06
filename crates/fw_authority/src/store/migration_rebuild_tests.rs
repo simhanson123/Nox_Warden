@@ -45,7 +45,7 @@ fn nullable_upgrade_preserves_guarded_rooted_lifecycles_and_all_rowids() {
         let before = retained_rows(&f.path);
         let backup = f.directory.path().join("schema11.sqlite3");
         AuthorityStore::migrate(&f.path, &backup).unwrap();
-        assert_eq!(version(&f.path), 13);
+        assert_eq!(version(&f.path), 16);
         assert_eq!(version(&backup), 11);
         assert_eq!(retained_rows(&backup), before);
         assert_retained(&f.path, &before);
@@ -121,7 +121,7 @@ fn abrupt_process_exit_after_parent_drop_recovers_the_original_transaction() {
     assert_eq!(retained_rows(&backup), before);
     let next = f.directory.path().join("after-crash.sqlite3");
     AuthorityStore::migrate(&f.path, &next).unwrap();
-    assert_eq!(version(&f.path), 13);
+    assert_eq!(version(&f.path), 16);
     assert_retained(&f.path, &before);
 }
 
@@ -141,7 +141,7 @@ fn competing_maintenance_processes_commit_one_upgrade_and_keep_all_evidence() {
         usize::from(first.exists()) + usize::from(second.exists()),
         1
     );
-    assert_eq!(version(&f.path), 13);
+    assert_eq!(version(&f.path), 16);
     assert_retained(&f.path, &before);
 }
 
@@ -165,7 +165,7 @@ fn migration_process_worker() {
     let path = std::env::var_os("FW_TEST_MIGRATION_SOURCE").unwrap();
     let backup = std::env::var_os("FW_TEST_MIGRATION_BACKUP").unwrap();
     // Warm only the independent schema reference before the deliberate exit.
-    known_v13().unwrap();
+    known_v14().unwrap();
     if let Ok(stage) = std::env::var("FW_TEST_MIGRATION_CRASH") {
         let stage = match stage.as_str() {
             "parent-dropped" => "parent-dropped",
@@ -191,11 +191,11 @@ fn schema12_upgrade_preserves_all_retained_bytes_and_current_maintenance_is_noop
             AuthorityStore::open(&f.path),
             Err(AuthorityError::MigrationRequired {
                 found: 12,
-                required: 13
+                required: 16
             })
         ));
         AuthorityStore::migrate(&f.path, &backup).unwrap();
-        assert_eq!(version(&f.path), 13);
+        assert_eq!(version(&f.path), 16);
         assert_eq!(version(&backup), 12);
         assert_eq!(retained_rows(&backup), before);
         assert_retained(&f.path, &before);
@@ -273,7 +273,7 @@ fn interrupted_backup_retains_incomplete_private_pair_and_new_destination_recove
     assert!(AuthorityStore::migrate(&f.path, &interrupted).is_err());
     let fresh = f.directory.path().join("retry.sqlite3");
     AuthorityStore::migrate(&f.path, &fresh).unwrap();
-    assert_eq!(version(&f.path), 13);
+    assert_eq!(version(&f.path), 16);
     assert_eq!(retained_rows(&fresh), before);
     assert_retained(&f.path, &before);
     assert!(interrupted.exists());
@@ -333,4 +333,63 @@ fn damaged_known_schema11_graph_is_backed_up_before_upgrade_refusal() {
     assert_eq!(retained_rows(&f.path), before);
     assert_eq!(retained_rows(&backup), before);
     assert_private_backup(&backup, 11);
+}
+
+#[test]
+fn schema15_upgrade_preserves_every_retained_state_and_starts_without_registry_authority() {
+    for state in ["reserved", "released", "issued", "unknown", "active"] {
+        let (f, _) = prepared_in_state(state);
+        drop(f.store);
+        legacy::restore_v14(&f.path);
+        let before = retained_rows(&f.path);
+        let backup = f.directory.path().join("schema14.sqlite3");
+        AuthorityStore::migrate(&f.path, &backup).unwrap();
+        assert_eq!(version(&f.path), 16);
+        assert_eq!(version(&backup), 14);
+        assert_eq!(retained_rows(&backup), before);
+        assert_retained(&f.path, &before);
+        let db = Connection::open(&f.path).unwrap();
+        for table in [
+            "authority_registry_keys",
+            "authority_registry_objects",
+            "authority_bootstrap_proofs",
+            "authority_bootstrap_pending_heads",
+        ] {
+            assert_eq!(
+                db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        AuthorityStore::open(&f.path).unwrap();
+    }
+}
+
+#[test]
+fn schema15_late_failures_preserve_schema14_rows_rowids_history_and_private_backup() {
+    for stage in [
+        "schema15-registry-created",
+        "schema15-version-recorded",
+        "before-commit",
+    ] {
+        let (f, _) = prepared_in_state("unknown");
+        drop(f.store);
+        legacy::restore_v14(&f.path);
+        let before = retained_rows(&f.path);
+        let schema = schema_digest(&Connection::open(&f.path).unwrap()).unwrap();
+        let backup = f.directory.path().join("schema14-failed.sqlite3");
+        MIGRATION_FAILURE.with(|requested| *requested.borrow_mut() = Some(stage));
+        let result = AuthorityStore::migrate(&f.path, &backup);
+        MIGRATION_FAILURE.with(|requested| *requested.borrow_mut() = None);
+        assert!(result.is_err(), "{stage}");
+        assert_eq!(version(&f.path), 14);
+        assert_eq!(retained_rows(&f.path), before);
+        assert_eq!(retained_rows(&backup), before);
+        assert_eq!(
+            schema_digest(&Connection::open(&f.path).unwrap()).unwrap(),
+            schema
+        );
+        assert_private_backup(&backup, 14);
+    }
 }

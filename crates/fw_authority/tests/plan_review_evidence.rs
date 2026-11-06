@@ -492,7 +492,7 @@ fn v3_migration_requires_validated_backup_and_does_not_invent_legacy_evidence() 
         AuthorityStore::open(&f.path),
         Err(AuthorityError::MigrationRequired {
             found: 3,
-            required: 13
+            required: 16
         })
     ));
     assert_eq!(snapshot(&f.path), original);

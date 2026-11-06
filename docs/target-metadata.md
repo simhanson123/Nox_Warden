@@ -25,8 +25,10 @@ cargo build --locked -p fw_agent -p fw_authority --bins
 `fw_authority_admin` is a Unix local maintenance executable. Access to the
 protected authority database is its caller authorization boundary. It accepts
 public keys/proofs, never policy signing keys. It is not a remotely authenticated
-provisioning service or the production authority-bootstrap ceremony. Separate OS
-accounts, protected IPC and Windows ACL support remain deployment work.
+provisioning service or the production authority-bootstrap ceremony. The
+[protected bootstrap signer](protected-signing-authority.md) now provides a
+separate Linux process and authenticated local IPC; installed service accounts,
+key lifecycle and Windows ACL support remain deployment work.
 
 Use an authority-owned directory with mode `0700` and a private database. On a
 fresh installation, `init` refuses to overwrite an existing file. `init-project`
@@ -178,13 +180,14 @@ An existing output path is refused, so a retry cannot silently replace the proof
 
 ### Schema migration
 
-Target metadata was introduced in schema 5. The current authority schema **8**
-requires an explicit validated private backup to migrate known schemas 1–7.
+Target metadata was introduced in schema 5. The current authority schema **16**
+requires explicit validated migration from known schemas 1–15 with a private
+backup; incompatible retained history is refused before a new backup is created.
 It imports no target trust from legacy controller records:
 
 ```sh
 target/debug/fw_authority_admin migrate \
-  --database authority/authority.sqlite3 --backup authority/authority-before-v8.sqlite3
+  --database authority/authority.sqlite3 --backup authority/authority-before-v16.sqlite3
 ```
 
 See [authority storage](authority-store.md) for backup/path/collision rules.

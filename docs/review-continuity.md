@@ -9,6 +9,125 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR27 consolidated review
+
+The user supplied [Claude Opus5.5's PR27 report](reviews/pr27-claude-review.md)
+for `5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`, against
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. Its 17,066 uploaded bytes,
+207 CRLF endings and SHA256
+`8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357`
+are preserved, including progress notes.
+
+Accepted High S-1 blocked the next target-authority step: signer file validation
+can release SQLite's process-owned POSIX locks. The author directly reproduced
+lock release; actual signer commit loss, differing duplicate DSSE after restart
+and SIGBUS are attributed to its parallel reviewer. Private probe sources were
+not supplied. Prior local20-stage PASS did not cover that descriptor/reader
+lifecycle; retain it as historical evidence rather than using it to dismiss S-1.
+Low R-1/L1/L2 and informational I-1/I-2/L3 are tracked in the
+[follow-up contract](pr27-follow-up.md). New local reproductions/results must be
+recorded separately; preparing a response is not execution.
+
+The report's canonical/shared-umask/browser results are external evidence.
+Docker protected-signer smoke returned NOT_RUN/exit2/zero checks, and all four
+native/Docker labs were NOT_RUN there. Its numeric-UID signer probes are separate
+from that missing complete smoke. PR27 is open at the reviewed head above,
+based on unmerged PR26; CI42216796210 attempt1 failed before execution from
+billing with zero steps/artifacts. No merge or remote PASS is inferred.
+Development on `feat/target-authority-confirmation` integrates the S-1 correction,
+R-1/L1/L2, I-1/I-2 and confirmed target predecessors. Schema16, a separate durable
+target journal, management-baseline execution, signed receipts and CLI/readiness
+v3 form one batch. All21 selected local stages and independent evidence/artifact
+audits passed. A late lab-only timeout correction has a separate snapshot and
+fresh applicable checks; Rust/UI source is unchanged. Reports preserve the
+original failed attempt and separate actual execution from historical evidence.
+Preserve SQL001–015, specifications and original review bytes.
+
+## Received PR26 follow-up consolidated review
+
+The user supplied [Claude Opus5.5's follow-up report](reviews/pr26-follow-up-claude-review.md)
+for `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, tree
+`9108060e91b2cf9659b598e5f670f095f72f3305`, against
+`3866ceaa2b86da3ea3653da338d433a23a02b283`. Preserve all 15,477 uploaded
+bytes, including 193 CRLF endings and opening progress notes, SHA256
+`5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa`.
+It confirms F1–F3, finds no Medium-or-higher defect or development blocker and
+retains F4 as an explicit protected-storage boundary. Do not request another
+review of that unchanged target or describe preparation/internal review as a
+new Claude execution.
+
+The report identifies Low D6a (lab timing constants, binding clock and exact
+`E−8` validation), Low D6b (a conservative near-expiry lower bound can refuse
+healthy observations), and missing documentation for whole-database refusal of
+legacy conflicting schema14 history. The store's rejection affects every tenant
+in that file. The [recovery boundary](authority-store.md#conflicting-legacy-core-windows-and-recovery)
+requires preserved original evidence and independently trustworthy compatible
+authority/epoch/generation context; there is no automatic repair command.
+
+Its direct F1 probe, canonical/shared-umask/browser results and parallel reviewers'
+old-binary/conflict and timing probes are attributed external evidence. Private
+probe sources and temporary logs were not supplied or rerun here. All four
+Docker/native suites were NOT_RUN in that review; unit/static findings do not
+establish kernel qualification. It reports CI42150829408 blocked before execution
+by billing and no merge. New implementation and validation belong in the ledger
+and reports; neither the earlier local counts nor the supplied review validates
+later changes. PR26 remains an unmerged dependency until exact remote CI and
+merge evidence establish otherwise.
+
+## Received PR26 consolidated review
+
+The complete [Claude Opus5.5 PR26 report](reviews/pr26-claude-review.md) covers
+head `3866ceaa2b86da3ea3653da338d433a23a02b283`, tree
+`7f349ae2b22d1c19464454bcec8eb079d15614ef`, against
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. Its uploaded bytes, including
+progress notes and CRLF, are preserved: 15,748 bytes, SHA256
+`7f82e555c1c734c9592b7ec3ddf96a4c65891b18815a02e00b45c0c6a1cba37d`.
+The report identifies Low F1/F2, informational F3, existing storage-boundary
+limitation F4 and four native lab verification gaps; it reports no Medium-or-higher
+issue or immediate development blocker. Its private probes were not supplied or
+rerun. Its actual old-binary migration and other local checks remain attributed
+external evidence; all four Docker/native suites were NOT_RUN there.
+
+The [integrated follow-up](pr26-follow-up.md) independently reproduces F1 in both
+registration orders and F2 using new tests against the exact reviewed production
+source, then corrects the implementation and lab coverage together. Current
+results belong in the ledger and reports; the prior feature's passing local
+counts do not validate these corrections. F3 retains full explicit strict
+upgrade validation. F4 is an explicit trusted-storage limit, not a claimed fix
+against an attacker able to rewrite all local storage and restore its guards.
+
+PR26 remains open at this checkpoint. Its initial CI42036443828 attempt1 failed
+before execution because GitHub reported an account billing lock: zero steps,
+zero artifacts. That is not an executed product-test failure or a CI PASS.
+Resolve later corrected-head PR/main CI from the retained PR completion record.
+Do not repeat the completed external review of the unchanged target.
+
+## Received PR25 consolidated review
+
+The user supplied [Claude Opus5.5's PR25 review](reviews/pr25-claude-review.md)
+for `89684e055f01a1c87113e4ea4a713ebbff77afe1` against
+`59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`. Merge
+`a624a1e684a8fc0065ac4f4609101410f56c50bb` has the same tree.
+PR CI41945354850 and separate main CI41950760489 both succeeded. Preserve all
+14,448 uploaded bytes, including 159 CRLF endings and progress notes, SHA256
+`64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771`.
+
+The report confirms I1/T1–T3 and identifies no security defect or development
+blocker. Its focused/full/browser results are attributed external evidence;
+Docker labs are NOT_RUN there and its private probes are unavailable here.
+[Source-qualified corrections](pr25-review-assessment.md) cover the zero-match
+prompt filter, overlap in the thirteen-condition approval matrix, table-mutation
+rather than SQL-text recording, snapshot scope and temporary test-authorizer
+replacement. The report's blanket final-IMMEDIATE wording is also qualified:
+retained-intent read uses a validated DEFERRED final snapshot. No raw report is
+rewritten. The correct exact transition test freshly passed once; this does not
+validate the next feature.
+
+Proceed with the integrated core-access semantic/native/absolute-window and
+operator evidence batch. Do not repeat external review of unchanged PR25 or
+promote structural provenance/lab evidence into protected production authority.
+
 ## Received PR24 consolidated review
 
 The user supplied [Claude Opus5.5's PR24 review](reviews/pr24-claude-review.md)

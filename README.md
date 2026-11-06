@@ -8,6 +8,13 @@ packets in disposable namespaces. Connecting that executor to protected producti
 approval, signing, installation and recovery remains unfinished; Windows WFP and
 macOS Network Extension implementations are also required before product completion.
 
+The [PR27 follow-up](docs/pr27-follow-up.md) repairs a High signer durability
+defect in SQLite lock handling. [Target confirmation](docs/target-authority-confirmation.md)
+connects owner-authorized bootstrap, isolated management-path rules and signed
+target results to retained authority and readiness. See the
+[verification record](reports/README.md) and
+[remaining acceptance sequence](docs/remaining-work.md) for actual release work.
+
 English is the default interface language. Users can select Korean, Japanese,
 Spanish, German, French, Simplified Chinese or Traditional Chinese; their explicit
 selection is remembered. The original [F-2.0 specifications](docs/specs/F_00_시작안내.md)
@@ -30,6 +37,17 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   state with a separate observation signature, and retain current versus
   historical results. The authority screen shows this evidence without treating
   lab correspondence as host qualification or policy authorization.
+- [Reviewed core access and fixed lease windows](docs/core-access-enforcement.md):
+  independently recompose the complete before/after state for an original
+  `f.plan/v1` core-access plan and atomically retain its review, original cost
+  provenance and one absolute lease window. Local
+  [administration commands](docs/core-access-provenance-cli.md)
+  and authenticated evidence reads expose current and historical bindings.
+  Approval, retry and journal replay do not refresh that window; production
+  signing and dispatch remain closed.
+  Legacy bindings must fit an existing window, and adopting a first window checks
+  earlier bindings. New cost/readiness eligibility requires a full reviewed
+  window while retained historical costs and occupied capacity remain intact.
 - Authenticated local asset and service catalogues with immutable revisions,
   ETags, tenant isolation and transactional audit records. Services can reference
   registered targets with current credentials and reports. Authenticated audit
@@ -49,11 +67,21 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   bound to their immutable context. A separate [authority store](docs/authority-store.md)
   atomically records decisions, current credential/role checks, original proofs
   and immutable approval sets requiring independent human reviewers.
+- [Protected bootstrap and signer boundary](docs/protected-signing-authority.md):
+  independently pinned signed workload records, staged original
+  envelope/delegation objects and actual owner-bound WebAuthn bootstrap consent.
+  A separate Linux signer uses distinct OS identities, protected key/database
+  paths and authenticated Unix peer credentials to issue the exact bootstrap DSSE.
+  Its local/Lab single-owner authorization remains pending until the separate
+  target flow confirms the exact durable epoch and measured baseline. Generation0
+  rotation requires the actual predecessor and preserves exact receipt retries.
+  CLI/readiness v3 distinguish current and historical state. Existing signing
+  heads and issued capacity cannot be reset; production signing/dispatch stay closed.
 - A separate [policy review service and screen](docs/authority-review-ui.md)
   authenticate pinned authority passkeys, show verified before/after policy
   evidence and collect fresh signed approval or rejection. Historical receipts
-  remain separate from current quorum, revocation and expiry checks. Production
-  authority bootstrap, protected OS deployment and signer integration remain
+  remain separate from current quorum, revocation and expiry checks. Target-confirmed
+  production authority, installed OS/key lifecycle and authenticated dispatch remain
   incomplete; controller login does not approve a policy.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.
@@ -145,6 +173,8 @@ python scripts/smoke_audit.py
 # Requires the isolated Docker lab; these commands do not enable host protection.
 python scripts/linux-lab.py --report reports/linux-lab.json
 python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+# Reuses the pinned image built by the signed lab.
+python scripts/core-access-linux-lab.py --skip-image-build --report reports/core-access-linux-lab.json
 ```
 
 The [verification summary](reports/README.md) records scope, reproducible commands
@@ -156,7 +186,11 @@ deny, connection expiry and actual rule-tamper detection in an isolated network
 namespace. The [signed execution lab](docs/signed-linux-execution.md) additionally
 connects signature verification, durable preparation, native apply/readback,
 probe confirmation and restrictive timeout/crash recovery. Its authority and
-approval inputs are explicitly synthetic fixtures. Full Linux qualification,
+approval inputs are explicitly synthetic fixtures. The separate
+[core-access profile](docs/core-access-enforcement.md#native-development-profile)
+retains the actual closed core plan, original provenance and fixed window in its
+signed execution and recovery material. It uses explicit synthetic lab trust;
+it does not provision production authority or bootstrap. Full Linux qualification,
 Windows WFP/callout and macOS Network Extension implementations,
 independent authority/watchdog integration, signed installers and production
 identity lifecycle, certificate renewal and remote enrollment remain unfinished.

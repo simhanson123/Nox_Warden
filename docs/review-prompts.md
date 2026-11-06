@@ -1,18 +1,52 @@
 # Independent review prompts
 
-> Current status: PR24's supplied Claude Opus5.5 report is preserved byte-for-byte
-> in [the uploaded review](reviews/pr24-claude-review.md).
-> The integrated follow-up addresses I1/T1–T3: validated retained-clock selection
-> and precise semantic/rollback coverage. The assessment distinguishes actual gaps
-> from the native fault coverage already present.
-> Use **Claude Opus5.5 only** for one consolidated external review. The follow-up
-> PR description and user handoff contain the complete prompt with actual fixed
-> base/head; resolve that PR instead of reusing historical targets below.
-> Comparison base: `59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8`.
-> Branch: `fix/validated-clock-and-rollback-coverage`; resolve its actual PR/head.
-> Completed PR22/PR23/PR24 reviews must not be requested again for unchanged targets.
-> Preparing a prompt and internal agent review are not external model execution.
-> Start a development session with [this prompt](session-start-prompt.txt).
+The [received Claude Opus5.5 PR27 review](reviews/pr27-claude-review.md) targets
+`5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
+`719b80f88255921711ede7b4f4da81876568f7e3`, against
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. It identifies accepted High S-1
+as the original next-development blocker, plus R-1/L1/L2 and informational findings. Read
+the [follow-up contract](pr27-follow-up.md); do not request another review of
+that unchanged target. Prior local PASS and attributed external results do not
+validate the new correction.
+
+Use the [complete Korean prompt](target-authority-review-prompt-ko.txt) for one
+Claude Opus5.5 review of the integrated signer/origin16/target-confirmation change
+on `feat/target-authority-confirmation`. Fix the actual resulting base/head/tree
+in the PR completion record and conversational handoff. Preparing a prompt or
+internal review is not a Claude execution. PR28 integrates PR26/PR27 into main;
+the completion record resolves the actual CI and merge state. Their old billing
+failures remain historical. Preserve SQL001–016, specifications and original reviews.
+
+The protected-signing prompt and notice below are the historical PR27 request;
+the review has now been received. They are not a new request for that target.
+
+## PR27 protected-signing prompt checkpoint (historical)
+
+> The supplied [Claude Opus5.5 PR26 follow-up review](reviews/pr26-follow-up-claude-review.md)
+> is received for `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, tree
+> `9108060e91b2cf9659b598e5f670f095f72f3305`, against
+> `3866ceaa2b86da3ea3653da338d433a23a02b283`. It confirms F1–F3 and
+> reports no development blocker. Do not request another review of either
+> unchanged received PR26 target. Read [the follow-up](pr26-follow-up.md).
+> The current substantial batch connects protected bootstrap/signed authority and
+> independent signer boundaries and addresses D6a/D6b plus conflict recovery docs.
+> Use **Claude Opus5.5 only** for one consolidated review of the actual new head.
+> Fresh checks and current qualifications belong in [reports](../reports/README.md);
+> prior counts remain historical. Preparing this request is not review execution.
+> Next comparison base: `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`.
+> Original PR base: `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
+> Branch: `feat/protected-signing-authority`, based on open/unmerged PR26.
+> Resolve the final target/tree and new PR CI separately. PR26 CI remains blocked
+> before execution by billing; local results never replace remote CI success.
+> The full prompt with actual new SHAs must be printed in the conversation and
+> retained in the new PR. Prompt preparation/internal review is not Claude execution.
+> Published SQL001–014 and original reviews/specs remain preserved; operational
+> signing/dispatch remain closed. Start with [the session prompt](session-start-prompt.txt).
+
+The current complete [Korean consolidated prompt](protected-signing-review-prompt-ko.txt)
+pins comparison base `dded7e9` and resolves the new target from the final feature
+commit/stacked-PR completion record. The PR and user handoff must additionally
+print the actual complete head/tree; preparing this prompt is not review execution.
 
 > Historical PR #16 prompts below. Historical reservation-integrity review prompts,
 > exact base and target are in [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).

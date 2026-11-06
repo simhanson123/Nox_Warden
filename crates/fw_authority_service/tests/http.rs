@@ -3,6 +3,8 @@ mod authenticator;
 #[path = "../../fw_authority/tests/support/native_fixture.rs"]
 mod native_fixture;
 use native_fixture::plans;
+#[path = "../../fw_authority/tests/support/core_access_review_fixture.rs"]
+mod core_access_review_fixture;
 #[path = "../../fw_authority/tests/support/private_directory.rs"]
 mod private_directory;
 use authenticator::{Authenticator, ORIGIN, PRINCIPAL};
@@ -116,6 +118,68 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         Self::configured(false)
+    }
+    fn core(shift: i64, retained_window: bool) -> Self {
+        let mut fixture = Self::new();
+        let (mut plan, requirements, _, mut provenance, _) =
+            core_access_review_fixture::fixture_at(NOW, shift);
+        plan["plan_id"] = json!(IDEMPOTENCY_2);
+        plan["org_id"] = json!(ORG);
+        plan["project_id"] = json!(PROJECT);
+        plan["principal_id"] = json!(PRINCIPAL);
+        provenance.envelope.org_id = ORG.into();
+        provenance.envelope.project_id = PROJECT.into();
+        provenance.delegation.org_id = ORG.into();
+        provenance.delegation.project_id = PROJECT.into();
+        provenance.delegation.allowed_principal_ids = vec![PRINCIPAL.into()];
+        for policy in plan["requested_policies"].as_array_mut().unwrap() {
+            policy["org_id"] = json!(ORG);
+            policy["project_id"] = json!(PROJECT);
+        }
+        core_access_review_fixture::core::rehash(&mut plan, &mut provenance);
+        let review = core_access_review_fixture::rebuild(&mut plan, &provenance);
+        let window = core_access_review_fixture::window(&plan, &provenance);
+        let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+        let mut store = AuthorityStore::open(&fixture.db).unwrap();
+        store
+            .provision_authority_basis(
+                &tenant,
+                &fw_authority::AuthorityBasis {
+                    epoch: 1,
+                    role_policy_hash: requirements["role_policy_hash"].as_str().unwrap().into(),
+                    not_before: NOW,
+                    not_after: NOW + 7200,
+                },
+                NOW,
+            )
+            .unwrap();
+        store
+            .bind_human_identity(
+                &tenant,
+                PRINCIPAL,
+                "aaaaaaaa-0000-4000-8000-000000000001",
+                NOW,
+            )
+            .unwrap();
+        if retained_window {
+            store
+                .register_reviewed_core_access_plan(
+                    &tenant,
+                    &plan,
+                    &requirements,
+                    &review,
+                    &provenance,
+                    &window,
+                    NOW,
+                )
+                .unwrap();
+        } else {
+            store
+                .register_plan(&tenant, &plan, &requirements, NOW)
+                .unwrap();
+        }
+        fixture.config.review_evidence.clear();
+        fixture
     }
     fn configured(evidence: bool) -> Self {
         Self::prepared(evidence, false)
@@ -429,7 +493,7 @@ async fn challenge(
     detail: &Value,
     decision: &str,
 ) -> Reply {
-    request(addr,"POST","/authority/v1/approvals/challenges",auth.cookie.as_deref(),auth.body["csrf_token"].as_str(),Some(json!({"plan_id":PLAN,"plan_hash":detail["plan_hash"],"requirements_hash":detail["requirements_hash"],"role":"owner","decision":decision})),ORIGIN).await
+    request(addr,"POST","/authority/v1/approvals/challenges",auth.cookie.as_deref(),auth.body["csrf_token"].as_str(),Some(json!({"plan_id":detail["plan"]["plan_id"],"plan_hash":detail["plan_hash"],"requirements_hash":detail["requirements_hash"],"role":"owner","decision":decision})),ORIGIN).await
 }
 #[tokio::test]
 async fn real_http_review_approve_requires_bound_evidence_and_retains_signature() {
@@ -2368,7 +2432,7 @@ async fn signing_readiness_rejects_repeated_route_prefixes_after_live_review_aut
     let f = Fixture::configured(true);
     let (addr, task) = f.start(NOW + 1).await;
     let auth = login(&f, addr, 1).await;
-    for version in ["v1", "v2"] {
+    for version in ["v1", "v2", "v3"] {
         let path = format!(
             "/authority/{version}/plans//authority/{version}/plans/{PLAN}/signing-readiness"
         );
@@ -2419,6 +2483,117 @@ async fn signing_readiness_rejects_repeated_route_prefixes_after_live_review_aut
             .status,
             200
         );
+    }
+    assert_no_signing_work(&f);
+    task.abort();
+}
+
+#[tokio::test]
+async fn canonical_v3_readiness_preserves_legacy_contracts_and_requires_live_review_auth() {
+    let f = Fixture::configured(true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let path = format!("/authority/v3/plans/{PLAN}/signing-readiness");
+    let anonymous = session(addr).await;
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            anonymous.cookie.as_deref(),
+            anonymous.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    let auth = login(&f, addr, 1).await;
+    for (csrf, origin) in [
+        (None, ORIGIN),
+        (auth.body["csrf_token"].as_str(), "http://localhost:8799"),
+    ] {
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &path,
+                auth.cookie.as_deref(),
+                csrf,
+                None,
+                origin
+            )
+            .await
+            .status,
+            403
+        );
+    }
+    let response = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(response.status, 200, "{}", response.raw);
+    assert_eq!(response.body.as_object().unwrap().len(), 20);
+    assert_eq!(response.body["schema_version"], "fw.signing-readiness/v3");
+    assert_eq!(response.body["bootstrap_authorization_hash"], Value::Null);
+    assert_eq!(response.body["target_bootstrap"], Value::Null);
+    assert_eq!(response.body["signing_allowed"], false);
+    assert_eq!(response.body["dispatch_allowed"], false);
+    assert!(
+        response
+            .raw
+            .to_lowercase()
+            .contains("cache-control: no-store")
+    );
+    let reasons = response.body["reasons"].as_array().unwrap();
+    for reason in [
+        "BOOTSTRAP_APPROVAL_ORIGIN_REQUIRED",
+        "BOOTSTRAP_AUTHORIZATION_REQUIRED",
+        "TARGET_EPOCH_CONFIRMATION_REQUIRED",
+        "BUILD_IDENTITY_REQUIRED",
+        "NATIVE_QUALIFICATION_REQUIRED",
+        "POLICY_SIGNER_KEY_REQUIRED",
+        "PROTECTED_SIGNER_UNAVAILABLE",
+    ] {
+        assert!(reasons.contains(&json!(reason)), "{reason}");
+    }
+    for old in [
+        "PROTECTED_BOOTSTRAP_REQUIRED",
+        "BUILD_IDENTITY_UNVERIFIED",
+        "NATIVE_QUALIFICATION_UNAVAILABLE",
+    ] {
+        assert!(!reasons.contains(&json!(old)), "{old}");
+    }
+    for version in ["v1", "v2"] {
+        let legacy = request(
+            addr,
+            "GET",
+            &path.replace("/v3/", &format!("/{version}/")),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN,
+        )
+        .await;
+        assert_eq!(legacy.status, 200);
+        assert_eq!(
+            legacy.body["schema_version"],
+            format!("fw.signing-readiness/{version}")
+        );
+        assert!(
+            legacy.body["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("PROTECTED_BOOTSTRAP_REQUIRED"))
+        );
+        assert!(legacy.body.get("target_bootstrap").is_none());
+        assert!(legacy.body.get("bootstrap_authorization_hash").is_none());
     }
     assert_no_signing_work(&f);
     task.abort();
@@ -2993,4 +3168,370 @@ async fn current_human_approval_lab_baseline_and_quotas_still_cannot_authorize_s
     }
     assert_no_signing_work(&f);
     task.abort();
+}
+
+#[tokio::test]
+async fn core_review_real_passkey_approval_keeps_fixed_window_and_signing_closed() {
+    let f = Fixture::core(0, true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    assert_eq!(auth.status, 200, "{}", auth.raw);
+    let path = format!("/authority/v1/plans/{IDEMPOTENCY_2}");
+    let detail = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(detail.status, 200, "{}", detail.raw);
+    assert_eq!(detail.body["plan"]["change_kind"], "add_access_lease");
+    assert_eq!(detail.body["review"]["available"], true);
+    assert_eq!(detail.body["review"]["before"]["policies"], json!([]));
+    assert_eq!(
+        detail.body["review"]["after"]["policies"],
+        detail.body["plan"]["requested_policies"]
+    );
+    let evidence_path = path.clone() + "/core-access-evidence";
+    let before = request(
+        addr,
+        "GET",
+        &evidence_path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(before.status, 200, "{}", before.raw);
+    assert!(
+        before
+            .raw
+            .to_lowercase()
+            .contains("cache-control: no-store")
+    );
+    assert!(before.raw.len() < 8192);
+    assert_eq!(before.body["lease_window"]["current"], true);
+    assert_eq!(before.body["lease_window"]["not_before"], time(NOW));
+    assert_eq!(before.body["lease_window"]["expires_at"], time(NOW + 3600));
+    let (receipt, _) =
+        submit_http_decision(&f, addr, &auth, &detail.body, "approve", 2, IDEMPOTENCY).await;
+    assert_eq!(receipt.body["approval"]["decision"], "approve");
+    let current = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(
+        current.body["aggregation"]["state"], "approved",
+        "{}",
+        current.raw
+    );
+    assert_eq!(
+        current.body["current_principal_decisions"][0]["current_valid"],
+        true
+    );
+    let after = request(
+        addr,
+        "GET",
+        &evidence_path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(after.body, before.body);
+    for version in ["v1", "v2"] {
+        let ready = request(
+            addr,
+            "GET",
+            &format!("/authority/{version}/plans/{IDEMPOTENCY_2}/signing-readiness"),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN,
+        )
+        .await;
+        assert_eq!(ready.status, 200, "{}", ready.raw);
+        assert_eq!(ready.body["signing_allowed"], false);
+        assert_eq!(ready.body["dispatch_allowed"], false);
+        assert!(
+            ready.body["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("CORE_SIGNING_PROFILE_UNAVAILABLE"))
+        );
+        assert_eq!(
+            ready.body.as_object().unwrap().len(),
+            if version == "v1" { 15 } else { 18 }
+        );
+    }
+    for forbidden in [
+        "purpose",
+        "workflow_id",
+        "allowed_principal_ids",
+        "assertion",
+        "private_key",
+    ] {
+        assert!(!after.raw.contains(forbidden), "{forbidden}");
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn core_window_endpoint_requires_live_bound_session_and_keeps_history_after_expiry() {
+    let f = Fixture::core(60, true);
+    let (addr, task) = f.start(NOW + 1).await;
+    let path = format!("/authority/v1/plans/{IDEMPOTENCY_2}/core-access-evidence");
+    let anonymous = session(addr).await;
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            anonymous.cookie.as_deref(),
+            anonymous.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    let auth = login(&f, addr, 1).await;
+    for (csrf, origin) in [
+        (None, ORIGIN),
+        (auth.body["csrf_token"].as_str(), "http://localhost:8799"),
+    ] {
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &path,
+                auth.cookie.as_deref(),
+                csrf,
+                None,
+                origin
+            )
+            .await
+            .status,
+            403
+        );
+    }
+    let future = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(future.status, 200, "{}", future.raw);
+    assert_eq!(future.body["lease_window"]["current"], false);
+    assert_eq!(future.body["lease_window"]["not_before"], time(NOW + 60));
+    for bad in [
+        path.clone() + "?org_id=" + OTHER,
+        format!(
+            "/authority/v1/plans/{IDEMPOTENCY_2}/authority/v1/plans/{IDEMPOTENCY_2}/core-access-evidence"
+        ),
+    ] {
+        assert_eq!(
+            request(
+                addr,
+                "GET",
+                &bad,
+                auth.cookie.as_deref(),
+                auth.body["csrf_token"].as_str(),
+                None,
+                ORIGIN
+            )
+            .await
+            .status,
+            400
+        );
+    }
+    assert_eq!(
+        request(
+            addr,
+            "POST",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            Some(json!({})),
+            ORIGIN
+        )
+        .await
+        .status,
+        404
+    );
+    task.abort();
+    // Login is renewed with a real assertion after the plan and fixed window
+    // expire. Only historical evidence is readable; plan approval stays closed.
+    let (addr, task) = f.start(NOW + 3661).await;
+    let old_session = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(old_session.status, 401);
+    let auth = login(&f, addr, 2).await;
+    assert_eq!(auth.status, 200, "{}", auth.raw);
+    let history = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(history.status, 200, "{}", history.raw);
+    assert_eq!(history.body["lease_window"]["current"], false);
+    assert_eq!(history.body["lease_window"]["expires_at"], time(NOW + 3660));
+    assert_eq!(history.body["signing_allowed"], false);
+    AuthorityStore::open(&f.db)
+        .unwrap()
+        .revoke_credential(
+            &AuthorityTenant::new(ORG, PROJECT).unwrap(),
+            &f.credential_id,
+            NOW + 3661,
+        )
+        .unwrap();
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path,
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        401
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn legacy_core_plan_has_no_inferred_window_and_foreign_tenant_stays_private() {
+    let f = Fixture::core(0, false);
+    let (addr, task) = f.start(NOW + 1).await;
+    let auth = login(&f, addr, 1).await;
+    let path = format!("/authority/v1/plans/{IDEMPOTENCY_2}/core-access-evidence");
+    let missing = request(
+        addr,
+        "GET",
+        &path,
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(missing.status, 200, "{}", missing.raw);
+    assert_eq!(missing.body["lease_window"], Value::Null);
+    let (mut other, requirements, _, _, _) = core_access_review_fixture::fixture_at(NOW, 0);
+    other["plan_id"] = json!(IDEMPOTENCY);
+    let tenant = AuthorityTenant::new(
+        other["org_id"].as_str().unwrap(),
+        other["project_id"].as_str().unwrap(),
+    )
+    .unwrap();
+    let mut store = AuthorityStore::open(&f.db).unwrap();
+    store
+        .provision_target_metadata_project(&tenant, NOW)
+        .unwrap();
+    store
+        .register_plan(&tenant, &other, &requirements, NOW)
+        .unwrap();
+    assert_eq!(
+        request(
+            addr,
+            "GET",
+            &path.replace(IDEMPOTENCY_2, IDEMPOTENCY),
+            auth.cookie.as_deref(),
+            auth.body["csrf_token"].as_str(),
+            None,
+            ORIGIN
+        )
+        .await
+        .status,
+        409
+    );
+    let detail = request(
+        addr,
+        "GET",
+        &format!("/authority/v1/plans/{IDEMPOTENCY_2}"),
+        auth.cookie.as_deref(),
+        auth.body["csrf_token"].as_str(),
+        None,
+        ORIGIN,
+    )
+    .await;
+    assert_eq!(
+        challenge(addr, &auth, &detail.body, "approve").await.body["reason"],
+        "REVIEW_EVIDENCE_UNAVAILABLE"
+    );
+    task.abort();
+}
+
+#[test]
+fn configured_core_source_confirms_only_exact_already_retained_combined_review() {
+    for retained in [false, true] {
+        let mut f = Fixture::core(0, retained);
+        let tenant = AuthorityTenant::new(ORG, PROJECT).unwrap();
+        let mut store = AuthorityStore::open(&f.db).unwrap();
+        let source = f._directory.path().join("core-source.json");
+        let bytes = if retained {
+            store
+                .policy_review_evidence(&tenant, IDEMPOTENCY_2, NOW + 1)
+                .unwrap()
+                .unwrap()
+                .canonical_bytes()
+                .to_vec()
+        } else {
+            // A valid source for another plan cannot invent core provenance or
+            // a lease window through the legacy configuration path.
+            serde_json::to_vec(&plans::complete_plan(NOW).2).unwrap()
+        };
+        write_new_private_fixture(&source, &bytes);
+        f.config
+            .review_evidence
+            .insert(IDEMPOTENCY_2.into(), source.clone());
+        let opened = Service::open(f.config.clone(), [7; 32], || NOW + 1);
+        assert_eq!(opened.is_ok(), retained);
+        if retained {
+            let mut altered: Value = serde_json::from_slice(&bytes).unwrap();
+            altered["before"]["source_snapshot_hash"] =
+                json!(fw_contracts::hash_bytes(b"altered source"));
+            std::fs::write(&source, serde_json::to_vec(&altered).unwrap()).unwrap();
+            assert!(Service::open(f.config.clone(), [7; 32], || NOW + 1).is_err());
+        }
+        assert_eq!(
+            store
+                .read_core_access_lease_window(&tenant, IDEMPOTENCY_2, NOW + 1)
+                .unwrap()
+                .is_some(),
+            retained
+        );
+    }
 }

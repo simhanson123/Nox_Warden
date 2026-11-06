@@ -1,9 +1,9 @@
 # Isolated Linux packet and execution suites
 
-The Rust compiler and signed execution driver have separate nftables kernel
-suites. Both run in disposable Docker network namespaces using loopback only.
-Neither uses host networking, published ports, privileged containers, host mounts,
-devices or an external network target. The container receives **only CAP_NET_ADMIN**, has
+The original Rust compiler and signed execution driver have separate nftables
+kernel suites. Those profiles run in disposable Docker network namespaces using
+loopback only. Neither uses host networking, published ports, privileged containers, host mounts,
+devices or an external network target. Each original container receives **only CAP_NET_ADMIN**, has
 a read-only root filesystem, and is removed in a `finally` cleanup path. The suite
 checks that its namespace differs from the caller's before changing any rules.
 The fixed Docker-local socket cannot be redirected by inherited Docker endpoint,
@@ -40,6 +40,40 @@ This does **not** make `fw_testlab qualify` pass the full platform gate. Generat
 reports are ignored local outputs. CI keeps its selected smoke report as an
 artifact for seven days; see the [verification summary](../../reports/README.md)
 for scope and CI links.
+
+## Target bootstrap management profile
+
+The separate target-confirmation work uses a bounded non-loopback management
+baseline with actual isolated veth/namespace probes, a durable target journal and
+an authenticated `fw.*` confirmation receipt. It does not relabel an old loopback
+baseline with empty management paths or reinterpret a grant receipt. The
+[target contract](../../docs/target-authority-confirmation.md) distinguishes the
+management-baseline `B` hash, exact compiled/readback semantics, signed positive
+probe responses and an actual negative timeout or EPERM1/zero-byte send denial.
+Those outcomes remain distinct. Listener preflight is a
+separate lab acceptance control, not a product flag or cryptographic deny proof.
+
+The target adapter is `fw_linux_executor bootstrap-target --config FILE --bundle FILE`.
+It requires a distinct inner network namespace, loopback plus one exact veth
+IPv4 `/30` interface/routes, `nf_conntrack_tcp_loose=0` and effective/permitted/
+bounding capabilities equal to NET_ADMIN only (4096), with zero inheritable/
+ambient capabilities. Docker sets the isolated container network's fixed
+`net.netfilter.nf_conntrack_tcp_loose=0`; a keeper retains it as the target.
+Separate coordinator and peer network namespaces retain their independently
+checked value 1. The fixture explicitly enters the coordinator namespace and
+enters the target for execution; a later `docker exec` starts in the target
+namespace. Setup performs no mounts or inner sysctl writes, retains default
+Docker security profiles and original capabilities, and changes no host sysctl
+or path. Those setup capability checks are not a target product PASS.
+Config/boot/netns/journal binding and a full post-probe guard remain
+required before signed receipt commit.
+
+The runner is `scripts/target-bootstrap-linux-lab.py`, with report
+`reports/target-bootstrap-linux-lab.json`; its required CI step/artifact wiring
+does not establish execution or PASS. The verification summary records fresh
+execution, two confirmed epochs, output recovery and expiry. Production qualification,
+policy dispatch, installed lifecycle and supported three-OS acceptance remain
+closed requirements.
 
 ## Compiler packet coverage
 
@@ -102,3 +136,42 @@ These tests simulate startup failures, transport timeouts, malformed reports,
 exit/status mismatches and cleanup failure. They do not count as native packet
 probes. Consult the [verification summary](../../reports/README.md) for confirmed
 suite counts and CI results.
+
+## Original core-access window
+
+The separate `core-access-linux-lab.py` scenario keeps the original sixty-second
+`[S,E)` and all original dispatch, confirmation and recovery caps. Its positive
+boundary is `E - uncertainty - elapsed - commit_budget - 2 seconds` (the current
+fixture is `E-8`). The final two seconds are a packet sampling margin, separate
+from the native process reserve within the unchanged five-second installation
+budget. The conservative binding already deducts one second of clock uncertainty
+and the full five-second commit budget from the kernel timeout; an `E-3`
+positive would therefore exceed the current guaranteed live interval.
+
+Both an established TCP flow and a new TCP connection must return fresh nonces
+at that positive boundary. Initial and boundary token captures independently
+recompute a positive minimum remaining lifetime from original `E`, the accepted
+binding and the capture's ending monotonic sample, allowing one second for nft's
+integer representation. They reject shortened timers, missing tokens, changed
+manifest timeouts and late samples. Original `E+1` must block both flows and show
+the core tokens gone. Retry/reopen never bind a new lifetime.
+
+Each bundle negative requires its exact bounded `CORE_BUNDLE_*` reason and
+unchanged journal identity, generation, operations, material and owned native
+state (only natural token aging is allowed). The forged signature decodes to
+exactly 64 bytes and must fail cryptographic verification with
+`CORE_BUNDLE_GRANT_SIGNATURE`. The `production_authorized=true` input instead
+must fail trust loading with `LAB_TRUST_BINDING`; it is reported separately from
+bundle cryptography.
+
+The synthetic lab administrator saves a closed `reference-pin.json` separately
+before building artifacts. Challenge creation and proof verification both
+recompile the complete baseline and candidate against that pin and compare exact
+submitted artifacts. Captures retain pin/reference hashes, revision and expected
+versus submitted artifact hashes. A coherent bundle carrying replacement
+references cannot choose its own trusted pin. This remains explicit synthetic
+lab input, with no production authorization, authority admission or native
+qualification or claim of OS-protected deployment authority. The independent
+reference pin is checked by the observation workflow; driver init/apply/replay
+retain their existing signed-material and trust-scope checks. Ambiguous multiport
+nftables 1.0.6 readback remains refused.

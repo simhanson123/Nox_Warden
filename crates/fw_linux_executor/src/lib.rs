@@ -4,6 +4,11 @@ use fw_authority::{DsseEnvelope, SignedGrant};
 use fw_backend_linux::{Installation, PortableArtifact};
 use serde::{Deserialize, Serialize};
 
+mod core_access;
+pub use core_access::*;
+mod bootstrap_contracts;
+pub use bootstrap_contracts::*;
+
 pub const CONFIRM_TYPE: &str = "application/vnd.fw.experimental-confirm.v1+json";
 pub const PROBE_TYPE: &str = "application/vnd.fw.isolated-probes.v1+json";
 
@@ -82,6 +87,10 @@ pub struct ExecutionBundle {
     pub recovery: PortableArtifact,
     /// The preinstalled initial fixture is independently read from the kernel.
     pub previous_installation: Installation,
+    /// Present only in the additive core-access development profile. Omission
+    /// preserves the original isolated bundle's canonical bytes and replay hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core_access: Option<CoreAccessExecutionContext>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

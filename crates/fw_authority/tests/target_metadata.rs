@@ -647,7 +647,7 @@ fn v4_migration_requires_private_backup_and_invents_no_target_trust() {
         AuthorityStore::open(&f.path),
         Err(AuthorityError::MigrationRequired {
             found: 4,
-            required: 13
+            required: 16
         })
     ));
     let backup = f.path.with_file_name("v4-backup.sqlite3");
@@ -662,7 +662,7 @@ fn v4_migration_requires_private_backup_and_invents_no_target_trust() {
     assert_eq!(
         db.query_row::<i64, _, _>("PRAGMA user_version", [], |r| r.get(0))
             .unwrap(),
-        13
+        16
     );
     assert_eq!(
         db.query_row::<i64, _, _>("SELECT count(*) FROM authority_audit", [], |r| r.get(0))

@@ -156,7 +156,21 @@ pub fn guard() -> Result<ObservationContext> {
 }
 /// Fixed program/argument callers only. Output and run time are bounded, no shell.
 pub fn command(program: &str, arguments: &[&str], input: Option<Vec<u8>>) -> Result<Vec<u8>> {
-    command_fenced(program, arguments, input, None, false)
+    command_fenced(program, arguments, input, None, false, None)
+}
+pub fn bootstrap_command(
+    journal: &fw_executor::BootstrapJournal,
+    arguments: &[&str],
+    input: Option<Vec<u8>>,
+) -> Result<Vec<u8>> {
+    command_fenced(
+        "/usr/sbin/nft",
+        arguments,
+        input,
+        None,
+        false,
+        Some(journal),
+    )
 }
 fn command_fenced(
     program: &str,
@@ -164,6 +178,7 @@ fn command_fenced(
     input: Option<Vec<u8>>,
     journal: Option<&fw_executor::ExecutorJournal>,
     crash_with_child: bool,
+    bootstrap: Option<&fw_executor::BootstrapJournal>,
 ) -> Result<Vec<u8>> {
     if !["/usr/sbin/ip", "/usr/sbin/nft"].contains(&program) || !Path::new(program).is_file() {
         return Err(Error::new("NATIVE_BINARY_UNAVAILABLE"));
@@ -196,6 +211,9 @@ fn command_fenced(
         command.process_group(0);
     }
     if let Some(journal) = journal {
+        journal.fence_native_command(&mut command)?;
+    }
+    if let Some(journal) = bootstrap {
         journal.fence_native_command(&mut command)?;
     }
     let mut child = command.spawn()?;
@@ -356,6 +374,14 @@ pub fn replace(
         || observed.wall_time_unix < binding.wall_time_unix
         || observed.wall_time_unix >= authority_deadline
     {
+        eprintln!(
+            "FW_LAB_INSTALL_BUDGET {}",
+            json!({
+                "stage":"native-submit","elapsed_millis":elapsed,
+                "budget_millis":binding.commit_budget_seconds.saturating_mul(1000),
+                "reserved_process_millis":2000
+            })
+        );
         return Err(Error::new("INSTALLATION_BUDGET_EXPIRED"));
     }
     command_fenced(
@@ -364,6 +390,7 @@ pub fn replace(
         Some(bytes),
         Some(journal),
         crash_with_child,
+        None,
     )?;
     Ok(())
 }

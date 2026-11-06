@@ -7,13 +7,14 @@
     "design_provenance": "reports/spec-import.json",
     "review_history": "docs/review-continuity.md",
     "independent_review_prompts": "docs/review-prompts.md",
-    "method": "GPT-6.1 Sol ultra workers with disjoint file ownership; lead orchestration. Implement substantial integrated batches, run focused necessary checks, then one consolidated independent review/full validation and authorized commit/push/PR/CI/merge and separate main CI. No remote branch deletion or shared-history rewriting.",
+    "method": "GPT-6.1 Sol ultra implementation and GPT-6 Astra ultra architecture/independent review, both at maximum reasoning with disjoint ownership; lead orchestration. Substantial integrated batches, one consolidated review and fresh coordinated validation, then authorized commit/push/stacked PR/CI/merge and separate main CI when available. Preserve remote branches and shared history.",
     "next_dependencies": [
-      "Qualify production observer/management-baseline/native gates and establish compiler/validator build identity; development recompilation and signed lab observations do not satisfy these production gates.",
-      "Complete core access semantic/native/signing authority with a single retained absolute lease window; then protected target generation bootstrap and independently deployed signer/delivery verification.",
-      "Implement protected OS accounts and authenticated signer/executor IPC, production authority bootstrap and credential recovery.",
-      "Qualify Linux host lifecycle and implement Windows WFP/callout and macOS Network Extension on actual supported runners before signing installers.",
-      "Complete remaining registry/auth/evidence/UI/locale/provider acceptance recorded per task below."
+      "Complete all four CI suites and existing required aggregate, merge integrated PR28 and inspect separate main CI. Remote mount_private_propagation/EACCES13 is diagnosed; mount-free local target55/native-runner52 passed without capability/profile/product changes. Preserve SQL001..016 and original review bytes.",
+      "Qualify compiler/validator/build identity, protected observer/native evidence and management baseline; independently resolve workload asset revisions and actual packet source identity.",
+      "Qualify isolated durable epoch/receipt/management-probe integration for installed contexts; no genesis reset, invented predecessor or issued/UNKNOWN refund.",
+      "Connect authenticated executor dispatch/completion/reconciliation and current policy-signer key trust. Existing distinct-UID Unix signer IPC is implemented; installed OS account/ACL/key provisioning and authenticated executor completion are still required.",
+      "Qualify installed Linux host/watchdog/reboot/update/coexistence lifecycle and implement Windows WFP/callout and macOS Network Extension on actual supported native runners before signing installers.",
+      "Complete remaining registry/auth/evidence/UI/locale, certificate renewal/rotation, restore/external anchoring, PostgreSQL/OIDC, provider/channel and release acceptance recorded per task below."
     ],
     "completed_slice": [
       "Live authority connections bind complete physical/retained validation to a SQLite snapshot, invalidate it on peer commits and permanently taint unsafe local schema preparations. Production exposes no raw connection or hook replacement.",
@@ -22,30 +23,35 @@
       "Existing open/current maintenance use consistent read snapshots; initialization and genuine legacy upgrades retain serialized checks and private backups. Prepared statement and validated-record reuse reduce duplicate retained replay without changing schema13 or published SQL001–013.",
       "New genuine lifecycle projection/index regressions, healthy/corrupt snapshot races, exact work-audit checks and actual late-write fault/rollback tests supplement preserved legacy, quota and native evidence coverage. Full integrated validation status is recorded separately.",
       "Initial retained signing-intent/latest-job selections now run inside validated read snapshots, with binding comparison in the final transaction and no unchecked production wrapper lookup. Original-root/project clocks and independently committed refusal floors remain intact.",
-      "Precise signature/current-generation tests, actual cancellation/issuance transition faults and 13 approval fault conditions verify semantic reachability, full typed retained rollback and healthy retry/replay. Existing 12 native fault stages are preserved; changed-expiry reference-pin retries are restored."
+      "Precise signature/current-generation tests, actual cancellation/issuance transition faults and 13 approval fault conditions verify semantic reachability, full typed retained rollback and healthy retry/replay. Existing 12 native fault stages are preserved; changed-expiry reference-pin retries are restored.",
+      "Core f.plan/v1 review independently recomposes the full before/after state, exact request/patch/effect bindings and one original absolute lease interval without changing general-plan evidence bytes.",
+      "Schema14 atomically retains combined core plan/requirements/provenance/window/review/audits, rejects replacement and altered references, preserves legacy bytes and does not infer missing windows. Durable clock floors prevent observed expiry from becoming current after rollback/reopen, including reads before admission.",
+      "The explicit isolated core profile preserves original f.plan/v1 material/window/recovery authority through actual native application, two signed captures, original absolute expiry and autonomous restrictive recovery. Scoped immutable-material reuse keeps fresh current trust/DSSE/time checks and original installation budgets; synthetic lab approval is not production workload/delegation authentication.",
+      "Bounded trusted CLI registration/history reads, authenticated no-store core evidence GET and full-state review/window UI share retained evidence across eight locales; session-local conservative UI time survives refresh/remount without changing authority gates."
     ],
-    "next_implementation": "Resolve retained current-batch PR and finish any remaining PR/main CI or merge steps; local implementation, focused/full validation and consolidated independent source review passed. Then resume preserved M03/M04L/M05 core/native/signing production dependencies.",
-    "implementation_base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
-    "implementation_branch": "fix/validated-clock-and-rollback-coverage",
+    "next_implementation": "Complete corrected PR28 required CI, merge retained PR26/27 history into main and inspect main CI. Then qualified build/native/workload inputs and policy-signer trust, authenticated dispatch/completion/reconciliation and installed Linux lifecycle; Windows WFP/callout and macOS Network Extension remain mandatory. Resolve current remote state from PR28 completion record; old billing failures are historical.",
+    "implementation_base": "5fc576f672c2e0671164b73a667e3452b99ea82a",
+    "implementation_branch": "feat/target-authority-confirmation",
     "completed_batch": {
-      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
-      "branch": "fix/live-authority-integrity",
-      "scope": "R1-R4 live snapshot integrity, complete work-audit correspondence, full validation cost and lock behavior",
+      "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+      "branch": "fix/validated-clock-and-rollback-coverage",
+      "scope": "Validated retained signing-clock selectors and precise semantic/transition/approval rollback coverage (I1, T1-T3)",
+      "schema": 13,
       "status": "merged_PR_and_main_CI_passed_external_review_received",
       "next_external_reviewer": "Claude Opus 5.5",
       "external_review_executed": true,
-      "follow_up": "docs/pr23-follow-up.md",
-      "schema": 13,
-      "completion_record": "Completed PR24 identifiers and successful CI runs are fixed below; PR24 retains the full historical prompt and detailed completion record.",
-      "head": "ac027412c88eade8d3674c75c2ba6203df023ee6",
-      "pull_request": 24,
-      "merge": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+      "follow_up": "docs/pr24-follow-up.md",
+      "completion_record": "PR25 preserves the exact successful PR/main CI, artifact/source audit and historical prompt. Its supplied external review is now preserved in the repository.",
+      "pull_request": 25,
+      "head": "89684e055f01a1c87113e4ea4a713ebbff77afe1",
+      "merge": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "tree": "880986d4b29384cb947b780e32edde75981a5f1d",
       "pr_ci": {
-        "run": 41819099169,
+        "run": 41945354850,
         "conclusion": "success"
       },
       "main_ci": {
-        "run": 41824170284,
+        "run": 41950760489,
         "conclusion": "success"
       },
       "verification": "continuity.previous_batch_verification"
@@ -246,18 +252,20 @@
       "independent_handoff_review": "No blocking inconsistency found; current open findings, external attribution, historical results, portable startup and rootless design-only status checked.",
       "portable_probe_recheck": "Exact documented commands were run in a fresh temporary directory and reproduced the same N2, exit0; no old temporary source needed, not an extra passing security test."
     },
-    "current_batch": {
-      "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
-      "branch": "fix/validated-clock-and-rollback-coverage",
-      "scope": "Validated retained signing-clock selectors and precise semantic/transition/approval rollback coverage (I1, T1-T3)",
-      "schema": 13,
-      "status": "implementation_and_fresh_local_validation_complete_resolve_PR_for_remote_completion",
+    "pr26_followup_batch": {
+      "base": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "pr_base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "branch": "feat/core-access-enforcement",
+      "pull_request": 26,
+      "scope": "Enforce fixed core windows across legacy/live paths, validate shape before clock observation, strengthen native expiry/crypto/refusal/reference evidence and clarify review/storage boundaries",
+      "status": "implemented_final_local_validation_and_independent_review_passed_pending_remote_workflow",
+      "schema": 14,
       "next_external_reviewer": "Claude Opus 5.5",
       "external_review_executed": false,
-      "follow_up": "docs/pr24-follow-up.md",
-      "completion_record": "Resolve retained branch PR for exact head, PR CI, merge, separate main CI and complete fixed Claude-only prompt; source omits its own future commit identifier."
+      "follow_up": "docs/pr26-follow-up.md",
+      "completion_record": "PR26 retains the reviewed checkpoint and will record final corrected head/tree and exact PR/main CI; no remote completion inferred from local checks."
     },
-    "implementation_pr_lookup": "https://github.com/simhanson123/Nox_Warden/pulls?q=head%3Afix%2Fvalidated-clock-and-rollback-coverage",
+    "implementation_pr_lookup": "PR26 is open/unmerged at dded7e94e84ef0e59a0552e961c5c57eaaabdd81. The current branch feat/protected-signing-authority starts there and depends on it; record any later PR/head/checks separately.",
     "received_pr20_external_review": {
       "pull_request": 20,
       "target": "9e021b31171ae19ff8c9e7eba400d8dd4630a001",
@@ -352,51 +360,109 @@
         }
       ]
     },
-    "verification": {
-      "status": "passed_fresh_complete_local_validation_after_consolidated_review",
+    "pr26_followup_verification": {
+      "status": "fresh_final_local_validation_and_independent_source_evidence_review_passed",
       "summary": "reports/README.md",
       "release_qualification": false,
-      "environment": "Pinned Rust1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154 and managed Docker28.4.0/vfs rechecked; full product runtime checks passed.",
+      "ci_pass_claim": false,
+      "baseline_reproduction": {
+        "base": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+        "new_tests": 3,
+        "expected_regression_failures": 3,
+        "compile_errors": 0,
+        "cases": [
+          "F1 window-before-legacy accepted out-of-window binding",
+          "F1 legacy-before-window accepted inconsistent history",
+          "F2 malformed plan committed clock observation"
+        ],
+        "scope": "Independent private copy of exact old production source with newly authored regressions. Expected failing tests establish baseline defects; they are not corrected-code PASS results."
+      },
+      "source_freeze": {
+        "files": 406,
+        "sha256": "c533bbc57909184dc29fe3a1bbed2574a5c230f0e7be006644806a2409015302",
+        "scope": "Final executable/test/spec/CI/toolchain inputs; docs/report summaries outside freeze."
+      },
       "focused": {
-        "clock_selectors": 2,
-        "signing_intents": 10,
-        "live_integrity": 6,
-        "rootless_lifecycle": 6,
-        "approval_atomicity": 4,
-        "approval_fault_conditions": 13,
-        "late_transition": 1,
-        "early_schema_refusal": 1,
-        "native_private": 7,
-        "native_pin_retry": 1,
-        "overlap": "Separate precise signature rerun overlaps intents; not summed. Final canonical suite validates the combined frozen snapshot."
+        "core_access_window": 19,
+        "core_access_cost_tests": 7,
+        "retained_v1_primitive_accounting": 1,
+        "concurrent_first_window": {
+          "tests": 1,
+          "actual_peer_paths": 3
+        },
+        "reference_pin": 3,
+        "final_python_core_runner": 27,
+        "qualification": "Focused commands overlap and are not summed as a workspace total. Earlier native-package17 execution preceded final Python diagnostic changes and had a documentation-only source-map difference; final canonical/runtime must establish full frozen-input verification."
+      },
+      "actual_core_linux": {
+        "checks": 85,
+        "packet_probes": 26,
+        "signed_captures": 2,
+        "report_sha256": "35d339d488b0b7c617d8a5fc16a0374f7394c0ad55c2f5ec44f4369c83c42425",
+        "source_inputs_unchanged": true,
+        "container_removed": true,
+        "positive_at_original_E_minus_seconds": 8,
+        "positive_new_and_established_tcp": true,
+        "positive_actual_token_seconds": [
+          4,
+          4
+        ],
+        "positive_independent_minimum_token_seconds": 1,
+        "negative_after_original_E": true,
+        "exact_refusal_cases": 6,
+        "forged_signature_bytes": 64,
+        "independent_observation_reference_pin": true,
+        "driver_external_reference_pin_added": false,
+        "production_qualified": false
       },
       "independent_review": {
         "reviewer": "GPT-6.1 Sol ultra",
-        "scope": "read-only consolidated source and documentation review",
-        "result": "no_confirmed_source_blocker",
-        "input_files": 390,
-        "input_sha256": "dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3",
-        "external_Claude_execution": false
+        "status": "Final source, all local counts/artifacts and source/own-stage binary evidence reviewed; no remaining findings within this correction scope. This is not a new Claude execution.",
+        "external_Claude_execution": false,
+        "additional_finding": "Initial absent window followed by concurrent first-window publication could skip time observation. Fixed by comparing initial and final selection and returning Conflict in three paths."
       },
-      "date": "2026-11-05",
-      "workspace_rust_passed": 905,
-      "ordinary_ignored_fixtures": 3,
-      "explicit_cli_fixture_passed": 1,
-      "reduced_feature_rust_passed": 32,
-      "shared_umask_passed": 510,
-      "ui_passed": 190,
-      "ui_test_files": 10,
-      "ui_builds_passed": 2,
-      "static_checks": "fmt, workspace all-target Clippy -D warnings, spec/contracts/vendor,8 locales with229keys, Python diagnostics9/6/14/3",
-      "input_files": 390,
-      "input_sha256": "dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3",
-      "nested_worker_summaries_excluded_per_full_run": 2,
-      "commands": [
-        "bash scripts/check.sh",
-        "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
-        "cargo build --locked --workspace --bins --examples",
-        "All14 runtime commands in reports/README.md#reproduce"
-      ],
+      "initial_native_attempt": {
+        "status": "FAIL_preserved_excluded_from_passing_totals",
+        "checks_before_failure": 21,
+        "packet_probes": 6,
+        "signed_captures": 1,
+        "container_removed": true,
+        "qualification": "Specific signature and generic wrapper codes were expected; original child raw stderr was not preserved. Separate same-binary/pinned-image no-NET_ADMIN help probe confirmed the exact leading GLIBC2.39 warning. Existing narrow warning classification was applied, exact application chains strengthened, and the subsequent actual core run passed all six intended refusals."
+      },
+      "canonical": {
+        "command": "bash scripts/check.sh",
+        "exit_code": 0,
+        "workspace_rust_passed": 957,
+        "workspace_ignored": 3,
+        "nested_worker_summaries_excluded": 2,
+        "explicit_cli_passed": 1,
+        "reduced_feature_passed": 32,
+        "ui_passed": 211,
+        "ui_files": 11,
+        "both_production_ui_builds": "passed",
+        "static_and_python_checks": "passed",
+        "python_diagnostics": [
+          27,
+          6,
+          14,
+          3
+        ],
+        "source_inputs_unchanged": true
+      },
+      "shared_umask": {
+        "command": "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
+        "exit_code": 0,
+        "passed": 541,
+        "failed": 0,
+        "ignored": 3,
+        "nested_worker_summaries_excluded": 2,
+        "source_inputs_unchanged": true
+      },
+      "bins_examples": {
+        "command": "cargo build --locked --workspace --bins --examples",
+        "exit_code": 0,
+        "source_inputs_unchanged": true
+      },
       "runtime": {
         "audit-smoke.json": {
           "status": "PASS",
@@ -404,7 +470,7 @@
         },
         "authority-browser.json": {
           "status": "PASS",
-          "checks": 40
+          "checks": 43
         },
         "catalogue-browser.json": {
           "status": "PASS",
@@ -414,13 +480,15 @@
           "status": "PASS",
           "checks": 13
         },
-        "enrollment-api.json": {
+        "core-access-linux-lab.json": {
+          "status": "PASS",
+          "captures": 2,
+          "checks": 85,
+          "packets": 26
+        },
+        "enrollment-smoke.json": {
           "status": "PASS",
           "checks": 23
-        },
-        "enrollment-browser.json": {
-          "status": "PASS",
-          "checks": 25
         },
         "http-smoke.json": {
           "status": "PASS",
@@ -429,8 +497,7 @@
         "linux-lab.json": {
           "status": "PASS",
           "checks": 66,
-          "packet_tests_executed": 40,
-          "container_removed": true
+          "packets": 40
         },
         "login-admission-smoke.json": {
           "status": "PASS",
@@ -438,10 +505,9 @@
         },
         "native-evidence-smoke.json": {
           "status": "PASS",
+          "captures": 5,
           "checks": 33,
-          "packet_tests_executed": 0,
-          "actual_native_captures": 5,
-          "container_removed": true
+          "packets": 0
         },
         "passkey-smoke.json": {
           "status": "PASS",
@@ -450,66 +516,81 @@
         "signed-linux-lab.json": {
           "status": "PASS",
           "checks": 98,
-          "packet_tests_executed": 43,
-          "container_removed": true
+          "packets": 43
         },
         "target-metadata-smoke.json": {
           "status": "PASS",
           "checks": 41
         },
-        "cli_protocol": {
+        "enrollment-browser.json": {
           "status": "PASS",
-          "checks": 5
+          "checks": 25
         }
       },
-      "runtime_report_count": 13,
-      "runtime_source_binary_hash_entries": 216,
-      "runtime_unique_hashed_paths": 107,
-      "cleanup": "All3lab containers removed; managed daemon healthy with0containers and no remaining test service/browser processes.",
-      "limitations": "Recognized optional GLIBC2.39 weak-symbol lab warning retained; no production signing/dispatch, native installation/recovery, Windows/macOS qualification, physical authenticator or external audit anchoring claimed."
+      "separate_cli_protocol": {
+        "status": "PASS",
+        "checks": 5
+      },
+      "old_api_database_refusal": {
+        "status": "PASS",
+        "checks": 4,
+        "fixture": "Actual reviewed3866cea public API executed by the old implementation test binary, not reconstructed rows or external private probes.",
+        "admin_exit_code": 1,
+        "diagnostic": "DATABASE_REJECTED",
+        "successful_output": false,
+        "database_bytes_unchanged": true,
+        "database_sha256": "158cf760b443876ea2877c572c532cca75731326686cba779dcde9892695e0d8"
+      },
+      "runtime_report_count": 14,
+      "ci_reference_report_count": 13,
+      "summary_sha256": "771c38ffef7123e348fb18bb6d6b7dc73d746f9f00e8bf0a13603105f36b260c",
+      "cleanup": {
+        "containers": 0,
+        "live_test_services_and_browsers": 0,
+        "all_four_lab_containers_removed": true,
+        "retained_zombies": 93,
+        "qualification": "All retained Chromium/crashpad entries confirmed Z under PID1; not executing browsers."
+      },
+      "other_attempt_qualifications": [
+        "Initial unsigned Linux attempt NOT_RUN before packets because Docker buildx metadata path was read-only; private writable BUILDX_CONFIG fixed the environment while keeping Docker/auth/proxy settings. Fresh retry passed without source changes.",
+        "Catalogue command and11 checks passed on first execution. Private collector metadata was corrected for its existing passed:true schema; original report/metadata preserved, no product rerun claimed."
+      ]
     },
     "external_review": {
-      "pull_request": 24,
+      "pull_request": 26,
       "reviewer": "Claude Opus 5.5",
-      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
-      "target": "ac027412c88eade8d3674c75c2ba6203df023ee6",
-      "reports": "docs/reviews/pr24-claude-review.md",
-      "source_kind": "uploaded pasted text preserved byte-for-byte, including CRLF and opening notes",
-      "preserved_bytes": 15585,
-      "preserved_sha256": "ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501",
-      "status": "received_source_assessed_followup_implemented_fresh_local_validation_passed",
-      "reported_conclusion": "Original R1-R4 cases corrected; no confirmed security defect or development blocker. Low test coverage findings T1-T3 and informational I1-I3 are not production qualification.",
-      "private_probes_available": false,
-      "follow_up": "docs/pr24-follow-up.md",
-      "assessment_corrections": [
-        "T3 audit-only statement is overbroad: existing private native suite already covered 12 stages, including actual review-evidence INSERT.",
-        "Removed not_after increment was a NativeReferencePin healthy retry variation, not retained-observation corruption.",
-        "I1 unchecked lookup source is confirmed; no claim that the private transient corrupt/restore wrong-clock scenario or authorization bypass was independently reproduced."
-      ],
+      "base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "target": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "tree": "7f349ae2b22d1c19464454bcec8eb079d15614ef",
+      "reports": "docs/reviews/pr26-claude-review.md",
+      "assessment": "docs/pr26-follow-up.md",
+      "preserved_bytes": 15748,
+      "preserved_crlf": 162,
+      "preserved_sha256": "7f82e555c1c734c9592b7ec3ddf96a4c65891b18815a02e00b45c0c6a1cba37d",
+      "source_kind": "complete uploaded pasted text preserved byte-for-byte including progress notes",
+      "status": "received_F1_F2_corrected_lab_gaps_verified_F3_clarified_F4_documented_trust_limit",
+      "private_probe_sources_available": false,
+      "reported_conclusion": "No Medium-or-higher issue or immediate development blocker. Low F1/F2, informational F3, pre-existing trusted-storage limitation F4 and four lab gaps. External Docker/native labs NOT_RUN; attributed tests are not new local verification.",
       "findings": [
         {
-          "id": "I1",
-          "status": "validated_selector_change_implemented_fresh_focused_and_full_validation_passed"
+          "id": "F1",
+          "status": "independently_reproduced_both_orders_corrected_live_eligibility_and_preserved_history_verified"
         },
         {
-          "id": "T1",
-          "status": "semantic_reachability_correction_implemented_fresh_focused_and_full_validation_passed"
+          "id": "F2",
+          "status": "independently_reproduced_structural_validation_precedes_observation_verified"
         },
         {
-          "id": "T2",
-          "status": "actual_transition_fault_test_implemented_fresh_focused_and_full_validation_passed"
+          "id": "F3",
+          "status": "explicit_full_strict_legacy_upgrade_preserved_and_documented"
         },
         {
-          "id": "T3",
-          "status": "actual_approval_fault_gaps_and_pin_retry_restored_existing_native_coverage_preserved_fresh_focused_and_full_validation_passed"
+          "id": "F4",
+          "status": "existing_privileged_storage_rewrite_limit_documented_not_claimed_fixed"
         },
         {
-          "id": "I2",
-          "status": "documented_trusted_local_write_boundary"
-        },
-        {
-          "id": "I3",
-          "status": "documented_database_wide_quarantine_tradeoff"
+          "id": "lab_gaps_1_4",
+          "status": "new_actual_core85_packets26_captures2_passed_observation_pin_scope_explicit"
         }
       ]
     },
@@ -637,6 +718,182 @@
       }
     },
     "previous_batch_verification": {
+      "status": "passed_fresh_complete_local_validation_after_consolidated_review",
+      "summary": "reports/README.md",
+      "release_qualification": false,
+      "environment": "Pinned Rust1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154 and managed Docker28.4.0/vfs rechecked; full product runtime checks passed.",
+      "focused": {
+        "clock_selectors": 2,
+        "signing_intents": 10,
+        "live_integrity": 6,
+        "rootless_lifecycle": 6,
+        "approval_atomicity": 4,
+        "approval_fault_conditions": 13,
+        "late_transition": 1,
+        "early_schema_refusal": 1,
+        "native_private": 7,
+        "native_pin_retry": 1,
+        "overlap": "Separate precise signature rerun overlaps intents; not summed. Final canonical suite validates the combined frozen snapshot."
+      },
+      "independent_review": {
+        "reviewer": "GPT-6.1 Sol ultra",
+        "scope": "read-only consolidated source and documentation review",
+        "result": "no_confirmed_source_blocker",
+        "input_files": 390,
+        "input_sha256": "dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3",
+        "external_Claude_execution": false
+      },
+      "date": "2026-11-05",
+      "workspace_rust_passed": 905,
+      "ordinary_ignored_fixtures": 3,
+      "explicit_cli_fixture_passed": 1,
+      "reduced_feature_rust_passed": 32,
+      "shared_umask_passed": 510,
+      "ui_passed": 190,
+      "ui_test_files": 10,
+      "ui_builds_passed": 2,
+      "static_checks": "fmt, workspace all-target Clippy -D warnings, spec/contracts/vendor,8 locales with229keys, Python diagnostics9/6/14/3",
+      "input_files": 390,
+      "input_sha256": "dd70d06e7f8e4c0c5bae292ab4ad4619c4ed0f83d07449d62054b3567384f2a3",
+      "nested_worker_summaries_excluded_per_full_run": 2,
+      "commands": [
+        "bash scripts/check.sh",
+        "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
+        "cargo build --locked --workspace --bins --examples",
+        "All14 runtime commands in reports/README.md#reproduce"
+      ],
+      "runtime": {
+        "audit-smoke.json": {
+          "status": "PASS",
+          "checks": 21
+        },
+        "authority-browser.json": {
+          "status": "PASS",
+          "checks": 40
+        },
+        "catalogue-browser.json": {
+          "status": "PASS",
+          "checks": 11
+        },
+        "cli-smoke.json": {
+          "status": "PASS",
+          "checks": 13
+        },
+        "enrollment-api.json": {
+          "status": "PASS",
+          "checks": 23
+        },
+        "enrollment-browser.json": {
+          "status": "PASS",
+          "checks": 25
+        },
+        "http-smoke.json": {
+          "status": "PASS",
+          "checks": 24
+        },
+        "linux-lab.json": {
+          "status": "PASS",
+          "checks": 66,
+          "packet_tests_executed": 40,
+          "container_removed": true
+        },
+        "login-admission-smoke.json": {
+          "status": "PASS",
+          "checks": 14
+        },
+        "native-evidence-smoke.json": {
+          "status": "PASS",
+          "checks": 33,
+          "packet_tests_executed": 0,
+          "actual_native_captures": 5,
+          "container_removed": true
+        },
+        "passkey-smoke.json": {
+          "status": "PASS",
+          "checks": 76
+        },
+        "signed-linux-lab.json": {
+          "status": "PASS",
+          "checks": 98,
+          "packet_tests_executed": 43,
+          "container_removed": true
+        },
+        "target-metadata-smoke.json": {
+          "status": "PASS",
+          "checks": 41
+        },
+        "cli_protocol": {
+          "status": "PASS",
+          "checks": 5
+        }
+      },
+      "runtime_report_count": 13,
+      "runtime_source_binary_hash_entries": 216,
+      "runtime_unique_hashed_paths": 107,
+      "cleanup": "All3lab containers removed; managed daemon healthy with0containers and no remaining test service/browser processes.",
+      "limitations": "Recognized optional GLIBC2.39 weak-symbol lab warning retained; no production signing/dispatch, native installation/recovery, Windows/macOS qualification, physical authenticator or external audit anchoring claimed."
+    },
+    "received_pr23_external_review": {
+      "pull_request": 23,
+      "target": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
+      "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
+      "reviewer": "Claude Opus 5.5",
+      "reports": "docs/reviews/pr23-claude-review.md",
+      "source_kind": "uploaded pasted text preserved byte-for-byte, including CRLF and opening notes",
+      "preserved_bytes": 15349,
+      "preserved_sha256": "9a3f3072a976beef60d158906d493a41bbe464e97f176406cef77719a282657e",
+      "status": "received_R1_R4_implemented_locally_verified_and_internally_reviewed",
+      "private_probes_available": false,
+      "reported_conclusion": "Original D1-D6 counterexamples corrected; no Critical/High/Medium reported, four Low findings. Attributed external evidence, not product certification.",
+      "follow_up": "docs/pr23-follow-up.md",
+      "findings": [
+        {
+          "id": "R1",
+          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+        },
+        {
+          "id": "R2",
+          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+        },
+        {
+          "id": "R3",
+          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+        },
+        {
+          "id": "R4",
+          "status": "read_snapshot_and_replay_reduction_verified_with_normal_history_measurements_linear_cost_and_contention_limits_remain"
+        }
+      ],
+      "assessment_corrections": [
+        "quick_check does not prove complete index/table correspondence; generic partial-index omissions pass, while bundled SQLite can report count damage in an emptied nonpartial index",
+        "R3 must cover closed work-mutation audit kinds, not every signing audit",
+        "External R4 primitive timings and specific SQLITE_BUSY causal attribution remain separate/unverified; new same-fixture normal-history measurements are recorded with their candidate/profile limits"
+      ]
+    },
+    "completed_pr24_batch": {
+      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "branch": "fix/live-authority-integrity",
+      "scope": "R1-R4 live snapshot integrity, complete work-audit correspondence, full validation cost and lock behavior",
+      "status": "merged_PR_and_main_CI_passed_external_review_received",
+      "next_external_reviewer": "Claude Opus 5.5",
+      "external_review_executed": true,
+      "follow_up": "docs/pr23-follow-up.md",
+      "schema": 13,
+      "completion_record": "Completed PR24 identifiers and successful CI runs are fixed below; PR24 retains the full historical prompt and detailed completion record.",
+      "head": "ac027412c88eade8d3674c75c2ba6203df023ee6",
+      "pull_request": 24,
+      "merge": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+      "pr_ci": {
+        "run": 41819099169,
+        "conclusion": "success"
+      },
+      "main_ci": {
+        "run": 41824170284,
+        "conclusion": "success"
+      },
+      "verification": "continuity.pr24_verification"
+    },
+    "pr24_verification": {
       "status": "fresh_final_local_suites_passed",
       "date": "2026-11-04",
       "environment": "Rust1.99.1, Node24.19.0/npm11.9.0, Python3.12.14/jsonschema4.26.0, Playwright1.62.0, Chromium154.0.8037.57, managed Docker28.4.0/vfs; final suites ran on unchanged source. Command-scoped writable BUILDX_CONFIG fixed initial read-only home setup failure; existing Docker/auth/proxy/CA preserved.",
@@ -746,42 +1003,929 @@
       },
       "initial_lab_setup": "Initial Linux command failed before packet execution because buildx state directory was read-only; original NOT_RUN packet evidence preserved, corrected environment invocation passed."
     },
-    "received_pr23_external_review": {
-      "pull_request": 23,
-      "target": "8b9c3ef71f30b21de9ecfd2d6118f99da32b2f4f",
-      "base": "d54021a9df32c0a041c52002b05a0e9d64058c0f",
+    "received_pr24_external_review": {
+      "pull_request": 24,
       "reviewer": "Claude Opus 5.5",
-      "reports": "docs/reviews/pr23-claude-review.md",
+      "base": "4cef6acf7e46289b156fcd56ad0ab2f2920fabd6",
+      "target": "ac027412c88eade8d3674c75c2ba6203df023ee6",
+      "reports": "docs/reviews/pr24-claude-review.md",
       "source_kind": "uploaded pasted text preserved byte-for-byte, including CRLF and opening notes",
-      "preserved_bytes": 15349,
-      "preserved_sha256": "9a3f3072a976beef60d158906d493a41bbe464e97f176406cef77719a282657e",
-      "status": "received_R1_R4_implemented_locally_verified_and_internally_reviewed",
+      "preserved_bytes": 15585,
+      "preserved_sha256": "ac296f8794e1f74a020eff6f0c155a61d1ddd5bae709fc2c20a0d69924af1501",
+      "status": "received_source_assessed_followup_implemented_fresh_local_validation_passed",
+      "reported_conclusion": "Original R1-R4 cases corrected; no confirmed security defect or development blocker. Low test coverage findings T1-T3 and informational I1-I3 are not production qualification.",
       "private_probes_available": false,
-      "reported_conclusion": "Original D1-D6 counterexamples corrected; no Critical/High/Medium reported, four Low findings. Attributed external evidence, not product certification.",
-      "follow_up": "docs/pr23-follow-up.md",
+      "follow_up": "docs/pr24-follow-up.md",
+      "assessment_corrections": [
+        "T3 audit-only statement is overbroad: existing private native suite already covered 12 stages, including actual review-evidence INSERT.",
+        "Removed not_after increment was a NativeReferencePin healthy retry variation, not retained-observation corruption.",
+        "I1 unchecked lookup source is confirmed; no claim that the private transient corrupt/restore wrong-clock scenario or authorization bypass was independently reproduced."
+      ],
       "findings": [
         {
-          "id": "R1",
-          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+          "id": "I1",
+          "status": "validated_selector_change_implemented_fresh_focused_and_full_validation_passed"
         },
         {
-          "id": "R2",
-          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+          "id": "T1",
+          "status": "semantic_reachability_correction_implemented_fresh_focused_and_full_validation_passed"
         },
         {
-          "id": "R3",
-          "status": "independently_reproduced_correction_and_fresh_regressions_passed"
+          "id": "T2",
+          "status": "actual_transition_fault_test_implemented_fresh_focused_and_full_validation_passed"
         },
         {
-          "id": "R4",
-          "status": "read_snapshot_and_replay_reduction_verified_with_normal_history_measurements_linear_cost_and_contention_limits_remain"
+          "id": "T3",
+          "status": "actual_approval_fault_gaps_and_pin_retry_restored_existing_native_coverage_preserved_fresh_focused_and_full_validation_passed"
+        },
+        {
+          "id": "I2",
+          "status": "documented_trusted_local_write_boundary"
+        },
+        {
+          "id": "I3",
+          "status": "documented_database_wide_quarantine_tradeoff"
+        }
+      ]
+    },
+    "pr26_reviewed_checkpoint": {
+      "pull_request": 26,
+      "head": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "tree": "7f349ae2b22d1c19464454bcec8eb079d15614ef",
+      "pr_base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+      "batch": {
+        "base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+        "branch": "feat/core-access-enforcement",
+        "scope": "Core full-state semantic review, immutable absolute lease window, native compilation and isolated core execution, connected CLI/API/UI evidence",
+        "status": "implemented_final_local_validation_and_independent_review_passed_pending_PR_main_CI",
+        "schema": 14,
+        "next_external_reviewer": "Claude Opus 5.5",
+        "external_review_executed": false,
+        "review_receipt": "docs/pr25-review-assessment.md",
+        "design": "docs/core-access-enforcement.md",
+        "completion_record": "The retained feat/core-access-enforcement PR records exact committed head/tree, PR and separate main CI, artifact audits and the full Claude Opus 5.5 prompt. Source summaries record local evidence only; resolve that PR before claiming remote completion."
+      },
+      "verification": {
+        "status": "historical_final_local_PASS_not_followup_validation",
+        "details": "reports/README.md#reviewed-pr26-core-access-checkpoint",
+        "original_ledger": "https://github.com/simhanson123/Nox_Warden/blob/3866ceaa2b86da3ea3653da338d433a23a02b283/reports/task-ledger.json",
+        "workspace_rust_passed": 943,
+        "explicit_cli_passed": 1,
+        "reduced_feature_passed": 32,
+        "ui_passed": 211,
+        "shared_umask_passed": 530,
+        "ignored_per_full_rust_run": 3,
+        "nested_worker_summaries_excluded_per_full_rust_run": 2,
+        "core_linux": {
+          "checks": 72,
+          "packet_probes": 24,
+          "signed_captures": 2
+        },
+        "runtime_report_count": 14,
+        "source_freeze": {
+          "files": 406,
+          "sha256": "788e81beffa32cd4c0ed2717ed640ece69ecf5cf8935187883343cf547c28bbf",
+          "scope": "Final executable/test/spec/CI/toolchain inputs; documentation/report summaries are outside this source freeze."
+        },
+        "summary_sha256": "4214872ce333dcdc47cd0a5a347374f408124bea6b30a9036b1e634582cebced",
+        "production_qualified": false
+      },
+      "remote_status": "open_unmerged",
+      "pr_ci": {
+        "run": 42036443828,
+        "attempt": 1,
+        "conclusion": "failure",
+        "executed_steps": 0,
+        "artifacts": 0,
+        "reason": "The job was not started because your account is locked due to a billing issue."
+      },
+      "main_ci": "NOT_RUN_unmerged"
+    },
+    "received_pr25_external_review": {
+      "pull_request": 25,
+      "reviewer": "Claude Opus 5.5",
+      "base": "59c70ac32fd10e4d5ef6b63cc7f54f4eb5759fe8",
+      "target": "89684e055f01a1c87113e4ea4a713ebbff77afe1",
+      "reports": "docs/reviews/pr25-claude-review.md",
+      "assessment": "docs/pr25-review-assessment.md",
+      "preserved_bytes": 14448,
+      "preserved_crlf": 159,
+      "preserved_sha256": "64665ea1d47a3c5342b983d1152579e478faeafa19e8134d9f8ab691ecdcb771",
+      "source_kind": "uploaded complete pasted text preserved byte-for-byte with progress notes",
+      "status": "received_no_security_defect_or_development_blocker_accuracy_corrections_confirmed",
+      "private_probes_available": false,
+      "reported_conclusion": "I1 and T1-T3 corrected or strengthened; only minor document/command inaccuracies remain. External Docker labs NOT_RUN; attributed external counts are not new local validation.",
+      "accuracy_corrections": [
+        "Use transition_atomicity or exact compiled test path; filename filter matched0 externally.",
+        "13 two-human conditions include2 previously existing audit INSERT stages.",
+        "Hooks record table mutations, not SQL source; approval snapshots compare rows, transition snapshots also compare schema.",
+        "Fault authorizer temporarily replaces production schema authorizer; no DDL and reopen restores it.",
+        "Only retained-intent read uses a Deferred final snapshot; prepare and readiness use Immediate."
+      ]
+    },
+    "planned_product_batch_at_dded": {
+      "scope": "Protected initial authority and core signing integration",
+      "tasks": [
+        "M03",
+        "M05"
+      ],
+      "reuse": "Existing credentials/roles/pins, bootstrap-subject WebAuthn challenges, distinct-human approvals, DSSE, quota/intents/results/outbox, worker claims and generation fencing. Do not rebuild these mechanics as if absent.",
+      "implement": [
+        "Authenticate signed workload/envelope/delegation authority rather than treating structural provenance as authorization.",
+        "Bind, authorize and atomically retain AuthorityBootstrapManifest with owner proof; establish trusted initial target epoch/generation.",
+        "Connect core grant production/verification to existing prepare/finalize and independently authenticated signer.",
+        "Demonstrate OS-account/ACL and peer-authenticated IPC separation so controller cannot read signer keys or rewrite protected authority schema."
+      ],
+      "acceptance": "Exact-once healthy bootstrap/signing; reject self-approval, wrong tenant, stale epoch/generation and forged/revoked/expired authority. Output loss, restart and concurrency preserve exact retries, original [S,E) and quota occupancy.",
+      "production_opening_prerequisites": [
+        "Protected storage and authenticated IPC",
+        "Qualified compiler/validator build identity",
+        "Qualified operational observer, management baseline and native enforcement evidence"
+      ],
+      "remaining_afterwards": "Authenticated delivery/completion/reconciliation; installed Linux lifecycle/watchdog/native qualification; actual Windows WFP/callout and macOS Network Extension implementations and OS qualification; signed install/update/uninstall, remaining product workflows and release acceptance.",
+      "qualification": "Planning boundary only; no new implementation or production authorization claimed. The protected_authority resolver must remain closed wherever prerequisites are unmet."
+    },
+    "pr26_followup_checkpoint": {
+      "head": "dded7e94e84ef0e59a0552e961c5c57eaaabdd81",
+      "tree": "9108060e91b2cf9659b598e5f670f095f72f3305",
+      "batch": "continuity.pr26_followup_batch",
+      "verification": "continuity.pr26_followup_verification",
+      "qualification": "Historical local validation, not validation of changed protected-signing-authority source.",
+      "remote_status": "open_unmerged_dependency_billing_blocked",
+      "main_ci": "NOT_RUN_unmerged"
+    },
+    "received_pr26_followup_external_review": {
+      "pull_request": 26,
+      "reviewer": "Claude Opus 5.5",
+      "base": "3866ceaa2b86da3ea3653da338d433a23a02b283",
+      "target": "dded7e94e84ef0e59a0552e961c5c57eaaabdd81",
+      "tree": "9108060e91b2cf9659b598e5f670f095f72f3305",
+      "reports": "docs/reviews/pr26-follow-up-claude-review.md",
+      "preserved_bytes": 15477,
+      "preserved_crlf": 193,
+      "preserved_sha256": "5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa",
+      "source_kind": "uploaded complete pasted text copied byte-for-byte with opening progress notes",
+      "status": "received_F1_F2_F3_confirmed_no_development_blocker_Low_followups",
+      "private_probe_sources_available": false,
+      "reported_conclusion": "No Medium-or-higher defect or development blocker; F1-F3 confirmed, F4 protected-storage limitation retained. Native Docker suites NOT_RUN; external tests and private probes are attributed historical evidence.",
+      "findings": [
+        {
+          "id": "D6a",
+          "severity": "Low",
+          "scope": "Lab timing constants, binding-clock correspondence and exact E-8 external validation",
+          "status": "corrected_fresh_final_local_validation_passed"
+        },
+        {
+          "id": "D6b",
+          "severity": "Low",
+          "scope": "Healthy near-expiry observations can fail conservatively because of lower-bound rounding",
+          "status": "corrected_fresh_final_local_validation_passed"
+        },
+        {
+          "id": "legacy_conflict_recovery_docs",
+          "severity": "Low",
+          "scope": "Whole-database schema14 conflict refusal and safe recovery boundaries",
+          "status": "documented_no_automatic_repair",
+          "details": "docs/authority-store.md#conflicting-legacy-core-windows-and-recovery"
         }
       ],
-      "assessment_corrections": [
-        "quick_check does not prove complete index/table correspondence; generic partial-index omissions pass, while bundled SQLite can report count damage in an emptied nonpartial index",
-        "R3 must cover closed work-mutation audit kinds, not every signing audit",
-        "External R4 primitive timings and specific SQLITE_BUSY causal attribution remain separate/unverified; new same-fixture normal-history measurements are recorded with their candidate/profile limits"
-      ]
+      "reported_pr_ci": {
+        "run": 42150829408,
+        "conclusion": "failure_before_execution_billing_lock",
+        "source": "supplied external review; lead independently reconfirmed current PR check annotation"
+      },
+      "production_qualified": false
+    },
+    "pr27_protected_signer_batch": {
+      "base": "dded7e94e84ef0e59a0552e961c5c57eaaabdd81",
+      "branch": "feat/protected-signing-authority",
+      "scope": "Protected owner-authorized bootstrap and independent signer boundary, signed authority registry and native timing-review followups",
+      "tasks": [
+        "M03",
+        "M05"
+      ],
+      "status": "implemented_all20_fresh_local_stages_and_internal_independent_review_complete",
+      "unmerged_dependency": {
+        "pull_request": 26,
+        "head": "dded7e94e84ef0e59a0552e961c5c57eaaabdd81",
+        "main_base": "a624a1e684a8fc0065ac4f4609101410f56c50bb",
+        "status": "open_unmerged_remote_CI_billing_blocked"
+      },
+      "external_review_executed": false,
+      "production_qualified": false,
+      "signing_allowed": false,
+      "dispatch_allowed": false,
+      "schema": 15,
+      "design": "docs/protected-signing-authority.md",
+      "completion_record": "Resolve resulting feature head/tree, stacked PR and exact remote CI from the retained branch's PR completion record. No self-referential head is embedded here; local completion is independent of remote CI/merge/main-CI outcomes."
+    },
+    "pr27_protected_signer_verification": {
+      "status": "all20_fresh_local_stages_and_independent_evidence_artifact_audit_passed",
+      "summary": "All20 fresh final local stages passed on unchanged f55ec761/427 inputs; independent source/report/binary correspondence and14 selected artifact targeted-structure inspection passed. No remote CI PASS, merge, general secret scan, external Claude review or release qualification is claimed.",
+      "release_qualification": "not_production_qualified",
+      "ci_pass_claim": false,
+      "final_local_summary_sha256": "b91472b08488522940bed35e2f555e69ec9e2dd792ddb52af6706c24903ae179",
+      "original_file_preservation": {
+        "immutable_originals_unchanged": 80,
+        "legitimately_changed_migration_test_fixture": 1
+      },
+      "source_freeze": {
+        "files": 427,
+        "sha256": "f55ec761434508c86be4365f1d2afd98e1c22fc9bb5d6b429ffbdf9e004fc11b",
+        "scope": "Enforced final executable/test/contract/source-map README/CI/toolchain inputs; mutable docs and report summaries outside freeze. All20 final stages completed on unchanged inputs."
+      },
+      "canonical": {
+        "command": "bash scripts/check.sh",
+        "exit_code": 0,
+        "workspace_rust_passed": 1016,
+        "workspace_ignored": 3,
+        "nested_worker_summaries_excluded": 2,
+        "explicit_cli_passed": 1,
+        "reduced_feature_passed": 32,
+        "ui_passed": 211,
+        "ui_files": 11,
+        "python_diagnostics": [
+          36,
+          6,
+          14,
+          3
+        ],
+        "both_production_ui_builds": "passed",
+        "contracts_fmt_clippy": "passed",
+        "source_inputs_unchanged": true
+      },
+      "shared_umask": {
+        "command": "(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)",
+        "exit_code": 0,
+        "passed": 593,
+        "ignored": 3,
+        "nested_worker_summaries_excluded": 2,
+        "source_inputs_unchanged": true
+      },
+      "workspace_binaries_examples": "cargo build --locked --workspace --bins --examples: exit0; unchanged source inputs",
+      "completed_runtime_checks": {
+        "http": 24,
+        "cli": 13,
+        "separate_cli_protocol": 5,
+        "passkeys": 76,
+        "login_admission": 14,
+        "audit": 21,
+        "catalogue": 11,
+        "enrollment_api": 23,
+        "enrollment_browser": 25,
+        "metadata": 41,
+        "authority_browser": 43,
+        "linux": {
+          "passed": 66,
+          "actual_packet_probes": 40,
+          "container_removed": true
+        },
+        "signed_linux": {
+          "passed": 98,
+          "actual_packet_probes": 43,
+          "container_removed": true
+        },
+        "core_access_linux": {
+          "passed": 85,
+          "actual_packet_probes": 26,
+          "signed_captures": 2,
+          "minimum_remaining_seconds_at_E_minus_8": 2,
+          "actual_remaining_seconds": [
+            5,
+            5
+          ],
+          "container_removed": true
+        },
+        "native_evidence": {
+          "passed": 33,
+          "actual_packet_probes": 0,
+          "signed_captures": 5
+        },
+        "protected_signer": {
+          "passed": 47,
+          "operator_cli_invocations": 17,
+          "actual_packet_probes": 0
+        },
+        "legacy14_to15": {
+          "passed": 15,
+          "provenance": "Genuine separately built3866 oldCLI namespace/target/audit seed plus separately inherited oldAPI-created incompatible14 evidence; rich histories are reconstructed permanent migration fixtures."
+        }
+      },
+      "cleanup": {
+        "containers": 0,
+        "active_test_services": 0,
+        "active_browsers": 0,
+        "browser_crashpad_zombies_separately_recorded_not_reaped": 111
+      },
+      "independent_evidence_audit": {
+        "status": "PASS",
+        "stages": 20,
+        "sha256": "fbba22cd7496ed40263c599a21fee8a0c7af2656550e3c8c8b42b863b833c7a8",
+        "selected_artifact_structure_count": 14,
+        "selected_artifact_structure_status": "PASS",
+        "selected_artifact_structure_sha256": "121638baa6724f9572a6e39d4b88a76fb471dec90993004debf1e8df95ae8334",
+        "scope": "Independent local evidence correspondence and targeted selected-artifact structure review, not general secret scanning or external model execution."
+      },
+      "preliminary_failures": "Four earlier canonical attempts (Clippy findings, test-only recursive-hook borrow, stale schema9 table-count expectation) and protected-fixture setup failures retained privately, excluded from passing totals; corrections precede final427-input freeze."
+    },
+    "planned_target_batch_at_pr27": {
+      "scope": "Installed Linux target authority activation, authenticated exact grant dispatch and completion",
+      "tasks": [
+        "M03",
+        "M04L",
+        "M05",
+        "M07",
+        "M08"
+      ],
+      "reuse": "Actual owner WebAuthn, immutable signed registry, protected distinct-UID bootstrap signer DSSE, existing original-window core issuance/quota/journal mechanics. Retain pending bootstrap until independently confirmed target facts exist.",
+      "implement": [
+        "Resolve qualified build/compiler/observer originals, exact current capability/route/interface/asset revisions and protected management baseline B; do not substitute the full StateIR baseline hash for the management baseline reference.",
+        "Durably accept the authorized old-to-new target epoch/generation with an exact signed receipt and fresh baseline/management probes, preserving existing fences and issued/UNKNOWN obligations.",
+        "Connect outbound mTLS/authenticated IPC to exact grant/artifact/revocation objects and durable inbox replay; no caller URLs, arbitrary bytes or shell authority.",
+        "Verify authenticated signed completion before any capacity release; uncertainty, unsigned delivery and failed reconciliation retain issued capacity.",
+        "Implement installed Linux service accounts/ACL/key lifecycle, installer/update/reboot/coexistence and independently qualified hung-writer watchdog acceptance."
+      ],
+      "parallel_native_tracks": "Windows WFP persistent/boot filters, required packet callout and signed installer; macOS Network Extension/XPC, entitlement/notarization and real-device fail-closed tests remain mandatory native work. A VM on another OS, browser or cross-compile is not qualification.",
+      "qualification": "Next engineering scope only. Production policy signing/dispatch and supported three-OS installation remain unavailable. No percentage or date is inferred."
+    },
+    "pr27_checkpoint": {
+      "head": "5fc576f672c2e0671164b73a667e3452b99ea82a",
+      "tree": "719b80f88255921711ede7b4f4da81876568f7e3",
+      "batch": "continuity.pr27_protected_signer_batch",
+      "verification": "continuity.pr27_protected_signer_verification",
+      "qualification": "Historical20-stage localPASS did not cover S1 descriptor/external-reader lifecycle and is not evidence that S1 is fixed.",
+      "remote_status": "PR27_open_unmerged_CI42216796210_attempt1_billing_failure_before_execution_zero_steps_artifacts"
+    },
+    "received_pr27_external_review": {
+      "pull_request": 27,
+      "reviewer": "Claude Opus5.5",
+      "received_local_date": "2026-11-07 Asia/Seoul",
+      "base": "dded7e94e84ef0e59a0552e961c5c57eaaabdd81",
+      "target": "5fc576f672c2e0671164b73a667e3452b99ea82a",
+      "tree": "719b80f88255921711ede7b4f4da81876568f7e3",
+      "reports": "docs/reviews/pr27-claude-review.md",
+      "preserved_bytes": 17066,
+      "preserved_crlf": 207,
+      "preserved_sha256": "8b4fa4e6d84ec7c755b3489309bb72a2e31e8fed1bc0634408c010348fd19357",
+      "private_probe_sources_available": false,
+      "status": "received_independently_reproduced_corrections_and_target_implementation_freshly_validated",
+      "attribution": "Author directly reproduced lock release; actual signer commit loss/differing duplicate DSSE/SIGBUS attributed to parallel reviewer. No supplied private probe has been rerun locally. External Docker labs and protected signer smoke NOT_RUN; numeric-UID signer probes are separately reported.",
+      "findings": [
+        {
+          "id": "S-1",
+          "severity": "High",
+          "status": "implemented_fresh_local_regressions_passed_external_followup_not_executed",
+          "scope": "Same-process open/close releases SQLite POSIX locks; signer durability/exact retry violated."
+        },
+        {
+          "id": "R-1",
+          "severity": "Low",
+          "status": "implemented_fresh_local_regressions_passed_external_followup_not_executed",
+          "scope": "Revoked registry key re-pin reports misleading pinned success; no authority resurrection reported."
+        },
+        {
+          "id": "L1",
+          "severity": "Low",
+          "status": "implemented_fresh_local_regressions_passed_external_followup_not_executed",
+          "scope": "Pin approval origin per organization/project; do not trust caller/challenge origin as provisioning."
+        },
+        {
+          "id": "L2",
+          "severity": "Low/informational",
+          "status": "implemented_fresh_local_regressions_passed_external_followup_not_executed",
+          "scope": "Consistent gate semantics; all production signing/dispatch flags remain false."
+        },
+        {
+          "id": "I-1/I-2/L3",
+          "severity": "informational",
+          "status": "implemented_fresh_local_regressions_passed_external_followup_not_executed",
+          "scope": "Remove equal lengths for independent bounded asset sets; new registry admission exactly1 authoritative signature, published multi cardinality and old multi/history primary-validation bytes unchanged. Full co-sign identity later; target rotation must match durable confirmed predecessor."
+        }
+      ],
+      "follow_up": "docs/pr27-follow-up.md",
+      "production_qualified": false
+    },
+    "current_batch": {
+      "base": "5fc576f672c2e0671164b73a667e3452b99ea82a",
+      "branch": "feat/target-authority-confirmation",
+      "scope": "Lock-safe signer durability, independent project-origin trust, schema16 durable target confirmations, isolated management-baseline execution, CLI/readiness v3 and eight-locale UI.",
+      "tasks": [
+        "M01",
+        "M02",
+        "M03",
+        "M04L",
+        "M05",
+        "M06"
+      ],
+      "status": "implemented_local_integrated_and_mount_free_followup_passed_required_remote_ci_pending",
+      "unmerged_dependencies": [
+        {
+          "pull_request": 26,
+          "head": "dded7e94e84ef0e59a0552e961c5c57eaaabdd81",
+          "latest_recorded_ci": 42150829408
+        },
+        {
+          "pull_request": 27,
+          "head": "5fc576f672c2e0671164b73a667e3452b99ea82a",
+          "latest_recorded_ci": 42216796210
+        }
+      ],
+      "remote_status": "CI42277449076 target setup failed after prior suites passed. CI42289070927 identified mount_private_propagation/EACCES13; target failure, remaining development cancelled and aggregate failure. Mount-free followup local target55/native52 PASS; fresh four-job remote CI required at publication checkpoint. Resolve final outcome in PR28.",
+      "schema_base": 15,
+      "schema": 16,
+      "schema_change": "New016 includes3 explicit origin and6 target-bootstrap tables; preserve published001..015 and schema/guard contracts. Once016 is published, preserve it too and use a new future migration.",
+      "external_review_executed": false,
+      "production_qualified": false,
+      "signing_allowed": false,
+      "dispatch_allowed": false,
+      "design": "docs/target-authority-confirmation.md",
+      "validation": "reports/README.md:18 stages at08d and3 at a0e after one lab-only helper correction; not one unchanged whole-source run.",
+      "pull_request": 28,
+      "pr_base": "main",
+      "published_head": "2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d"
+    },
+    "verification": {
+      "status": "all21_selected_local_stages_and_independent_evidence_artifact_audits_passed",
+      "baseline_reproduction": "Exact5fc offline fresh build; all488 Gitblobs independently verified. New retained probe REPRODUCED main/SHM lockloss, lost auth/floor, different valid DSSE and SIGBUS; external private examples remain separately attributed.",
+      "s1_baseline": {
+        "report_sha256": "a7c32a4463624a7b5ead271211698292324565823e2c7fa20b904061be244d9c",
+        "fresh_signer_sha256": "cb6bd0e6808765e0e342ed04acc025988f3810efb132ef85e62e9f2de79bac3b",
+        "git_blobs_verified": 488,
+        "container_removed": true
+      },
+      "s1_corrected_focused": {
+        "rust_library_passed": 7,
+        "rust_startup_passed": 2,
+        "ignored_subprocess_helper": 1,
+        "docker_checks": 55,
+        "operator_cli_invocations": 17,
+        "packet_probes": 0,
+        "source_inputs": 432,
+        "source_sha256": "d0b164d2061934f8fafafbe245339aa2a1754c5cdb000c0cb722b83eb9189f5c",
+        "source_unchanged": true,
+        "report_sha256": "c3a1311f4bc91e83007ed73c41c5f71cd105d2be9265a48a756aeafd66fc9661",
+        "container_removed": true,
+        "qualification": "Focused historical checkpoint; final integrated protected57/18CLI separately confirms current source. Neither SIGTERM/tmpfs run certifies power-loss recovery."
+      },
+      "historical_results": "continuity.pr27_protected_signer_verification",
+      "qualification": "Do not reuse1016/593/UI211/protected47 or previous20-stagePASS to validate later integrated source. Initial image-selector failure ran0producttests and earlier status-only poll did not observeSIGBUS; retained separately from full baseline reproduction.",
+      "ci_pass_claim": false,
+      "production_qualified": false,
+      "source_inputs": 462,
+      "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+      "canonical": {
+        "status": "PASS",
+        "workspace_rust_passed": 1074,
+        "ignored_declarations": 4,
+        "nested_worker_summaries_excluded": 2,
+        "explicit_cli_passed": 1,
+        "reduced_feature_passed": 33,
+        "python_passed": [
+          46,
+          6,
+          20,
+          3
+        ],
+        "ui_passed": 215,
+        "ui_test_files": 11,
+        "both_ui_builds": "PASS",
+        "duration_seconds": 1165.14,
+        "counts_sha256": "a8671be90fdbf89f0b65d97f3470849028ab2251f85155867f4895c7903a4c6b"
+      },
+      "shared_umask": {
+        "status": "PASS",
+        "passed": 637,
+        "ignored_declarations": 3,
+        "nested_worker_summaries_excluded": 2,
+        "duration_seconds": 1063.89,
+        "counts_sha256": "b7d98e4e769de80e9d84f95a0dddc24ccbe552f6596eb9302b3c21d07ee560b5"
+      },
+      "selected_final_stages": 21,
+      "source_snapshot_scope": "canonical/shared/build plus15 runtime stages use original08d; final protected/target/current14to16 use corrected a0e. Only one lab helper changed;461 other inputs and all Rust/UI source unchanged.",
+      "source_transition": {
+        "old_source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+        "corrected_source_sha256": "a0e05b559055508656af4ded010832c1fc785853056ac166c52064e8912092aa",
+        "source_inputs": 462,
+        "changed_files": [
+          "native/linux/protected_signer_lab.py"
+        ],
+        "unchanged_files": 461,
+        "receipt_sha256": "be014e32ff8d74855f6841ed0ca5993692a0cff65966281490c09b502cbbe517"
+      },
+      "late_harness_correction": {
+        "initial_result": "FAIL",
+        "initial_product_checks": 0,
+        "initial_report_sha256": "3b2fbb00cf5eab954488401cee807eaa2526b2b9067683ccc0d8c66a0e6fc3a2",
+        "cause": "18-command setup exceeded15s; cross-UID timeout kill without CAP_KILL masked TimeoutExpired as EPERM.",
+        "fix": "Only preparation90s; other commands15s; bounded same-UID cleanup/reap. Product code/authentication/caps unchanged.",
+        "python_passed": [
+          46,
+          6,
+          20,
+          3
+        ],
+        "pycompile": "PASS",
+        "actual_timeout_control_cases": 1,
+        "actual_timeout_control_product_scenarios": 0,
+        "both_direct_children_reaped": true,
+        "control_report_sha256": "c5f9325b89ee1ce8a9e0d9729f11335bf9e59ea36bece3cb5d70763366ce8fc1"
+      },
+      "runtime": {
+        "http": {
+          "status": "PASS",
+          "duration_seconds": 1.45,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 24,
+              "count": 24,
+              "sha256": "04d108d8049adc53e01b27b2aa3e8c3e80454e1c58c362f3a05022bd0c576640",
+              "file": "http-smoke.json"
+            }
+          ]
+        },
+        "cli": {
+          "status": "PASS",
+          "duration_seconds": 1.63,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 13,
+              "count": 13,
+              "sha256": "66005ce019033bed8d21642cc661de8e3e8507deb31b301c2252d189bcd6c272",
+              "file": "cli-smoke.json"
+            }
+          ]
+        },
+        "cli-protocol": {
+          "status": "PASS",
+          "duration_seconds": 2.05,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "count": 5,
+              "file": "protocol-result.json",
+              "sha256": "86dd6eefba17c0fe2480415bf90ec4b751473f8b7ca9f976ff28832c44c84d1f"
+            }
+          ],
+          "passed": 5
+        },
+        "passkeys": {
+          "status": "PASS",
+          "duration_seconds": 16.31,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 76,
+              "count": 76,
+              "sha256": "50ba6b65f677551c55ff39d3080f114e72364f19af719b6f3ac5cbd6ad3588f6",
+              "file": "passkey-smoke.json"
+            }
+          ]
+        },
+        "login-admission": {
+          "status": "PASS",
+          "duration_seconds": 13.04,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 14,
+              "count": 14,
+              "sha256": "5d5a71612b6cfe645f7f59b7b8ad7af44ee3168790ce90c23b393810fe447b03",
+              "file": "login-admission-smoke.json"
+            }
+          ]
+        },
+        "audit": {
+          "status": "PASS",
+          "duration_seconds": 4.09,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 21,
+              "count": 21,
+              "sha256": "1da58a1223a430fbbc977f0d00e29e2bd63f315b6599ed9adcb2c6efcd14ad17",
+              "file": "audit-smoke.json"
+            }
+          ]
+        },
+        "catalogue": {
+          "status": "PASS",
+          "duration_seconds": 4.05,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 11,
+              "count": 11,
+              "sha256": "4598c08aabb278c071a2290c3403d1991fd2d7713904fc2ec196b0676f2a7912",
+              "file": "catalogue-browser.json"
+            }
+          ]
+        },
+        "enrollment-api": {
+          "status": "PASS",
+          "duration_seconds": 4.58,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 23,
+              "count": 23,
+              "sha256": "e4fdafbd212b59acfefdaf45576a99aad1931bae0d85fadb63f1c35a8b75e3ab",
+              "file": "enrollment-api.json"
+            }
+          ]
+        },
+        "enrollment-browser": {
+          "status": "PASS",
+          "duration_seconds": 6.39,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 25,
+              "count": 25,
+              "sha256": "12c89da265107c4e9cefe591126cec8312db1184fd50f6ca147f42c906b246db",
+              "file": "enrollment-browser.json"
+            }
+          ]
+        },
+        "metadata": {
+          "status": "PASS",
+          "duration_seconds": 24.12,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 41,
+              "count": 41,
+              "sha256": "0c0b74d648326e1cd237a9185035753d919b03ddfaa573a1ae95617071cae949",
+              "file": "target-metadata-smoke.json"
+            }
+          ]
+        },
+        "authority-browser": {
+          "status": "PASS",
+          "duration_seconds": 13.64,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 44,
+              "count": 44,
+              "sha256": "b8bf1ab549f240673d55965a59c49f5d024ddeadbcc07555f6f88fa97b675a75",
+              "file": "authority-browser.json"
+            }
+          ]
+        },
+        "linux": {
+          "status": "PASS",
+          "duration_seconds": 17.68,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 66,
+              "count": 66,
+              "packet_tests_executed": 40,
+              "container_removed": true,
+              "sha256": "d49881190079a8daf87ea86528242028fc5b11995fcfe05d4295e589763b370e",
+              "file": "linux-lab.json"
+            }
+          ]
+        },
+        "signed-linux": {
+          "status": "PASS",
+          "duration_seconds": 258.76,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 98,
+              "count": 98,
+              "packet_tests_executed": 43,
+              "container_removed": true,
+              "sha256": "bee9e19ca76833240932cab2c87101f0e6d92eab2c4e40203bfce58de63dd3d4",
+              "file": "signed-linux-lab.json"
+            }
+          ]
+        },
+        "core-linux": {
+          "status": "PASS",
+          "duration_seconds": 124.1,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 85,
+              "count": 85,
+              "packet_tests_executed": 26,
+              "capture_count": 2,
+              "container_removed": true,
+              "sha256": "b90f89c0575fe6e66770a37299ea7bcab9687a76f3b113af30b4704e34551729",
+              "file": "core-access-linux-lab.json"
+            }
+          ]
+        },
+        "native-evidence": {
+          "status": "PASS",
+          "duration_seconds": 40.62,
+          "source_sha256": "08d8709eafdc2b7ab4120831873acecf68f19b8d374b3bc982c041a227c34f8e",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 33,
+              "count": 33,
+              "packet_tests_executed": 0,
+              "capture_count": 5,
+              "container_removed": true,
+              "sha256": "aa81f03b3103f115f4f86fbc679e7ca4585656f8f8b6dc29faf012c33201cf84",
+              "file": "native-evidence-smoke.json"
+            }
+          ]
+        },
+        "protected-signer-corrected": {
+          "status": "PASS",
+          "duration_seconds": 30.64,
+          "source_sha256": "a0e05b559055508656af4ded010832c1fc785853056ac166c52064e8912092aa",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 57,
+              "count": 57,
+              "packet_tests_executed": 0,
+              "container_removed": true,
+              "sha256": "83b325145cdbe79b1eb9f043868f4a12e405b30e465b087cf462413cc3f46c2d",
+              "file": "protected-signer-smoke.json"
+            }
+          ],
+          "operator_cli_invocations": 18
+        },
+        "target-bootstrap": {
+          "status": "PASS",
+          "duration_seconds": 122.65,
+          "source_sha256": "a0e05b559055508656af4ded010832c1fc785853056ac166c52064e8912092aa",
+          "reports": [
+            {
+              "status": "PASS",
+              "checks": 53,
+              "count": 53,
+              "packet_tests_executed": 6,
+              "container_removed": true,
+              "sha256": "b3cd8ba3ffcba94274dce19bcb3ae945afa5908ad844c6d3d8ba0b028c18e572",
+              "file": "target-bootstrap-linux-lab.json"
+            }
+          ],
+          "operator_cli_invocations": 35,
+          "accepted_epochs": 2,
+          "successfully_transmitted_request_cases": 6,
+          "probe_attempts": 8,
+          "negative_EPERM_zero_byte_attempts": 2,
+          "actual_expiry_wait_seconds": 77.461
+        },
+        "legacy-v14-migration": {
+          "status": "PASS",
+          "duration_seconds": 3.83,
+          "source_sha256": "a0e05b559055508656af4ded010832c1fc785853056ac166c52064e8912092aa",
+          "reports": [
+            {
+              "status": "PASS",
+              "count": 15,
+              "file": "protocol-result.json",
+              "sha256": "0135968e9675c74cc1821f844291186ab3e1989a5c0114c9e825565367a80044"
+            }
+          ],
+          "provenance": "New current14to16 execution against retained hash-verified old3866 fixtures; no fresh old build/generation claimed. Cell types/rowids/bytes/backup exact;18 empty new tables; incompatible history unchanged/refused."
+        }
+      },
+      "cleanup": {
+        "remaining_containers": 0,
+        "active_services_and_browsers": 0,
+        "scan_errors": 0,
+        "pid1_owned_browser_crashpad_zombies": 129
+      },
+      "preservation": {
+        "immutable_files": 82,
+        "original_specs": 53,
+        "external_cargo_tuples": 247,
+        "report_sha256": "cc6157a92a082439cc6d09b9645449c8334df23c605224934e87ea42d2794602"
+      },
+      "independent_evidence_audits": {
+        "status": "PASS",
+        "errors": [],
+        "pending": [],
+        "report_sha256": {
+          "independent-evidence-audit.json": "75a60ed736aa95e7f2e2f57f2e15bec2b0acf4db38e0998cfc114ed4e164b30f",
+          "selected-ci-report-structure-audit.json": "eb69eacfa019bc4ba4b97796e942739a3ad90813ee6b1aac12687c2d03608625"
+        },
+        "selected_ci_reports": 15,
+        "binary_chain_stages": 23,
+        "qualification": "Evidence/source-to-report/binary continuity audit; not independent review of this auditor-authored code, remote CI execution or production qualification."
+      },
+      "combined_summary_sha256": "c2fca63998858021d3c4650d22cc5be54d0c248ba9237d0ec894b0d4f518a485",
+      "remote_ci_followup": {
+        "run": 42277449076,
+        "head": "2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d",
+        "status": "FAIL",
+        "prior_stages": "All canonical/shared/API/browser/existingLinux/nativeEvidence/protectedSigner passed.",
+        "target_checks": 1,
+        "target_packet_probes": 0,
+        "target_probe_attempts": 0,
+        "container_removed": true,
+        "failure": "isolated namespace setup refused; exact child syscall/errno was discarded and is unknown",
+        "failure_report_sha256": "6889ceda78ed17f211303fa3da071c20e71f608e334c56ac8dd8dbaa2ac2a67f",
+        "remote_receipt_sha256": "b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a",
+        "remote_inputs_compared": 281,
+        "source_mismatches": 0,
+        "followup": "Historical diagnostic checkpoint; subsequent mount-free correction and four-job CI are recorded below.",
+        "target_runner_tests_passed": 14,
+        "aggregate_result_combinations_checked": 49,
+        "aggregate_success_cases": 1,
+        "independent_reading_review": "No concrete finding; not an executed remote repair proof.",
+        "native_runner_suite_passed": 50,
+        "local_setup_only": {
+          "status": "PASS",
+          "duration_seconds": 1.553,
+          "product_scenarios": 0,
+          "packet_probes": 0,
+          "namespace_count": 3,
+          "parent_conntrack_unchanged": true,
+          "target_tcp_loose": 0,
+          "target_cap_e_p_b": 4096,
+          "target_cap_inh_amb": 0,
+          "children_reaped": true,
+          "container_removed": true,
+          "lsm_label": null,
+          "report_sha256": "a337d98456167f877ec6a22db3ed57e2bf8a27f9c4510756dd2d74e212359ba0",
+          "qualification": "Does not establish the unknown GitHub syscall failure or a remote repair."
+        }
+      },
+      "mount_free_followup": {
+        "remote_diagnostic_run": 42289070927,
+        "remote_diagnostic_head": "3d9e9dabb43fef0d760779758558f696db9d1c0a",
+        "failing_stage": "mount_private_propagation",
+        "errno": 13,
+        "lsm": "docker-default (enforce)",
+        "target_job": "failure",
+        "other_job": "cancelled_after_failure_evidence_retained",
+        "aggregate": "failure",
+        "diagnostic_receipt_sha256": "07388235d1a3661fe9ddcb8604b482bbc9bd99bbca9c3e69d36aa45835044809",
+        "source_inputs": 462,
+        "source_sha256": "329c48cba3db8cc50668fa23e88565e2b356753283acd32ce78a16942dad56ff",
+        "subsequent_delta": "native/linux/README.md topology explanation only; no executable change",
+        "setup_report_sha256": "2541526a2064461abe0c942cc86ba0b6e6330910879b46d3072a41d488c9e777",
+        "local_full_target": {
+          "status": "PASS",
+          "checks": 55,
+          "actual_cli_calls": 35,
+          "accepted_epochs": 2,
+          "sent_cases": 6,
+          "attempts": 8,
+          "duration_seconds": 121.75,
+          "expiry_wait_seconds": 76.38,
+          "report_sha256": "dffcda0cb2daffd254eb11fbf9ebfaf9e2cda53314ff9e935ba77b5a48713cea",
+          "container_removed": true,
+          "namespace_children_reaped": 3
+        },
+        "native_runner_tests_passed": 52,
+        "target_module_tests_passed": 16,
+        "mount_calls": 0,
+        "inner_sysctl_writes": 0,
+        "namespace_conntrack_values": {
+          "target": 0,
+          "coordinator": 1,
+          "peer": 1
+        },
+        "security_profiles": "default unchanged",
+        "capabilities": "original seven unchanged; target E/P/B4096 and Inh/Amb0",
+        "local_lsm": null,
+        "qualification": "No physical-host or remote-AppArmor PASS inferred. Earlier whole-suite receipts unchanged.",
+        "ci_jobs": [
+          "canonical",
+          "shared_authority",
+          "runtime",
+          "target_bootstrap"
+        ],
+        "required_successes": 4,
+        "aggregate_result_combinations_checked": 1296,
+        "aggregate_success_cases": 1,
+        "checks_and_artifacts": "Original commands preserved; runtime builds own bins/examples and both web apps;14+1 JSON artifacts and7-day retention preserved.",
+        "independent_evidence_review": "No source/report/binary mismatch; old fixed summary/audits unchanged."
+      }
+    },
+    "next_product_batch": {
+      "scope": "Qualified authority inputs/policy signing, authenticated dispatch/completion/reconciliation and installed Linux lifecycle.",
+      "status": "not_complete",
+      "acceptance": "Independent build/native/workload/source identity and current authority; authenticated completion before capacity release; original [S,E), epoch/generation fences and conservative UNKNOWN; installed reboot/recovery acceptance.",
+      "remaining_scope": "docs/remaining-work.md",
+      "qualification": "Isolated target confirmation is separate from production qualification, Windows WFP/callout, macOS Network Extension and full release acceptance; no percentage/date."
     }
   },
   "tasks": [
@@ -816,8 +1960,8 @@
       "dependencies": [
         "M02"
       ],
-      "implemented": "AuthorityStore retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..13 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement. Schema11 closes PR20 N1–N7 with immutable audit linkage, atomic heads, complete histories, exact metadata and retained reference/time validation. Schema12 adds strict project-only v2 quota sharing old rooted obligations and permanent root anchor CAS, without releasing issued capacity. Schema13 atomically projects exact-next audits and event-owned work bindings; complete ordered legacy audit matching accepts same-second renewals without inventing evidence. Recognized work-mutation audits require complete retained event/binding correspondence, including orphan resources, while normal atomic audit-first writes and separate intent/result/quota audits remain valid. Retained signing-clock selection preserves original root scope and durable refusal floors across validated snapshot boundaries. Expanded rollback coverage checks exact intermediate approval and signing-transition failure reachability without changing production authority.",
-      "blocker": "Production authority bootstrap and out-of-band human provisioning; trusted target generation initialization; compiler/validator build identity; qualified management baseline/native observer trust; core access semantic/native/signing profile, single absolute lease window and signed workload/delegation authority; independently deployed signer and authenticated completion receipts, delivery/reconciliation; protected OS accounts; PostgreSQL authority transactions. Lab evidence never grants production signing authority."
+      "implemented": "AuthorityStore retains independently pinned credentials, permanent key ownership/tombstones, scoped roles and canonical immutable plans. Actual WebAuthn proofs, current credential/role/authority checks, distinct-human quorum, terminal dissent, exact historical retries and mandatory audit commit atomically. Current reads reverify original proofs and eligible heads; bounded candidate aggregation and SQL instruction budgets prevent partial admission. Named-set withdrawal is retained and cannot silently remint authority. Explicit migrations1..14 require validated private backups with path/sidecar collision protections. Full before/after StateIR review is independently recomposed and retained with the plan. Signed target metadata uses separately pinned transport keys, exclusive expiry and durable clock fences. New development native evidence rebuilds exact baseline/candidate artifacts from pinned lab references, distinguishes lab capability from signed metadata, and rechecks current metadata/reference revisions at commit. Purpose-scoped observer keys cannot become transport identities in either registration order. Signed raw observations bind compilation, metadata, installation, nonce, epoch/generation and target-global head; signature verification, recomputed correspondence, one-use consumption, immutable receipt/head and audit are atomic. Current checks revalidate trust, plan, metadata, expiry and head; earlier plan observations remain verified history after another plan becomes current. UNKNOWN/MISMATCH have no observed state hash. These results remain unqualified and cannot issue grants. Durable signing intents now bind current quorum/review/metadata/baseline, independent generation and root/project budget in one transaction. Exact signed-result verification and current rechecks precede usage/outbox/audit commit. Claims fence workers, retries retain bytes and attempts, cancellation proves no issuance, and UNKNOWN retains quota. Public preparation/workers remain closed pending protected production authority. Dispatch dequeue revalidates exact retained Ed25519 payloads; lifecycle checks bind issuance and delivery to quota. Heartbeats are idempotent at the same deadline and limited to 32 extensions per claim generation. Immutable core access provenance now resolves original request/root/lease/duration, verifies exact plan hashes and scoped inputs, blocks request/idempotency/lease rebinding and derives full original duration cost against current independent root ceilings. Schema9 adds no fabricated legacy evidence; readiness distinguishes retained cost provenance from the unavailable core signing profile. Schema10 retains effective capacity after unsigned delivery, verifies bounded complete work histories and all signing guards, rejects issued relabelling after UNKNOWN and validates full retained lifecycles during backed-up migration. Exact schema filtering includes user-created sqliteX lookalikes; work/accounting identities reject replacement and rowid movement. Schema11 closes PR20 N1–N7 with immutable audit linkage, atomic heads, complete histories, exact metadata and retained reference/time validation. Schema12 adds strict project-only v2 quota sharing old rooted obligations and permanent root anchor CAS, without releasing issued capacity. Schema13 atomically projects exact-next audits and event-owned work bindings; complete ordered legacy audit matching accepts same-second renewals without inventing evidence. Recognized work-mutation audits require complete retained event/binding correspondence, including orphan resources, while normal atomic audit-first writes and separate intent/result/quota audits remain valid. Retained signing-clock selection preserves original root scope and durable refusal floors across validated snapshot boundaries. Expanded rollback coverage checks exact intermediate approval and signing-transition failure reachability without changing production authority. Schema14 adds immutable original core absolute windows and atomic full-state reviewed registration with retained provenance, requirements and mandatory audits. Historical reads/retries respect durable project/original-root/target clock floors without creating quota capacity or refreshing the original interval; legacy migration creates no missing authority. Schema15 adds purpose-scoped signed workload registry, original envelope/delegation staging, actual activated-owner WebAuthn bootstrap proof and exact DSSE authorization retained as pending target confirmation. Shared registry clocks are rechecked in final transactions. Initial genesis refuses existing protected target heads; actual target epoch/generation and issued/UNKNOWN/quota state are not reset. A separate Linux signer checks protected file/UID/peer boundaries and reference-only bootstrap/job requests; core grant mechanics retain exact original windows, approval/quota rechecks and atomic finalization while the production resolver stays closed. Schema16 pins independent project origins and purpose-separated target keys; retains exact challenges/receipts/heads/audits and confirmed generation0 rotations; preserves legacy unpinned origins. Signer metadata-only SQLite checks preserve process locks.",
+      "blocker": "The isolated target-confirmation path and signer repair passed fresh integrated checks. Installed qualification of confirmed authority epoch/generation, independently resolved workload asset revisions and packet source attestation; compiler/validator build identity; qualified management baseline/native observer trust; operational policy-signer key trust and protected installed deployment; authenticated completion receipts/delivery/reconciliation; PostgreSQL authority transactions and Team multi-party bootstrap governance. Local bootstrap authorization and lab/process evidence never grant production policy signing authority."
     },
     {
       "id": "M04L",
@@ -826,8 +1970,8 @@
         "M01",
         "M03"
       ],
-      "implemented": "Experimental nft compiler and immutable full-StateIR portable artifacts with absolute deadlines, runtime installation bindings and semantic readback. Guarded signed Linux execution connects durable complete material, atomic native apply, actual packet probes, confirmation and restrictive timeout/crash recovery with preserved generation fencing. Journal schema 3 closes validated unsubmitted operations without resetting generation, reconciles fresh unchanged baselines through the recovery watcher, preserves prior application/probe history on drift, and retains immutable recovery attempts with separate submission evidence. Native writers retain the journal fence after parent exit; resumed recovery respects the original trust and expiry bounds. A read-only guarded collector now captures actual owned-table nft JSON with bounded boot/namespace/clock samples and signs an independent lab-observation purpose; expected installation files do not establish journal approval or install provenance.",
-      "blocker": "Real approval/bootstrap and authenticated production policy dispatch, a qualified independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC, complete clock/crash/reboot/coexistence and installer acceptance remain. Synthetic lab authority is not production approval. Legacy uncertain submissions without writer-fence evidence remain UNKNOWN; userspace writer lifetime does not qualify asynchronous kernel completion or a hung-owner watchdog."
+      "implemented": "Experimental nft compiler and immutable full-StateIR portable artifacts with absolute deadlines, runtime installation bindings and semantic readback. Guarded signed Linux execution connects durable complete material, atomic native apply, actual packet probes, confirmation and restrictive timeout/crash recovery with preserved generation fencing. Journal schema 3 closes validated unsubmitted operations without resetting generation, reconciles fresh unchanged baselines through the recovery watcher, preserves prior application/probe history on drift, and retains immutable recovery attempts with separate submission evidence. Native writers retain the journal fence after parent exit; resumed recovery respects the original trust and expiry bounds. A read-only guarded collector now captures actual owned-table nft JSON with bounded boot/namespace/clock samples and signs an independent lab-observation purpose; expected installation files do not establish journal approval or install provenance. The explicit isolated core profile carries the original f.plan/v1, independently recomposed review, provenance/window and synthetic lab grant through native compilation, durable journal and original recovery deadlines. Its dedicated actual lab passes original absolute expiry and autonomous restrictive recovery after normal-plan expiry, with unchanged original recovery authority, installed material and generation; results remain separate from production qualification. New isolated-linux-bootstrap-v1 compiles a non-loopback management baseline, journals separate bootstrap state and measures signed peer probes/full readback before target confirmation. Installed key/boot recovery is separate.",
+      "blocker": "Target-confirmed production authority, qualified build/source/native evidence and authenticated dispatch/completion, a qualified independent watchdog, full common-host-v1 qualification, ICMP/fragments/PMTU, physical NIC, complete clock/crash/reboot/coexistence and installer acceptance remain. Local owner bootstrap and synthetic lab authority are not target-confirmed production permission. Legacy uncertain submissions without writer-fence evidence remain UNKNOWN; userspace writer lifetime does not qualify asynchronous kernel completion or a hung-owner watchdog. Pinned nftables1.0.6 prints anonymous multiport ct.proto-dst sets as invalid-type strings; conservative native readback refuses them. The core lab uses semantically equivalent scalar companion policies and does not qualify that multiport case; compiler/readback lowering and actual kernel acceptance remain required."
     },
     {
       "id": "M04W",
@@ -856,8 +2000,8 @@
         "M02",
         "M03"
       ],
-      "implemented": "Loopback request/operation/audit/catalogue APIs, secure CLI login and read-only MCP. Separate TLS enrollment, Ed25519 device certificates, Linux agent, mTLS capability/status reporting, operator invitations/revocation and actual TargetView inventory. Real local-owner WebAuthn registration/login and credential lifecycle, plus browser-authorized one-use CLI session transfer with original authentication freshness. The confirmation code is returned only to the initiating client, withheld from browser request views and verified by the server after manual entry. REST/MCP audit reads use authenticated snapshot cursors; tenant-authenticated reads resolve linked denial-count evidence. The audit integration suite passes 21 HTTP/MCP/browser checks after bounded authentication-denial floods. Public login uses bounded encrypted tickets without shared anonymous admission slots; successful signatures atomically persist consumption, and registration has an independent protected quota. Bootstrap reads also require the separately returned session proof. A separate authority-origin HTTP executable requires existing private authority trust and runtime keys, enforces exact Host/Origin plus session-bound CSRF on reads/writes, and exposes bounded real passkey review ceremonies without controller trust import. Six additional list endpoints use authenticated 15-minute snapshot cursors and byte-limited continuation. Service target admission and picker eligibility share current certificate/report checks; capability renewals have atomic monotonic outbox revisions. CLI list commands accept bounded --limit/--cursor continuation without changing authentication. Authority executable startup emits bounded fixed stage/code diagnostics without raw errors or private inputs; unsafe UI modes remain refused and protected fresh-install mode/ACL setup is documented. Authority executable admission bounds connection tasks, evicts only unverified header/completed-response phases and reserves eight public/eight authenticated work slots after exact session proof and current database checks. Nine executable TCP/P256 regressions cover idle/slow-body saturation, stale/forged routing proofs, recovery and disconnected blocking-job permit retention; sustained-flood availability and protected OS deployment remain unqualified. Server-owned CLI provenance retains ordinary API access while refusing owner-key changes and chained CLI authorization; a fresh signed WebAuthn login is required for browser authority. Controller tickets and authority envelopes use unique checked nonce sequences and bounded domain-separated epoch keys; old unexpired tickets survive issuance rollover without an evictable key cache. Anonymous CLI creation now issues bounded encrypted request tickets without allocating pending slots or writing durable audit. Only fresh browser interaction allocates bounded attempts/approval/consumption state. Tickets bind origin, tenant, principal, request and exclusive expiry; code/poll hashes remain encrypted, nonce/epoch allocation is checked, and wall/monotonic floors prevent expiry rollback. Exchange holds the authorizing-session registry lock through mandatory audit, delegated insertion and consumption to order concurrent logout safely. Creation retries issue unrelated requests, never recover old polling secrets. Linux fw_agent can sign newly measured conservative capability bytes offline after validating enrollment/CA/challenge bindings, writing a new private proof file. Unix fw_authority_admin explicitly initializes namespaces, pins/challenges/admits/reads/revokes targets with bounded closed stdin and fixed diagnostics; it samples time after input and accepts no policy key. Actual multi-process enrollment metadata smoke passes 41 checks (18 new), using synthetic independent trust only. Local authority administration now registers reviewed plans, pins/revokes native references and observer keys, recompiles plans, issues observation challenges, admits proofs and reads current/history summaries. A separate authenticated plan-native-evidence GET enforces live reviewer/proof/origin/tenant checks and returns bounded no-store summaries without raw captures. Admin/agent command output now checks delivery without treating post-commit failures as rollback; full, broken-pipe and read-only sinks produce fixed errors while durable records/proofs and replay semantics remain intact. Authority browser failure reports preserve only bounded closed startup diagnostics before cleanup. Authenticated bounded signing-readiness GET and trusted local quota CAS/revocation, preparation refusal and retained intent inspection are implemented without exposing signer/delivery operations. Trusted-local cancel-signing-job explicitly cancels expired unissued work with fixed diagnostics and post-commit output-error recovery; issued and UNKNOWN remain nonrefundable. Trusted-local register/read-core-access-provenance commands accept closed bounded input, preserve commit across checked stdout failure and return historical/current summaries with signing and dispatch false; eight-locale readiness distinguishes provenance availability from core profile readiness. Explicit v2 project quota administration/readiness preserves v1 retained bytes, rejects partial/downgraded inputs and observes historical job/root clocks even after configuration cutover. Trusted local project-quota revision recovery read and exact one-prefix readiness parsing are implemented.",
-      "blocker": "Policy authority bootstrap, remaining OpenAPI routes, remote production auth/enrollment, certificate renewal, privileged IPC, full MCP suite remain."
+      "implemented": "Loopback request/operation/audit/catalogue APIs, secure CLI login and read-only MCP. Separate TLS enrollment, Ed25519 device certificates, Linux agent, mTLS capability/status reporting, operator invitations/revocation and actual TargetView inventory. Real local-owner WebAuthn registration/login and credential lifecycle, plus browser-authorized one-use CLI session transfer with original authentication freshness. The confirmation code is returned only to the initiating client, withheld from browser request views and verified by the server after manual entry. REST/MCP audit reads use authenticated snapshot cursors; tenant-authenticated reads resolve linked denial-count evidence. The audit integration suite passes 21 HTTP/MCP/browser checks after bounded authentication-denial floods. Public login uses bounded encrypted tickets without shared anonymous admission slots; successful signatures atomically persist consumption, and registration has an independent protected quota. Bootstrap reads also require the separately returned session proof. A separate authority-origin HTTP executable requires existing private authority trust and runtime keys, enforces exact Host/Origin plus session-bound CSRF on reads/writes, and exposes bounded real passkey review ceremonies without controller trust import. Six additional list endpoints use authenticated 15-minute snapshot cursors and byte-limited continuation. Service target admission and picker eligibility share current certificate/report checks; capability renewals have atomic monotonic outbox revisions. CLI list commands accept bounded --limit/--cursor continuation without changing authentication. Authority executable startup emits bounded fixed stage/code diagnostics without raw errors or private inputs; unsafe UI modes remain refused and protected fresh-install mode/ACL setup is documented. Authority executable admission bounds connection tasks, evicts only unverified header/completed-response phases and reserves eight public/eight authenticated work slots after exact session proof and current database checks. Nine executable TCP/P256 regressions cover idle/slow-body saturation, stale/forged routing proofs, recovery and disconnected blocking-job permit retention; sustained-flood availability and protected OS deployment remain unqualified. Server-owned CLI provenance retains ordinary API access while refusing owner-key changes and chained CLI authorization; a fresh signed WebAuthn login is required for browser authority. Controller tickets and authority envelopes use unique checked nonce sequences and bounded domain-separated epoch keys; old unexpired tickets survive issuance rollover without an evictable key cache. Anonymous CLI creation now issues bounded encrypted request tickets without allocating pending slots or writing durable audit. Only fresh browser interaction allocates bounded attempts/approval/consumption state. Tickets bind origin, tenant, principal, request and exclusive expiry; code/poll hashes remain encrypted, nonce/epoch allocation is checked, and wall/monotonic floors prevent expiry rollback. Exchange holds the authorizing-session registry lock through mandatory audit, delegated insertion and consumption to order concurrent logout safely. Creation retries issue unrelated requests, never recover old polling secrets. Linux fw_agent can sign newly measured conservative capability bytes offline after validating enrollment/CA/challenge bindings, writing a new private proof file. Unix fw_authority_admin explicitly initializes namespaces, pins/challenges/admits/reads/revokes targets with bounded closed stdin and fixed diagnostics; it samples time after input and accepts no policy key. Actual multi-process enrollment metadata smoke passes 41 checks (18 new), using synthetic independent trust only. Local authority administration now registers reviewed plans, pins/revokes native references and observer keys, recompiles plans, issues observation challenges, admits proofs and reads current/history summaries. A separate authenticated plan-native-evidence GET enforces live reviewer/proof/origin/tenant checks and returns bounded no-store summaries without raw captures. Admin/agent command output now checks delivery without treating post-commit failures as rollback; full, broken-pipe and read-only sinks produce fixed errors while durable records/proofs and replay semantics remain intact. Authority browser failure reports preserve only bounded closed startup diagnostics before cleanup. Authenticated bounded signing-readiness GET and trusted local quota CAS/revocation, preparation refusal and retained intent inspection are implemented without exposing signer/delivery operations. Trusted-local cancel-signing-job explicitly cancels expired unissued work with fixed diagnostics and post-commit output-error recovery; issued and UNKNOWN remain nonrefundable. Trusted-local register/read-core-access-provenance commands accept closed bounded input, preserve commit across checked stdout failure and return historical/current summaries with signing and dispatch false; eight-locale readiness distinguishes provenance availability from core profile readiness. Explicit v2 project quota administration/readiness preserves v1 retained bytes, rejects partial/downgraded inputs and observes historical job/root clocks even after configuration cutover. Trusted local project-quota revision recovery read and exact one-prefix readiness parsing are implemented. Combined reviewed-core registration and fixed-window history CLI preserve committed output-loss recovery; authenticated core evidence GET and complete core-review UI expose original windows and historical/current state in eight locales while signing/dispatch remain false. Client-session time high-water prevents expiry display rollback across refresh/remount. Protected local authority principal/credential activation/role/human provisioning and registry/bootstrap commands use bounded closed stdin, trusted origin, real WebAuthn and checked output recovery. A reference-only authenticated Unix signer interface supports actual pending bootstrap authorization without exposing keys or opening policy dispatch. Origin/target-bootstrap CLI and authenticated readiness v3 expose confirmations/current plan eligibility; legacy versions explicitly refuse unrepresentable states.",
+      "blocker": "Target integration passed local verification; consolidated external review and required remote CI remain. Target-confirmed production policy authority, remaining OpenAPI routes, remote production auth/enrollment, certificate renewal/rotation, authenticated executor dispatch/completion, installed privileged service/ACL/key lifecycle and full MCP suite remain. Existing distinct-UID signer IPC and local owner bootstrap do not complete those deployment/target requirements."
     },
     {
       "id": "M06",
@@ -865,7 +2009,7 @@
       "dependencies": [
         "M05"
       ],
-      "implemented": "React UI with English default and eight locales (en, ko, ja, es, de, fr, zh-Hans, zh-Hant). Request/audit/targets/policies, immutable asset revisions and service catalogue selectors. Real browser checks cover a registered target and persisted service creation. Native browser passkey enrollment/sign-in, pending/verified/revoked credential management, logout and explicit CLI authorization with eight-locale support. A separate authority-origin React build reviews full immutable plans, independently supplied before/after evidence and current roles; explicit decisions use fresh bound browser WebAuthn, memory-only authority session proofs and exact signed-request retries. Eight authority locale catalogues and retained-decision display are included. Current authority aggregation and verified set display are separate from historical decision acknowledgements; malformed bindings fail closed, explicit refresh rechecks status and the set-specific deadline removes the verified display at expiry. Catalogue navigation uses server snapshot cursors with previous/next and 25/50/100 rows, cursor reset on refresh/retry/mutation, complete eligible pickers that preserve and revalidate selections, actual target backend/observation labels and same-section form navigation. Catalogue browser failures report sanitized phase/category codes, with explicit locator deadlines and actual save-response/detail readiness. CLI links carry an opaque encrypted request ticket in a URL fragment, then keep it only in page memory; browser/API/CLI clients use the bounded ticket protocol. Same-request keyboard hash navigation preserves the in-memory ticket; missing or explicitly malformed replacements cannot authorize a handoff. The authority evidence panel independently validates closed plan-bound summaries, distinguishes historical/current compilation and signed observations, shows MATCH/MISMATCH/UNKNOWN without claiming production qualification, and refreshes without submitting a decision. Freshness conservatively includes entire request latency and retained wall/monotonic time floors. Eight authority catalogues retain complete key and placeholder parity; current executed counts belong in the verification summary. Read-only signing readiness separates current blockers from retained intent/UNKNOWN reservations, hides expired current indicators and rejects changed plan bindings across eight locales. Eight-locale explicit v2 readiness shows current project/root quota scope and bounded historical UNKNOWN independently of latest dispatch labels.",
+      "implemented": "React UI with English default and eight locales (en, ko, ja, es, de, fr, zh-Hans, zh-Hant). Request/audit/targets/policies, immutable asset revisions and service catalogue selectors. Real browser checks cover a registered target and persisted service creation. Native browser passkey enrollment/sign-in, pending/verified/revoked credential management, logout and explicit CLI authorization with eight-locale support. A separate authority-origin React build reviews full immutable plans, independently supplied before/after evidence and current roles; explicit decisions use fresh bound browser WebAuthn, memory-only authority session proofs and exact signed-request retries. Eight authority locale catalogues and retained-decision display are included. Current authority aggregation and verified set display are separate from historical decision acknowledgements; malformed bindings fail closed, explicit refresh rechecks status and the set-specific deadline removes the verified display at expiry. Catalogue navigation uses server snapshot cursors with previous/next and 25/50/100 rows, cursor reset on refresh/retry/mutation, complete eligible pickers that preserve and revalidate selections, actual target backend/observation labels and same-section form navigation. Catalogue browser failures report sanitized phase/category codes, with explicit locator deadlines and actual save-response/detail readiness. CLI links carry an opaque encrypted request ticket in a URL fragment, then keep it only in page memory; browser/API/CLI clients use the bounded ticket protocol. Same-request keyboard hash navigation preserves the in-memory ticket; missing or explicitly malformed replacements cannot authorize a handoff. The authority evidence panel independently validates closed plan-bound summaries, distinguishes historical/current compilation and signed observations, shows MATCH/MISMATCH/UNKNOWN without claiming production qualification, and refreshes without submitting a decision. Freshness conservatively includes entire request latency and retained wall/monotonic time floors. Eight authority catalogues retain complete key and placeholder parity; current executed counts belong in the verification summary. Read-only signing readiness separates current blockers from retained intent/UNKNOWN reservations, hides expired current indicators and rejects changed plan bindings across eight locales. Eight-locale explicit v2 readiness shows current project/root quota scope and bounded historical UNKNOWN independently of latest dispatch labels. Complete before/after core-access review and fixed original core lease-window evidence now appear in all eight locales, with authenticated refresh and client-session conservative time tracking across remount/plan changes. Actual virtual-passkey approval and unchanged post-approval window/read permissions are verified separately in the browser suite. Readiness v3 shows target history versus current plan eligibility in eight locales, with production permission false.",
       "blocker": "Full production approval workflow, evidence/topology and enrollment-management screens, keyboard/accessibility and translation acceptance remain."
     },
     {

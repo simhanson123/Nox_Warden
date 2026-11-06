@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 
+[features]
+target-bootstrap = ["fw_authority/approval-proofs"]
+
 [dependencies]
 fw_authority = { path = "../fw_authority", default-features = false }
 fw_contracts = { path = "../fw_contracts" }

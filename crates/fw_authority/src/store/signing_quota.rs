@@ -645,6 +645,9 @@ pub(super) fn cost_for_plan(
     if plan["change_kind"] == "add_access_lease" {
         let provenance = access_provenance::provenance_in_tx(tx, tenant, &subject, now)?
             .ok_or(AuthorityError::Binding)?;
+        if !access_window::current_reviewed_window(tx, tenant, &subject, now)? {
+            return Err(AuthorityError::Binding);
+        }
         if !core_configuration_available(tx, tenant, &provenance, now)? {
             return Err(AuthorityError::Binding);
         }
@@ -710,6 +713,23 @@ pub(super) fn read(
     id: &str,
 ) -> Result<SigningBudgetReservation> {
     read_record(tx, tenant, id, true, false, ReservationRead::Committed)
+}
+/// Exact immutable grant binding, also used while creating the job before its
+/// work genesis exists. This never authorizes claiming, signing or issuance;
+/// those paths must additionally use ordinary committed/current admission.
+pub(super) fn read_job_binding(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    id: &str,
+) -> Result<SigningBudgetReservation> {
+    read_record(
+        tx,
+        tenant,
+        id,
+        true,
+        false,
+        ReservationRead::InitializingJob,
+    )
 }
 pub(super) fn read_initializing_job(
     tx: &Transaction<'_>,
@@ -1306,7 +1326,7 @@ pub(super) fn finalize(
     record_issuance(tx, tenant, id, now, saved)
 }
 
-fn finalize_admission(
+pub(super) fn finalize_admission(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     id: &str,

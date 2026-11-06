@@ -475,6 +475,7 @@ pub fn restore_v11(path: &std::path::Path) {
 /// retained rows. This is fixture metadata reconstruction, not an old binary.
 #[allow(dead_code)]
 pub fn restore_v12(path: &std::path::Path) {
+    restore_v13(path);
     let mut db = rusqlite::Connection::open(path).unwrap();
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -556,5 +557,149 @@ pub fn restore_v12(path: &std::path::Path) {
     }
     tx.pragma_update(None, "user_version", 12).unwrap();
     tx.commit().unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Reconstruct published schema13 around unchanged legacy rows. Removing a
+/// populated window would erase new authority evidence and is never allowed.
+#[allow(dead_code)]
+pub fn restore_v13(path: &std::path::Path) {
+    restore_v14(path);
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version <= 13 {
+        return;
+    }
+    assert_eq!(version, 14);
+    assert_eq!(
+        db.query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM authority_core_access_lease_windows",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap(),
+        0,
+        "cannot reconstruct schema13 while new lease-window evidence exists"
+    );
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let guard: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TABLE authority_core_access_lease_windows; DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=14;").unwrap();
+    db.execute_batch(&guard).unwrap();
+    db.pragma_update(None, "user_version", 13).unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Strip only empty schema15 additions in a test database. Product code has no
+/// downgrade; populated identity/proof history must never be silently removed.
+#[allow(dead_code)]
+pub fn restore_v14(path: &std::path::Path) {
+    restore_v15(path);
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version <= 14 {
+        return;
+    }
+    assert_eq!(version, 15);
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let tables = include_str!("../../src/store/migration_015.sql")
+        .lines()
+        .filter_map(|line| line.strip_prefix("CREATE TABLE "))
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect::<Vec<_>>();
+    for table in &tables {
+        let count: i64 = db
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "cannot reconstruct schema14 with registry authority evidence"
+        );
+    }
+    for table in tables.into_iter().rev() {
+        db.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+    }
+    let guard: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=15;").unwrap();
+    db.execute_batch(&guard).unwrap();
+    db.pragma_update(None, "user_version", 14).unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Reconstruct only the released schema15 view of a test database with no new
+/// origin trust or target evidence. NULL legacy classifications carry no trust.
+#[allow(dead_code)]
+pub fn restore_v15(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version <= 15 {
+        return;
+    }
+    assert_eq!(version, 16);
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let tables = include_str!("../../src/store/migration_016.sql")
+        .lines()
+        .filter_map(|line| line.strip_prefix("CREATE TABLE "))
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect::<Vec<_>>();
+    for table in &tables {
+        let condition = if *table == "authority_bootstrap_challenge_origin_bindings" {
+            " WHERE origin_revision IS NOT NULL"
+        } else {
+            ""
+        };
+        let count: i64 = db
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table}{condition}"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "cannot reconstruct schema15 while new origin/target authority evidence exists"
+        );
+    }
+    for line in include_str!("../../src/store/migration_016.sql").lines() {
+        if let Some(trigger) = line.strip_prefix("CREATE TRIGGER ") {
+            let name = trigger.split_whitespace().next().unwrap();
+            db.execute_batch(&format!("DROP TRIGGER {name}")).unwrap();
+        } else if let Some(index) = line.strip_prefix("CREATE INDEX ") {
+            let name = index.split_whitespace().next().unwrap();
+            db.execute_batch(&format!("DROP INDEX {name}")).unwrap();
+        }
+    }
+    for table in tables.into_iter().rev() {
+        db.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+    }
+    let guard: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=16;").unwrap();
+    db.execute_batch(&guard).unwrap();
+    db.pragma_update(None, "user_version", 15).unwrap();
     db.pragma_update(None, "foreign_keys", "ON").unwrap();
 }
