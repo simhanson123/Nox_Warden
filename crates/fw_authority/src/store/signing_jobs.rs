@@ -738,7 +738,7 @@ fn claim_identity(head: &Head, claim: &SigningClaim, job: &str, phase: &str) -> 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn claim_in_tx(
+pub(super) fn claim_in_tx(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
     job_id: &str,

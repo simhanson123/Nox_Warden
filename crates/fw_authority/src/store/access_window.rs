@@ -288,6 +288,12 @@ pub(super) struct StoredRequestWindow {
 }
 
 impl StoredRequestWindow {
+    pub(super) fn hash(&self) -> &str {
+        self.verified.hash()
+    }
+    pub(super) fn expires_at(&self) -> i64 {
+        self.verified.expires_at()
+    }
     pub(super) fn current(
         &self,
         tx: &Transaction<'_>,

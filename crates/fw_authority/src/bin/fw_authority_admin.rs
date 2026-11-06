@@ -21,6 +21,9 @@ use std::{
     path::Path,
 };
 
+#[path = "authority_admin/registry.rs"]
+mod registry;
+
 const HELP: &str = "fw_authority_admin init --database PATH\nfw_authority_admin migrate --database PATH --backup PATH\nfw_authority_admin init-project|pin-target|challenge-target|admit-target|read-target|revoke-target --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-plan|pin-native-references|revoke-native-references|pin-native-observer|revoke-native-observer|compile-native|challenge-native|admit-native|read-native --database PATH --org-id UUID --project-id UUID\nfw_authority_admin register-reviewed-core-access-plan|read-core-access-lease-window|register-core-access-provenance|read-core-access-provenance --database PATH --org-id UUID --project-id UUID\nfw_authority_admin read-signing-readiness|read-signing-readiness-v2|request-signing --database PATH --org-id UUID --project-id UUID --approval-origin ORIGIN\nfw_authority_admin pin-signing-root-quota|pin-signing-project-quota|read-signing-project-quota|revoke-signing-root-quota|revoke-signing-project-quota|read-signing-intent|cancel-signing-job --database PATH --org-id UUID --project-id UUID\n\nTarget, native, core-access provenance and signing commands read one closed JSON request from stdin. Pinning is an explicit trusted local operation; controller enrollment does not authorize it. Approval origin is trusted local verifier configuration, never a request-supplied assertion. Challenge output is public JSON for the device. Protect redirected files with umask 077. Core-access provenance records original request cost evidence, not cryptographic authority. Register a complete immutable core plan, review, provenance and absolute lease window with schema_version fw.reviewed-core-access-plan/v1. Recover committed registration after lost output with read-core-access-lease-window; its retained window never moves with approval or retry. No command accepts a private key, signs a policy or changes a firewall. Project-only quota requests require schema_version fw.signing-project-quota-pin/v2 and omit pin.root_id. They do not change OS privilege requirements. Recover a retained project pin revision with read-signing-project-quota using an empty JSON object; the read never authorizes signing. Read signing readiness through the explicit v2 command for project-only configuration. Signing requests remain blocked until independent production qualification is implemented.";
 const INPUT_LIMIT: usize = 128 * 1024;
 const NATIVE_INPUT_LIMIT: usize = 4 * 1024 * 1024;
@@ -65,8 +68,29 @@ impl Arguments {
             | "register-core-access-provenance"
             | "read-core-access-provenance"
             | "register-reviewed-core-access-plan"
-            | "read-core-access-lease-window" => &["--database", "--org-id", "--project-id"],
-            "read-signing-readiness" | "read-signing-readiness-v2" | "request-signing" => &[
+            | "read-core-access-lease-window"
+            | "pin-registry-trust-key"
+            | "revoke-registry-trust-key"
+            | "import-workload-binding"
+            | "import-access-envelope"
+            | "import-delegation"
+            | "import-bootstrap-manifest"
+            | "read-authority-registry"
+            | "revoke-authority-registry-object"
+            | "provision-authority-principal"
+            | "pin-authority-credential"
+            | "grant-authority-role"
+            | "bind-authority-human"
+            | "revoke-authority-credential"
+            | "revoke-authority-role" => &["--database", "--org-id", "--project-id"],
+            "read-signing-readiness"
+            | "read-signing-readiness-v2"
+            | "request-signing"
+            | "challenge-bootstrap"
+            | "admit-bootstrap-proof"
+            | "import-bootstrap-authorization"
+            | "challenge-authority-credential"
+            | "activate-authority-credential" => &[
                 "--database",
                 "--org-id",
                 "--project-id",
@@ -329,6 +353,9 @@ fn run() -> Result<Value> {
     let tenant = AuthorityTenant::new(args.value("--org-id"), args.value("--project-id"))
         .map_err(|_| "TENANT_REJECTED")?;
     let mut store = AuthorityStore::open(database).map_err(|_| "DATABASE_REJECTED")?;
+    if registry::handles(&args.command) {
+        return registry::run(&args, &mut store, &tenant);
+    }
     match args.command.as_str() {
         "init-project" => {
             let _: Empty = request()?;
@@ -747,7 +774,14 @@ fn main() {
     let outcome = if std::env::args_os().skip(1).collect::<Vec<_>>()
         == [std::ffi::OsString::from("--help")]
     {
-        write_stdout(format!("{HELP}\n").as_bytes())
+        write_stdout(
+            format!(
+                "{HELP}\n\n{}\n\n{}\n",
+                registry::HELP,
+                registry::PROVISION_HELP
+            )
+            .as_bytes(),
+        )
     } else {
         run().and_then(|value| {
             let bytes = canonical_bytes(&value).map_err(|_| "OUTPUT_FAILED")?;

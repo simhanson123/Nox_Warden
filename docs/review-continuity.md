@@ -9,6 +9,37 @@ work belong in [the task ledger](../reports/task-ledger.json),
 
 For a new session, start with [the complete handoff](session-handoff.md).
 
+## Received PR26 follow-up consolidated review
+
+The user supplied [Claude Opus5.5's follow-up report](reviews/pr26-follow-up-claude-review.md)
+for `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, tree
+`9108060e91b2cf9659b598e5f670f095f72f3305`, against
+`3866ceaa2b86da3ea3653da338d433a23a02b283`. Preserve all 15,477 uploaded
+bytes, including 193 CRLF endings and opening progress notes, SHA256
+`5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa`.
+It confirms F1–F3, finds no Medium-or-higher defect or development blocker and
+retains F4 as an explicit protected-storage boundary. Do not request another
+review of that unchanged target or describe preparation/internal review as a
+new Claude execution.
+
+The report identifies Low D6a (lab timing constants, binding clock and exact
+`E−8` validation), Low D6b (a conservative near-expiry lower bound can refuse
+healthy observations), and missing documentation for whole-database refusal of
+legacy conflicting schema14 history. The store's rejection affects every tenant
+in that file. The [recovery boundary](authority-store.md#conflicting-legacy-core-windows-and-recovery)
+requires preserved original evidence and independently trustworthy compatible
+authority/epoch/generation context; there is no automatic repair command.
+
+Its direct F1 probe, canonical/shared-umask/browser results and parallel reviewers'
+old-binary/conflict and timing probes are attributed external evidence. Private
+probe sources and temporary logs were not supplied or rerun here. All four
+Docker/native suites were NOT_RUN in that review; unit/static findings do not
+establish kernel qualification. It reports CI42150829408 blocked before execution
+by billing and no merge. New implementation and validation belong in the ledger
+and reports; neither the earlier local counts nor the supplied review validates
+later changes. PR26 remains an unmerged dependency until exact remote CI and
+merge evidence establish otherwise.
+
 ## Received PR26 consolidated review
 
 The complete [Claude Opus5.5 PR26 report](reviews/pr26-claude-review.md) covers

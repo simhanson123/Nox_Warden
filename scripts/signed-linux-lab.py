@@ -7,6 +7,7 @@ suite does not create human approvals, production capability claims or host rule
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -24,6 +25,13 @@ class StageFailure(RuntimeError):
 
 def validate_core_evidence(result):
     """A prior two-capture PASS cannot stand in for the strengthened profile."""
+    try:
+        _validate_core_evidence(result)
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as error:
+        raise StageFailure('invalid original core expiry boundary evidence') from error
+
+
+def _validate_core_evidence(result):
     captures = result.get('native_captures', [])
     boundaries = result.get('original_expiry_boundary_observations', [])
     original_end = result.get('original_lease_window', {}).get('expires_at_unix')
@@ -45,11 +53,46 @@ def validate_core_evidence(result):
            ('reference_pin_hash', 'references_hash', 'reference_revision', 'compilation_hash')):
         raise StageFailure('core capture reference pin changed')
     positive, negative = boundaries
+    # Independently recompute bounds from the original E and sampled clocks.
+    # Neither the manifest's chosen constants nor its reported minimum can
+    # define which timing model counts as evidence for this executor profile.
+    expected_integers = {'clock_uncertainty_seconds': 1, 'elapsed_seconds': 0, 'commit_budget_seconds': 5,
+                         'conservative_binding_deduction_seconds': 6, 'packet_sampling_margin_seconds': 2,
+                         'nft_representation_tolerance_seconds': 1, 'monotonic_sampling_tolerance_millis': 1,
+                         'target_unix': original_end - 8}
+    if any(type(positive[field]) is not int or positive[field] != expected
+           for field, expected in expected_integers.items()):
+        raise StageFailure('invalid original core expiry boundary evidence')
+    integer_fields = ('binding_wall_time_unix', 'binding_monotonic_millis', 'sample_observed_at_unix',
+                      'sample_started_monotonic_millis', 'sample_finished_monotonic_millis',
+                      'initial_timeout_seconds', 'minimum_remaining_seconds', 'maximum_remaining_seconds')
+    if any(type(positive[field]) is not int or positive[field] < 0 for field in integer_fields):
+        raise StageFailure('invalid original core expiry boundary evidence')
+    wall, monotonic = positive['binding_wall_time_unix'], positive['binding_monotonic_millis']
+    observed = positive['sample_observed_at_unix']
+    sample_start, sample_finish = positive['sample_started_monotonic_millis'], positive['sample_finished_monotonic_millis']
+    timeout = original_end - wall - 6
+    minimum = max(0, (timeout * 1000 - (sample_finish - monotonic) - 1) // 1000)
+    maximum = min(timeout, original_end - 1 - observed,
+                  (monotonic + (original_end - 1 - wall) * 1000 - sample_start + 999) // 1000)
+    times = [positive[field] for field in ('started_at_unix', 'finished_at_unix', 'actual_elapsed_monotonic_seconds')]
+    times.append(negative['sampled_at_unix'])
+    if any(type(value) not in (int, float) or not math.isfinite(value) for value in times):
+        raise StageFailure('invalid original core expiry boundary evidence')
+    started, finished, duration, _ = times
+    actual = positive['actual_remaining_seconds']
     if (positive.get('original_expires_at_unix') != original_end
             or negative.get('original_expires_at_unix') != original_end
-            or not positive.get('minimum_remaining_seconds', 0) > 0
-            or not positive.get('actual_remaining_seconds')
-            or not positive['target_unix'] <= positive['started_at_unix'] <= positive['finished_at_unix'] < original_end
+            or not monotonic <= sample_start <= sample_finish
+            or abs((observed - wall) * 1000 - (sample_start - monotonic)) > 1000
+            or positive['initial_timeout_seconds'] != timeout
+            or positive['minimum_remaining_seconds'] != minimum or minimum <= 0
+            or positive['maximum_remaining_seconds'] != maximum
+            or not isinstance(actual, dict) or not actual
+            or any(type(value) is not int or not minimum <= value <= maximum for value in actual.values())
+            or not positive['target_unix'] <= started <= finished < original_end - 6
+            or not 0 <= duration < 2 or abs((finished - started) - duration) >= .1
+            or not started - 1 < observed <= finished
             or not negative.get('sampled_at_unix', 0) >= original_end + 1
             or negative.get('core_tokens_absent') is not True
             or negative.get('new_and_established_tcp_blocked') is not True):

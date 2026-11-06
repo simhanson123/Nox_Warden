@@ -6,7 +6,7 @@ protection. No supported production platform or signed installer is declared.
 
 | Platform | Implemented locally | Missing release gates | Qualification |
 | --- | --- | --- | --- |
-| Linux nftables | Transport enrollment and conservative mTLS metadata; experimental host TCP/UDP compiler, immutable full-state portable artifacts, bounded semantic readback, guarded signed apply/probe/confirm and restrictive timeout/crash recovery in a disposable lab | Real approval/bootstrap and authenticated production dispatch; qualified independent watchdog; baseline/anti-spoof/ICMP/PMTU; physical NIC, full clock/crash/reboot/coexistence and installer acceptance | Unverified |
+| Linux nftables | Transport enrollment and conservative mTLS metadata; owner-bound bootstrap and distinct-UID signer; experimental host TCP/UDP compiler, immutable full-state portable artifacts, bounded semantic readback, guarded signed apply/probe/confirm and restrictive timeout/crash recovery in a disposable lab | Target-confirmed authority, qualified build/source/native evidence and authenticated production dispatch/completion; qualified independent watchdog; baseline/anti-spoof/ICMP/PMTU; physical NIC, full clock/crash/reboot/coexistence and installer acceptance | Unverified |
 | Windows WFP | Common pure evaluator and authority/journal model | Native service, packet-time WDK callout, persistent/boot guards, ACL IPC, signed MSI and native packet/crash/reboot fixtures | Unimplemented |
 | macOS Network Extension | Common pure evaluator and authority/journal model | Swift host app/system extension, authenticated XPC, packet callbacks, entitlements/signing/notarization and actual-device failure tests | Unimplemented |
 
@@ -52,10 +52,13 @@ watchdog required for production qualification.
 
 The [signed execution guide](signed-linux-execution.md) explains the fixture
 trust registry, synthetic approvals and remaining limitations. Local-owner
-[WebAuthn login](passkey-login.md) is implemented. Plan-bound human approval,
-independent signer/quota jobs, approved authority bootstrap, workload identity and
-production capability admission remain incomplete. Lab fixtures cannot promote
-an `unverified` enrollment to supported enforcement.
+[WebAuthn login](passkey-login.md), immutable plan-bound human approval, retained
+signer/quota mechanics and the [protected bootstrap signer](protected-signing-authority.md)
+are implemented. Its local owner authorization remains pending target durable
+epoch/baseline/probe confirmation. Qualified build/native evidence, actual workload
+source attestation, authenticated dispatch/completion and installed key/account
+lifecycle remain incomplete. Lab fixtures cannot promote an `unverified`
+enrollment to supported enforcement.
 
 ## Device enrollment and release preflight
 

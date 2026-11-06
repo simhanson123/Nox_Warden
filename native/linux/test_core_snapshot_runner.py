@@ -1,6 +1,7 @@
 """Refusal observations permit natural token aging, never changed native state."""
 import copy
 import base64
+from fractions import Fraction
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -48,6 +49,81 @@ class OriginalBoundaryProof(unittest.TestCase):
         with self.assertRaises(ValueError):
             core.original_token_lifetime_bounds(record, installation, metadata)
 
+    def test_executor_timing_constants_are_independent_of_consistent_manifest_changes(self):
+        for field, value in (('clock_uncertainty_seconds', 10), ('elapsed_seconds', 15),
+                             ('commit_budget_seconds', 20), ('clock_uncertainty_seconds', True),
+                             ('elapsed_seconds', 0.0), ('commit_budget_seconds', 5.0)):
+            with self.subTest(field=field, value=value):
+                record, installation, metadata = self.fixture()
+                binding = installation['manifest']['binding']
+                binding[field] = value
+                timeout = 160 - 100 - sum(binding[key] for key in
+                    ('clock_uncertainty_seconds', 'elapsed_seconds', 'commit_budget_seconds'))
+                installation['manifest']['tokens'][0].update(
+                    timeout_seconds=timeout, cutoff_unix=160 - binding['clock_uncertainty_seconds'])
+                record['raw']['nftables'][0]['set']['elem'][0]['elem'].update(
+                    timeout=timeout, expires=timeout - 10)
+                with self.assertRaises(ValueError):
+                    core.original_token_lifetime_bounds(record, installation, metadata)
+
+    def test_observation_wall_clock_must_match_binding_and_monotonic_elapsed_within_one_second(self):
+        for wall in (109, 110, 111):
+            record, installation, metadata = self.fixture()
+            record.update(observed_at_unix=wall, started_monotonic_millis=11000)
+            core.original_token_lifetime_bounds(record, installation, metadata)
+        for wall in (108, 112, 110.0, True):
+            with self.subTest(wall=wall):
+                record, installation, metadata = self.fixture()
+                record.update(observed_at_unix=wall, started_monotonic_millis=11000)
+                with self.assertRaises(ValueError):
+                    core.original_token_lifetime_bounds(record, installation, metadata)
+
+    def test_fractional_sample_delay_at_end_minus_eight_retains_a_safe_positive_floor(self):
+        # A wall binding at 100.001 and sample at 152.025 give elapsed 52.024.
+        # The previous ceil(elapsed) followed by another -1 incorrectly gave 0.
+        for elapsed in (52001, 52024, 52999):
+            with self.subTest(elapsed_millis=elapsed):
+                record, installation, metadata = self.fixture()
+                record.update(observed_at_unix=152, started_monotonic_millis=53000,
+                              monotonic_millis=1000 + elapsed)
+                record['raw']['nftables'][0]['set']['elem'][0]['elem']['expires'] = 1
+                self.assertEqual(core.original_token_lifetime_bounds(record, installation, metadata)
+                                 ['minimum_remaining_seconds'], 1)
+
+    def test_millisecond_quantization_cannot_claim_two_seconds_at_an_exact_second_boundary(self):
+        # Truncated boottime reads can report 52000ms for a true 52.0005s.
+        # A floor-rounded nft observation is then 1, so merely deleting -1 is unsafe.
+        record, installation, metadata = self.fixture()
+        record.update(observed_at_unix=152, started_monotonic_millis=52999, monotonic_millis=53000)
+        record['raw']['nftables'][0]['set']['elem'][0]['elem']['expires'] = 1
+        self.assertEqual(core.original_token_lifetime_bounds(record, installation, metadata)
+                         ['minimum_remaining_seconds'], 1)
+
+    def test_remaining_floor_matches_independent_fractional_clock_boundary_cases(self):
+        for elapsed in (0, 1, 999, 1000, 1001, 9999, 10000, 10001, 51999, 52000, 52001, 52999):
+            # Exact arithmetic models the worst <1ms hidden between two floored
+            # boottime readings and a kernel timer started as early as binding.
+            # Any real submission delay increases the remaining lifetime.
+            observed = (Fraction(54) - Fraction(elapsed * 1000 + 999, 1_000_000)) // 1
+            record, installation, metadata = self.fixture()
+            record.update(observed_at_unix=100 + elapsed // 1000,
+                          started_monotonic_millis=1000 + elapsed,
+                          monotonic_millis=1000 + elapsed)
+            record['raw']['nftables'][0]['set']['elem'][0]['elem']['expires'] = observed
+            with self.subTest(elapsed_millis=elapsed):
+                bounds = core.original_token_lifetime_bounds(record, installation, metadata)
+                self.assertEqual(bounds['minimum_remaining_seconds'], observed)
+                record['raw']['nftables'][0]['set']['elem'][0]['elem']['expires'] = observed - 1
+                with self.assertRaises(ValueError):
+                    core.original_token_lifetime_bounds(record, installation, metadata)
+
+    def test_positive_window_really_missed_still_refuses(self):
+        record, installation, metadata = self.fixture()
+        record.update(observed_at_unix=153, started_monotonic_millis=54000, monotonic_millis=54000)
+        record['raw']['nftables'][0]['set']['elem'][0]['elem']['expires'] = 1
+        with self.assertRaisesRegex(ValueError, 'positive token observation window missed'):
+            core.original_token_lifetime_bounds(record, installation, metadata)
+
     def test_missing_refreshed_and_too_late_token_samples_are_refused(self):
         record, installation, metadata = self.fixture()
         for mutate in (
@@ -67,6 +143,8 @@ class OriginalBoundaryProof(unittest.TestCase):
                                             (152, 154.1, 2.1), (152, 151.9, .1),
                                             (152, 152.2, .01)):
             self.assertFalse(core.original_positive_bracket(152, 160, 6, started, finished, duration))
+        self.assertFalse(core.original_positive_bracket(100, 160, 6, 100.01, 100.05, .04))
+        self.assertFalse(core.original_positive_bracket(152, 160, 5, 152.01, 152.05, .04))
 
 
 class ExactRefusalProof(unittest.TestCase):

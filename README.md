@@ -60,11 +60,19 @@ are preserved, with current user decisions recorded in [AGENTS.md](AGENTS.md).
   bound to their immutable context. A separate [authority store](docs/authority-store.md)
   atomically records decisions, current credential/role checks, original proofs
   and immutable approval sets requiring independent human reviewers.
+- [Protected bootstrap and signer boundary](docs/protected-signing-authority.md):
+  independently pinned signed workload records, staged original
+  envelope/delegation objects and actual owner-bound WebAuthn bootstrap consent.
+  A separate Linux signer uses distinct OS identities, protected key/database
+  paths and authenticated Unix peer credentials to issue the exact bootstrap DSSE.
+  Its initial local/Lab single-owner authorization remains pending target
+  epoch/baseline confirmation. It cannot reset an existing protected target head;
+  production policy signing and dispatch remain closed pending qualification.
 - A separate [policy review service and screen](docs/authority-review-ui.md)
   authenticate pinned authority passkeys, show verified before/after policy
   evidence and collect fresh signed approval or rejection. Historical receipts
-  remain separate from current quorum, revocation and expiry checks. Production
-  authority bootstrap, protected OS deployment and signer integration remain
+  remain separate from current quorum, revocation and expiry checks. Target-confirmed
+  production authority, installed OS/key lifecycle and authenticated dispatch remain
   incomplete; controller login does not approve a policy.
 - A multilingual management UI, secure local CLI login and authenticated read-only
   MCP tools. The controller does not dispatch native firewall writes.

@@ -97,10 +97,14 @@ the plan. Trusted plan admission and a future signer must resolve and verify
 those referenced objects and current authority independently. A plan containing
 `PASS` gate strings is not sufficient authority for a firewall write.
 
-Authority-bootstrap manifests are supported by the lower-level challenge
-primitive, but this storage slice accepts plan decisions only. It does not
-produce bootstrap approval proofs, reserve signing work, issue grants or
-dispatch policies.
+Schema15 separately retains signed workload bindings, staged original
+envelope/delegation/manifest objects, owner-bound WebAuthn bootstrap proofs and
+DSSE bootstrap authorizations. These are distinct from plan decisions and raw
+provisioning. An imported authorization remains
+`authorized_pending_target_confirmation`, with signing/dispatch false until
+target durable epoch/baseline confirmation and production qualification exist.
+The separate [bootstrap and signer contract](protected-signing-authority.md)
+describes that boundary; this store is not a host enforcement or delivery service.
 
 ## Durable policy review evidence
 
@@ -400,12 +404,71 @@ Readiness v1/v2 contracts are unchanged. `CORE_SIGNING_PROFILE_UNAVAILABLE`,
 [core-access enforcement](core-access-enforcement.md) for the separate Linux
 execution profile with synthetic trust and remaining production dependencies.
 
+## Conflicting legacy core windows and recovery
+
+Earlier schema14 binaries could retain a provenance-only plan outside an
+existing fixed request window, or create a first window that conflicted with
+earlier bindings. At the corrected schema14 checkpoint, complete retained
+validation rejected such a database at `AuthorityStore::open` with `Binding`.
+The current schema15 binary first returns `MigrationRequired` for a recognized
+schema14 database. Explicit migration revalidates that original graph and rejects the
+conflict with `Binding` before creating a new maintenance backup. The
+administration executable reports `DATABASE_REJECTED` for ordinary open and
+`MIGRATION_REJECTED` for explicit migration refusal.
+This is a database-wide refusal: every tenant in that file
+is unavailable, including tenants whose own history is consistent. It does not
+quarantine just the conflicting request. Opening does not rewrite the conflicting
+evidence, and migration cannot repair or bypass that validation. Existing private
+backups remain evidence; the failed upgrade does not establish a new verified
+backup.
+
+Stop the authority service and workers before investigating. Preserve the
+original database and any associated WAL/journal files, existing private backups
+and manifests as restricted evidence. Obtain a consistent copy through an
+appropriate SQLite backup procedure; copying only the main file while a writer
+is active does not establish a consistent backup. Keep the rejected source
+available for comparison. Do not delete bindings, edit canonical history, remove
+guards, fabricate a window or approval, or downgrade the binary to resume writes.
+Never refund issued, UNKNOWN or unsigned-delivered capacity to make recovery fit.
+
+Recovery requires an independently trustworthy, consistent backup whose retained
+history is compatible with current trust, revocations, clock floors, authority
+epoch and executor generation. A file digest establishes which bytes were saved;
+it does not establish that an older backup is safe to activate. Follow the
+governing restore ceremony in [F_01 section 7](specs/F_01_제품_구현_기준.md)
+and [F_09 section 3](specs/F_09_멀티플랫폼_설치_집행_명세.md): authorize the
+new authority epoch through the trust root, re-enroll/reconcile affected targets
+as required, retain generation fences and issued obligations, and prevent old
+grants, expired allows or revoked credentials from becoming current again.
+Replacing the live file with an older backup alone is not a safe recovery.
+
+If authentic original request material must be registered again in a recovered
+authority, use the normal strict combined registration and full-state review
+under valid current authority. Only a genuine request and its independently
+verified original evidence justify that admission; a rejected legacy record does
+not authorize a replacement request, inferred window, invented approval or
+renewed lease. Preserve the original request/window, replay and quota obligations
+when evaluating it. Where a trustworthy compatible authority/generation context
+cannot be established, leave the database unavailable and new signing blocked.
+
+The current tools supply no automatic repair, history editor or complete
+operational backup-restore/re-enrollment command. The steps above state the
+required recovery boundary; they do not claim that production restore acceptance
+or external rollback protection has been implemented.
+
 ## Schema upgrade and private backup
 
-Fresh authority databases use schema version 14. The stable family identity
-`fw.authority-store/v1` and SQLite application ID remain unchanged. Opening a
-populated version 1–13 database returns `MigrationRequired` without adding tables
-or treating its keys as newly enrolled. The explicit maintenance operation is:
+Fresh authority databases use schema version 15. The stable family identity
+`fw.authority-store/v1` and SQLite application ID remain unchanged.
+
+This batch preserves SQL001–014 and adds SQL015. Once this feature is published,
+SQL015 and its schema/guard contract also become published history. Subsequent
+schema work must use a new migration rather than rewriting any SQL001–015 file
+or silently changing the retained version15 contract.
+
+Opening a populated version 1–14 database returns `MigrationRequired` without
+adding tables or treating its keys as newly enrolled. Use the explicit maintenance
+operation below.
 
 Stop the authority service and its workers before migration, then restart them
 with the new binary. Do not mix older running binaries with a migrated database;
@@ -413,10 +476,11 @@ schema11 strengthens retained history, audit and reference validation; schema12
 adds nullable project-only quota roots. Schema13 makes full retained validation
 mandatory at open and adds atomic audit/work bindings and independent accounting
 membership checks. Schema14 adds immutable reviewed-core lease windows without
-changing the published SQL001–013 or legacy provenance bytes.
+changing the published SQL001–013 or legacy provenance bytes. Schema15 adds the
+signed workload/bootstrap registry while preserving all published SQL001–014.
 
 ```rust,ignore
-AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v14.sqlite3")?;
+AuthorityStore::migrate("authority.sqlite3", "private-backups/before-v15.sqlite3")?;
 let store = AuthorityStore::open("authority.sqlite3")?;
 ```
 
@@ -456,8 +520,8 @@ atomically. Duplicate key material or invalid retained records aborts the
 migration without choosing or deleting a credential. The private pre-migration
 backup remains available. Existing decisions, assertions, consumption records,
 counters and audit rows retain their original bytes. A repeated migration call
-on a valid version14 database makes no new backup or state change. Version13
-requires an explicit backed-up upgrade. Opening version14 and current-version
+on a valid version15 database makes no new backup or state change. Version14
+requires an explicit backed-up upgrade. Opening version15 and current-version
 maintenance compare checksums and the exact known object inventory, including
 autoindexes; optional sqlite_stat1/stat4 tables require exact structural metadata.
 Neither sqlite_-prefixed objects nor lookalikes such as sqliteX_hidden are exempt.
@@ -534,6 +598,16 @@ reviewed window remains readable through its original API. Current open and
 maintenance validation also replays retained reviewed-core/window bindings.
 Populated schema13 migration regressions reconstruct the released schema around
 genuine old-API rows; they are not newly executed old-binary fixtures.
+
+Version 15 preserves SQL001–014 and adds separate trust-key, immutable object,
+revocation, clock, workload-head and bootstrap challenge/proof records. It does
+not populate them from controller credentials, historical plan booleans or
+structural provenance. A validated signed workload head describes issuer
+authentication and retained freshness, while staged bootstrap material and an
+owner-approved authorization remain unable to sign or dispatch policies. Target
+durable epoch/generation acceptance, baseline/probes and production qualification
+are still required. The [registry contract](protected-signing-authority.md)
+distinguishes retained authorization from those missing target facts.
 
 ## Issuance and atomic decision admission
 

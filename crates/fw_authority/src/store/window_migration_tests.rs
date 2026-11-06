@@ -78,12 +78,12 @@ fn populated_schema13_migration_preserves_exact_original_bytes_and_infers_no_win
         AuthorityStore::open(&path),
         Err(AuthorityError::MigrationRequired {
             found: 13,
-            required: 14
+            required: 15
         })
     ));
     let backup = directory.path().join("schema13-backup.sqlite3");
     AuthorityStore::migrate(&path, &backup).unwrap();
-    assert_eq!(version(&path), 14);
+    assert_eq!(version(&path), 15);
     assert_eq!(version(&backup), 13);
     assert_eq!(exact_rows(&backup), before);
     let after = exact_rows(&path);
@@ -91,7 +91,7 @@ fn populated_schema13_migration_preserves_exact_original_bytes_and_infers_no_win
         let current = &after.iter().find(|(n, _)| n == &name).unwrap().1;
         if name == "authority_schema_migrations" {
             assert!(current.starts_with(&rows));
-            assert_eq!(current.len(), 14);
+            assert_eq!(current.len(), 15);
         } else {
             assert_eq!(current, &rows, "{name}");
         }

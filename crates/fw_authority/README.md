@@ -99,6 +99,25 @@ feature. Native executor and lab consumers disable default features, keeping
 these approval APIs and their WebAuthn/OpenSSL dependencies out of those builds.
 Grant, recovery and quota verification remain available without this feature.
 
+Schema15 adds signed workload bindings and exact original envelope/delegation
+staging, independently pinned purpose-specific keys, actual owner-bound WebAuthn
+bootstrap proofs and DSSE bootstrap authorizations. Its initial local/Lab profile
+uses one current activated owner; existing Team plan quorum does not supply
+complete Team bootstrap governance. Authorization stays
+`authorized_pending_target_confirmation`, with policy signing and dispatch false.
+Initial bootstrap refuses a target that already has a protected signing head,
+preserving its epoch/generation and issued or UNKNOWN obligations. Signed workload
+claims still need independently resolved asset revisions and packet-identity
+attestation. See the [bootstrap contract](../../docs/protected-signing-authority.md).
+
+The separate Linux [`fw_signer`](../fw_signer/README.md) process verifies distinct
+OS identities, protected key/database paths and kernel Unix peer credentials.
+Reference-only bootstrap requests resolve genuine retained owner proof before
+issuing exact DSSE; policy jobs retain current-authority, quota, original-window
+and claim fences. Production policy resolution remains closed pending target
+confirmation, qualified build/native evidence and policy-signer trust. A private
+test witness exercises core grant mechanics without opening that production gate.
+
 `QuotaLedger` uses SQLite `BEGIN IMMEDIATE`, WAL, and FULL synchronous writes.
 Root and project limits are checked in the same transaction: active leases,
 concurrent deployments, rolling 24-hour issuance counts, distinct destination
@@ -116,7 +135,7 @@ out-of-band enrollment and authority bootstrap, trusted artifact/gate
 admission, independent signer deployment/trust
 ceremonies, authenticated grant delivery/reconciliation, complete PostgreSQL
 authority transactions, and process/key isolation deployment. Public store paths
-accept plan decisions and development evidence but do not issue grants. The
+accept plan decisions and development evidence but do not issue production policy grants. The
 provisioning API is not an authenticated production service. SQLite unit/race/reopen tests do not certify
 production crash recovery or privileged OS enforcement. The separate
 [signed Linux lab](../../docs/signed-linux-execution.md)

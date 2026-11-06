@@ -30,7 +30,16 @@ def core_report():
             'original_expiry_boundary_observations': [
                 {'kind': 'positive', 'original_expires_at_unix': 160, 'target_unix': 152,
                  'started_at_unix': 152.01, 'finished_at_unix': 152.05,
-                 'minimum_remaining_seconds': 1, 'actual_remaining_seconds': {'token': 2}},
+                 'actual_elapsed_monotonic_seconds': .04,
+                 'conservative_binding_deduction_seconds': 6, 'packet_sampling_margin_seconds': 2,
+                 'clock_uncertainty_seconds': 1, 'elapsed_seconds': 0, 'commit_budget_seconds': 5,
+                 'binding_wall_time_unix': 100, 'binding_monotonic_millis': 1000,
+                 'sample_observed_at_unix': 152, 'sample_started_monotonic_millis': 53010,
+                 'sample_finished_monotonic_millis': 53040,
+                 'initial_timeout_seconds': 54, 'nft_representation_tolerance_seconds': 1,
+                 'monotonic_sampling_tolerance_millis': 1,
+                 'minimum_remaining_seconds': 1, 'maximum_remaining_seconds': 7,
+                 'actual_remaining_seconds': {'token': 2}},
                 {'kind': 'negative', 'original_expires_at_unix': 160, 'sampled_at_unix': 161.01,
                  'core_tokens_absent': True, 'new_and_established_tcp_blocked': True}]}
 
@@ -135,6 +144,51 @@ class SignedOutcomes(unittest.TestCase):
             report = copy.deepcopy(core_report())
             mutate(report)
             with self.assertRaises(runner.StageFailure):
+                runner.validate_core_evidence(report)
+
+    def test_core_boundary_requires_the_exact_original_end_minus_eight_target_and_six_second_deduction(self):
+        mutations = (
+            lambda value: value.pop('target_unix'),
+            lambda value: value.update(target_unix=100, started_at_unix=100.01, finished_at_unix=100.05),
+            lambda value: value.update(target_unix=151),
+            lambda value: value.update(target_unix=152.0),
+            lambda value: value.update(conservative_binding_deduction_seconds=5),
+            lambda value: value.pop('conservative_binding_deduction_seconds'),
+            lambda value: value.update(packet_sampling_margin_seconds=3),
+        )
+        for mutate in mutations:
+            report = copy.deepcopy(core_report())
+            mutate(report['original_expiry_boundary_observations'][0])
+            with self.subTest(mutate=mutate), self.assertRaises(runner.StageFailure):
+                runner.validate_core_evidence(report)
+
+    def test_core_boundary_independently_pins_executor_constants_and_clock_relationship(self):
+        mutations = (
+            {'clock_uncertainty_seconds': 10}, {'elapsed_seconds': 15}, {'commit_budget_seconds': 20},
+            {'clock_uncertainty_seconds': True}, {'elapsed_seconds': 0.0}, {'commit_budget_seconds': 5.0},
+            {'sample_observed_at_unix': 150}, {'sample_observed_at_unix': 154},
+            {'sample_started_monotonic_millis': 999},
+            {'sample_finished_monotonic_millis': 53009},
+            {'minimum_remaining_seconds': 2}, {'maximum_remaining_seconds': 8},
+            {'initial_timeout_seconds': 53}, {'monotonic_sampling_tolerance_millis': 0},
+            {'actual_remaining_seconds': {'token': 0}}, {'actual_remaining_seconds': {'token': 8}},
+            {'actual_remaining_seconds': {'token': True}},
+            {'started_at_unix': float('nan')}, {'actual_elapsed_monotonic_seconds': float('inf')},
+        )
+        for changed in mutations:
+            report = copy.deepcopy(core_report())
+            report['original_expiry_boundary_observations'][0].update(changed)
+            with self.subTest(changed=changed), self.assertRaises(runner.StageFailure):
+                runner.validate_core_evidence(report)
+
+    def test_core_boundary_missing_clock_fields_are_stage_failures(self):
+        for field in ('clock_uncertainty_seconds', 'elapsed_seconds', 'commit_budget_seconds',
+                      'binding_wall_time_unix', 'binding_monotonic_millis', 'sample_observed_at_unix',
+                      'sample_started_monotonic_millis', 'sample_finished_monotonic_millis',
+                      'started_at_unix', 'finished_at_unix', 'actual_elapsed_monotonic_seconds'):
+            report = copy.deepcopy(core_report())
+            report['original_expiry_boundary_observations'][0].pop(field)
+            with self.subTest(field=field), self.assertRaises(runner.StageFailure):
                 runner.validate_core_evidence(report)
 
 

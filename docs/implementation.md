@@ -4,6 +4,33 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+The current `feat/protected-signing-authority` batch starts at
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, an unmerged PR26 dependency.
+The [received follow-up review](reviews/pr26-follow-up-claude-review.md) confirms
+F1–F3, reports no development blocker, and identifies Low lab-timing D6a/D6b and
+a recovery-documentation gap. The [whole-store recovery boundary](authority-store.md#conflicting-legacy-core-windows-and-recovery)
+now states that conflicting legacy schema14 history rejects every tenant in that
+database and supplies no automatic repair or authority-preserving restore tool.
+The new batch implements signed authority/bootstrap records and a protected
+independent Linux signer boundary. Bootstrap must remain pending until target durable
+epoch/baseline/probe confirmation; missing production qualification keeps signing
+and dispatch closed. All 20 fresh final local stages and independent source/
+evidence/artifact review passed on unchanged inputs. All PR26 counts below describe
+historical source checkpoints. Current exact checks/contracts/status are in the
+ledger and reports. Remote PR26 CI remains blocked before execution by billing, with no merge
+or main-CI success claimed.
+
+The next engineering batch is installed Linux target authority activation,
+authenticated exact grant dispatch and completion. It must resolve qualified
+build/observer/capability/asset-revision and management-baseline evidence before
+target durable epoch acceptance, signed confirmation and management probes.
+Authenticated completion must precede any issued-capacity release. Linux account,
+key, installer/watchdog/reboot lifecycle and the actual Windows WFP/callout and
+macOS Network Extension tracks remain acceptance work; see the current ledger.
+
+The following PR26 assessment and planned-next-step wording describe their
+historical checkpoints. Current implementation and next work are recorded above.
+
 The [received PR26 review](reviews/pr26-claude-review.md) now covers the core
 checkpoint. Its [integrated follow-up](pr26-follow-up.md) tightens fixed-window
 binding across legacy paths, validates shape before clock observation and

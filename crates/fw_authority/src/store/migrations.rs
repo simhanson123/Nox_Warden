@@ -23,6 +23,7 @@ const MIGRATION_11: &str = include_str!("migration_011.sql");
 const MIGRATION_12: &str = include_str!("migration_012.sql");
 const MIGRATION_13: &str = include_str!("migration_013.sql");
 const MIGRATION_14: &str = include_str!("migration_014.sql");
+const MIGRATION_15: &str = include_str!("migration_015.sql");
 
 fn normalized_path(path: &Path) -> Result<std::path::PathBuf> {
     let parent = path
@@ -375,7 +376,7 @@ fn known_v10_digest() -> Result<Vec<u8>> {
 
 #[cfg(test)]
 pub(super) fn signing_guard_definitions() -> Result<&'static [(String, String)]> {
-    Ok(&known_v14()?.guards)
+    Ok(&known_v15()?.guards)
 }
 
 fn migration_11_checksum() -> Result<Vec<u8>> {
@@ -421,7 +422,7 @@ fn known_v11() -> Result<&'static SigningSchema> {
 /// Bounded metadata-only validation for already-open sensitive transactions.
 /// Expected bytes are built once from released SQL, never from the live store.
 pub(super) fn validate_live_schema(connection: &Connection) -> Result<()> {
-    if schema_digest(connection)? != known_v14()?.digest {
+    if schema_digest(connection)? != known_v15()?.digest {
         return Err(invalid("authority integrity guard missing or changed"));
     }
     Ok(())
@@ -787,7 +788,9 @@ pub(super) fn apply_v14(tx: &Transaction<'_>) -> Result<()> {
 
 pub(super) fn validate_v14(tx: &Transaction<'_>) -> Result<()> {
     validate_migrations(tx, 14)?;
-    validate_live_schema(tx)?;
+    if schema_digest(tx)? != known_v14()?.digest {
+        return Err(invalid("unexpected authority v14 schema"));
+    }
     #[cfg(test)]
     OPEN_VALIDATION_HOOK.with(|hook| {
         let callback = hook.borrow_mut().take();
@@ -798,6 +801,135 @@ pub(super) fn validate_v14(tx: &Transaction<'_>) -> Result<()> {
     validate_physical_integrity(tx)?;
     validate_retained_integrity(tx)?;
     access_window::validate_retained(tx)
+}
+
+fn create_registry_schema(tx: &Transaction<'_>) -> Result<()> {
+    tx.execute_batch(MIGRATION_15)?;
+    for table in [
+        "authority_registry_keys",
+        "authority_registry_key_revocations",
+        "authority_registry_objects",
+        "authority_registry_object_revocations",
+        "authority_bootstrap_proofs",
+    ] {
+        tx.execute_batch(&format!("CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table} BEGIN SELECT RAISE(ABORT,'immutable registry record'); END; CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained registry record'); END;"))?;
+    }
+    for table in [
+        "authority_registry_clocks",
+        "authority_workload_heads",
+        "authority_bootstrap_challenges",
+        "authority_bootstrap_pending_heads",
+    ] {
+        tx.execute_batch(&format!("CREATE TRIGGER {table}_no_delete BEFORE DELETE ON {table} BEGIN SELECT RAISE(ABORT,'retained registry projection'); END;"))?;
+    }
+    for (table, identity) in [
+        (
+            "authority_registry_keys",
+            "(org_id=NEW.org_id AND project_id=NEW.project_id AND key_id=NEW.key_id) OR (org_id=NEW.org_id AND key_fingerprint=NEW.key_fingerprint)",
+        ),
+        (
+            "authority_registry_key_revocations",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND key_id=NEW.key_id",
+        ),
+        (
+            "authority_registry_objects",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND ((object_kind=NEW.object_kind AND object_id=NEW.object_id) OR content_hash=NEW.content_hash)",
+        ),
+        (
+            "authority_registry_object_revocations",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND content_hash=NEW.content_hash",
+        ),
+        (
+            "authority_registry_clocks",
+            "org_id=NEW.org_id AND project_id=NEW.project_id",
+        ),
+        (
+            "authority_workload_heads",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND principal_id=NEW.principal_id AND target_id=NEW.target_id AND workload_id=NEW.workload_id",
+        ),
+        (
+            "authority_bootstrap_challenges",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND challenge_id=NEW.challenge_id",
+        ),
+        (
+            "authority_bootstrap_proofs",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND (proof_id=NEW.proof_id OR challenge_id=NEW.challenge_id OR proof_hash=NEW.proof_hash)",
+        ),
+        (
+            "authority_bootstrap_pending_heads",
+            "org_id=NEW.org_id AND project_id=NEW.project_id AND target_id=NEW.target_id",
+        ),
+    ] {
+        tx.execute_batch(&format!("CREATE TRIGGER {table}_no_replace BEFORE INSERT ON {table} WHEN EXISTS(SELECT 1 FROM {table} WHERE rowid=NEW.rowid OR ({identity})) BEGIN SELECT RAISE(ABORT,'retained registry identity'); END;"))?;
+    }
+    tx.execute_batch("CREATE TRIGGER authority_registry_clock_monotone BEFORE UPDATE ON authority_registry_clocks WHEN NEW.rowid!=OLD.rowid OR NEW.org_id!=OLD.org_id OR NEW.project_id!=OLD.project_id OR NEW.observed_at<OLD.observed_at BEGIN SELECT RAISE(ABORT,'registry clock regression'); END;
+        CREATE TRIGGER authority_workload_head_monotone BEFORE UPDATE ON authority_workload_heads WHEN NEW.rowid!=OLD.rowid OR NEW.org_id!=OLD.org_id OR NEW.project_id!=OLD.project_id OR NEW.principal_id!=OLD.principal_id OR NEW.target_id!=OLD.target_id OR NEW.workload_id!=OLD.workload_id OR NEW.binding_epoch<=OLD.binding_epoch BEGIN SELECT RAISE(ABORT,'workload epoch regression'); END;
+        CREATE TRIGGER authority_bootstrap_pending_head_monotone BEFORE UPDATE ON authority_bootstrap_pending_heads WHEN NEW.rowid!=OLD.rowid OR NEW.org_id!=OLD.org_id OR NEW.project_id!=OLD.project_id OR NEW.target_id!=OLD.target_id OR NEW.authority_epoch<=OLD.authority_epoch BEGIN SELECT RAISE(ABORT,'bootstrap epoch regression'); END;
+        CREATE TRIGGER authority_bootstrap_challenge_transition BEFORE UPDATE ON authority_bootstrap_challenges WHEN NEW.rowid!=OLD.rowid OR NEW.org_id!=OLD.org_id OR NEW.project_id!=OLD.project_id OR NEW.challenge_id!=OLD.challenge_id OR NEW.manifest_id!=OLD.manifest_id OR NEW.principal_id!=OLD.principal_id OR NEW.credential_id!=OLD.credential_id OR NEW.membership_id!=OLD.membership_id OR NEW.credential_revision!=OLD.credential_revision OR NEW.role_revision!=OLD.role_revision OR NEW.security_revision!=OLD.security_revision OR NEW.issued_at!=OLD.issued_at OR NEW.expires_at!=OLD.expires_at OR NEW.challenge_bytes!=OLD.challenge_bytes OR NEW.state_bytes!=OLD.state_bytes OR NEW.credential_bytes!=OLD.credential_bytes OR OLD.consumed_at IS NOT NULL OR NOT ((NEW.attempts=OLD.attempts+1 AND NEW.consumed_at IS NULL) OR (NEW.attempts=OLD.attempts AND NEW.consumed_at IS NOT NULL)) BEGIN SELECT RAISE(ABORT,'invalid bootstrap challenge transition'); END;")?;
+    Ok(())
+}
+
+fn known_v15() -> Result<&'static SigningSchema> {
+    static SCHEMA: std::sync::OnceLock<SigningSchema> = std::sync::OnceLock::new();
+    if let Some(schema) = SCHEMA.get() {
+        return Ok(schema);
+    }
+    let mut memory = Connection::open_in_memory()?;
+    let tx = memory.transaction()?;
+    initialize_v1(&tx)?;
+    apply_v2(&tx)?;
+    apply_v3(&tx)?;
+    apply_v4(&tx)?;
+    apply_v5(&tx)?;
+    apply_v6(&tx)?;
+    apply_v7(&tx)?;
+    tx.execute_batch(MIGRATION_8)?;
+    tx.execute_batch(MIGRATION_9)?;
+    tx.execute_batch(MIGRATION_10)?;
+    tx.execute_batch(MIGRATION_11)?;
+    signing_jobs::backfill_work_audits(&tx)?;
+    tx.execute_batch(signing_jobs::MIGRATION_WORK)?;
+    rebuild_v12_schema(&tx)?;
+    tx.execute_batch(MIGRATION_13)?;
+    tx.execute_batch(MIGRATION_14)?;
+    create_registry_schema(&tx)?;
+    let digest = schema_digest(&tx)?;
+    let mut stmt =
+        tx.prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")?;
+    let guards = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let _ = SCHEMA.set(SigningSchema { digest, guards });
+    SCHEMA.get().ok_or(invalid("known authority schema15"))
+}
+
+pub(super) fn apply_v15(tx: &Transaction<'_>) -> Result<()> {
+    validate_v14(tx)?;
+    create_registry_schema(tx)?;
+    migration_failpoint("schema15-registry-created")?;
+    tx.execute(
+        "INSERT INTO authority_schema_migrations VALUES(15,?,15,15,?)",
+        params![hash(&hash_bytes(MIGRATION_15.as_bytes()))?, now()?],
+    )?;
+    tx.pragma_update(None, "user_version", 15)?;
+    migration_failpoint("schema15-version-recorded")?;
+    validate_v15(tx)
+}
+
+pub(super) fn validate_v15(tx: &Transaction<'_>) -> Result<()> {
+    validate_migrations(tx, 15)?;
+    validate_live_schema(tx)?;
+    #[cfg(test)]
+    OPEN_VALIDATION_HOOK.with(|hook| {
+        let callback = hook.borrow_mut().take();
+        if let Some(callback) = callback {
+            callback();
+        }
+    });
+    validate_physical_integrity(tx)?;
+    validate_retained_integrity(tx)?;
+    access_window::validate_retained(tx)?;
+    authority_registry::validate_retained(tx)
 }
 
 #[cfg(test)]
@@ -1094,7 +1226,7 @@ pub(super) fn validate_v3(connection: &Connection) -> Result<()> {
 }
 
 fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
-    let mut query=connection.prepare("SELECT version,checksum,minimum_app_schema,maximum_app_schema FROM authority_schema_migrations ORDER BY version LIMIT 15")?;
+    let mut query=connection.prepare("SELECT version,checksum,minimum_app_schema,maximum_app_schema FROM authority_schema_migrations ORDER BY version LIMIT 16")?;
     let rows = query
         .query_map([], |r| {
             Ok((
@@ -1142,6 +1274,9 @@ fn validate_migrations(connection: &Connection, version: i64) -> Result<()> {
     }
     if version >= 14 {
         expected.push((14, hash(&hash_bytes(MIGRATION_14.as_bytes()))?, 14, 14));
+    }
+    if version >= 15 {
+        expected.push((15, hash(&hash_bytes(MIGRATION_15.as_bytes()))?, 15, 15));
     }
     if rows != expected {
         return Err(invalid("authority migration checksum or compatibility"));
@@ -1399,8 +1534,8 @@ impl AuthorityStore {
             let tx = connection.transaction()?;
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-            if application == APPLICATION_ID && version == 14 {
-                validate_v14(&tx)?;
+            if application == APPLICATION_ID && version == 15 {
+                validate_v15(&tx)?;
                 tx.commit()?;
                 return Ok(());
             }
@@ -1415,15 +1550,15 @@ impl AuthorityStore {
             let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let application: i64 = tx.query_row("PRAGMA application_id", [], |r| r.get(0))?;
             let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-            if application == APPLICATION_ID && version == 14 {
+            if application == APPLICATION_ID && version == 15 {
                 // Another maintainer finished while this connection waited.
                 drop(tx);
                 let tx = connection.transaction()?;
-                validate_v14(&tx)?;
+                validate_v15(&tx)?;
                 tx.commit()?;
                 return Ok(());
             }
-            if application != APPLICATION_ID || !(1..=13).contains(&version) {
+            if application != APPLICATION_ID || !(1..=14).contains(&version) {
                 return Err(invalid("authority migration requires known prior database"));
             }
             if version == 2 {
@@ -1462,6 +1597,9 @@ impl AuthorityStore {
             if version == 13 {
                 validate_v13(&tx)?;
             }
+            if version == 14 {
+                validate_v14(&tx)?;
+            }
             let original_schema = match version {
                 1 => known_v1_digest()?,
                 2 => known_v2_digest()?,
@@ -1475,7 +1613,8 @@ impl AuthorityStore {
                 10 => known_v10_digest()?,
                 11 => known_v11()?.digest.clone(),
                 12 => known_v12()?.digest.clone(),
-                _ => known_v13()?.digest.clone(),
+                13 => known_v13()?.digest.clone(),
+                _ => known_v14()?.digest.clone(),
             };
             if schema_digest(&tx)? != original_schema {
                 return Err(invalid("unexpected authority source schema"));
@@ -1523,7 +1662,10 @@ impl AuthorityStore {
             if version < 13 {
                 apply_v13(&tx)?;
             }
-            apply_v14(&tx)?;
+            if version < 14 {
+                apply_v14(&tx)?;
+            }
+            apply_v15(&tx)?;
             migration_failpoint("before-commit")?;
             tx.commit()?;
             Ok(())
@@ -1687,13 +1829,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 7,
-                    required: 14
+                    required: 15
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v8.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 14);
+            assert_eq!(version(&f.path), 15);
             assert_eq!(version(&backup), 7);
             assert_eq!(snapshot(&backup), before);
             let after = snapshot(&f.path);
@@ -1701,7 +1843,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 14);
+                    assert_eq!(upgraded.len(), 15);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1732,13 +1874,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 8,
-                    required: 14
+                    required: 15
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v9.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 14);
+            assert_eq!(version(&f.path), 15);
             assert_eq!(version(&backup), 8);
             assert_eq!(snapshot(&backup), before);
             let after = snapshot(&f.path);
@@ -1746,7 +1888,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 14);
+                    assert_eq!(upgraded.len(), 15);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1778,13 +1920,13 @@ mod tests {
                 AuthorityStore::open(&f.path),
                 Err(AuthorityError::MigrationRequired {
                     found: 9,
-                    required: 14
+                    required: 15
                 })
             ));
             let before = snapshot(&f.path);
             let backup = f.directory.path().join("before-v10.sqlite3");
             AuthorityStore::migrate(&f.path, &backup).unwrap();
-            assert_eq!(version(&f.path), 14);
+            assert_eq!(version(&f.path), 15);
             assert_eq!(snapshot(&backup), before);
             assert_private_backup(&backup, 9);
             let after = snapshot(&f.path);
@@ -1792,7 +1934,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 14);
+                    assert_eq!(upgraded.len(), 15);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {expected}");
                 }
@@ -1839,7 +1981,7 @@ mod tests {
                 let upgraded = &after.iter().find(|(name, _)| name == table).unwrap().1;
                 if table == "authority_schema_migrations" {
                     assert!(upgraded.starts_with(rows));
-                    assert_eq!(upgraded.len(), 14);
+                    assert_eq!(upgraded.len(), 15);
                 } else {
                     assert_eq!(upgraded, rows, "{table}: {state}");
                 }
@@ -2060,7 +2202,7 @@ mod tests {
             let backup = f.directory.path().join("should-not-exist.sqlite3");
             assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
             assert!(!backup.exists());
-            assert_eq!(version(&f.path), 14);
+            assert_eq!(version(&f.path), 15);
         }
     }
 
@@ -2095,7 +2237,7 @@ mod tests {
                 assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
                 assert!(!backup.exists());
                 assert!(!backup.with_extension("manifest.json").exists());
-                assert_eq!(version(&f.path), 14);
+                assert_eq!(version(&f.path), 15);
                 assert_eq!(snapshot(&f.path), before);
             }
         }
@@ -2126,7 +2268,7 @@ mod tests {
         assert!(AuthorityStore::migrate(&f.path, &backup).is_err());
         assert!(!backup.exists());
         assert!(!backup.with_extension("manifest.json").exists());
-        assert_eq!(version(&f.path), 14);
+        assert_eq!(version(&f.path), 15);
         assert_eq!(snapshot(&f.path), before);
     }
 

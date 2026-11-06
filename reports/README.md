@@ -6,7 +6,178 @@ in Git. Raw reports, logs and screenshots are ignored. Selected smoke reports
 remain downloadable for seven days from [GitHub Actions](https://github.com/simhanson123/Nox_Warden/actions/workflows/ci.yml).
 The supplied specification and fixtures under `docs/specs` remain unchanged.
 
-## Current PR26 review follow-up
+## Current protected authority and signer batch
+
+`feat/protected-signing-authority` starts at
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. PR26 remains an open,
+unmerged dependency on that head; `main` remains at
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`. The lead rechecked the PR's
+billing-lock annotation. Neither local validation nor this new branch establishes
+a remote CI PASS, merge or successful main CI.
+
+The [received follow-up review](../docs/reviews/pr26-follow-up-claude-review.md)
+confirms F1–F3 and reports no development blocker. Its 15,477 original bytes,
+193 CRLF endings and SHA256
+`5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa`
+are preserved. Its private probes were not supplied; its Docker/native suites
+were NOT_RUN. D6a/D6b concern conservative lab timing validation and availability.
+The [whole-database conflict recovery boundary](../docs/authority-store.md#conflicting-legacy-core-windows-and-recovery)
+now records the affected tenants, evidence preservation, trustworthy compatible
+restore context and strict genuine-request registration requirements. There is
+no automatic database repair or implemented production restore procedure.
+
+The current substantial batch implements signed authority/bootstrap admission and
+an independent signer process while retaining explicit pending target confirmation
+and unavailable production qualification. All 20 fresh final local stages and
+the independent source/report/binary/artifact audit passed. `bash scripts/check.sh`
+passed 1,016 workspace Rust tests (3 ignored; 2 nested worker summaries excluded),
+1 explicit cancellation CLI test, 32 reduced-feature tests, Python diagnostic
+suites 36/6/14/3 and 211 UI tests in 11 files, both UI builds, contracts, fmt and
+Clippy. Fresh shared-umask authority/service tests passed 593 tests (3 ignored;
+2 nested worker summaries excluded), and the workspace binaries/examples build
+passed. All 20 stages retained the same 427-input source digest:
+`f55ec761434508c86be4365f1d2afd98e1c22fc9bb5d6b429ffbdf9e004fc11b`.
+The following PR26 sections retain historical counts and source digests; they
+are not reused as validation of the changed source.
+
+The complete [Korean review prompt](../docs/protected-signing-review-prompt-ko.txt)
+fixes the comparison base and resolves the exact resulting feature head/tree from
+the branch's stacked-PR completion record. That record and the user handoff carry
+the complete actual-SHA prompt; preparation is not a Claude review execution.
+
+| Fresh runtime suite | Passing checks | Actual execution |
+| --- | ---: | --- |
+| HTTP / CLI / separate CLI protocol | 24 / 13 / 5 | Real processes; separate synthetic CLI protocol fixture |
+| Enrollment API / browser / metadata | 23 / 25 / 41 | TLS services and retained evidence |
+| Catalogue / passkeys / login admission | 11 / 76 / 14 | Browser and virtual CTAP2 |
+| Audit / authority browser | 21 / 43 | Services and retained review |
+| Isolated Linux | 66 | 40 actual packet probes |
+| Signed Linux | 98 | 43 actual packet probes |
+| Core access Linux | 85 | 26 actual packet probes and two signed captures |
+| Native evidence | 33 | Five actual captures; zero packet probes |
+| Protected signer | 47 | Distinct-UID processes and exactly 17 operator CLI invocations; zero packet probes |
+
+The core run checks typed `U=1/e=0/C=5`, deduction6 and exact original `E−8`.
+The independently recomputed minimum was 2 seconds and both actual tokens retained
+5 seconds in a 6.291 ms observation bracket. At `E+2.059`, core tokens were absent
+and new/established TCP was blocked. Owner activation/assertion and bootstrap DSSE issuance run through the
+actual protected signer; independent verification, lost initial response/exact
+durable retry, key loss, database replacement and restart are exercised without
+issuing a policy result or opening dispatch. These are local test identities,
+not production enrollment or native qualification.
+
+The actual legacy compatibility/migration probe passed 15 checks, separately
+covering genuine old-binary initialization/migration and the inherited conflicting
+schema14 candidate. The separately built old `3866cea` admin executable has SHA256
+`e87b4e5aa08ba27c756b5faad33c5f29c3097afd306c2b7f0fb9511dae5a8118`.
+It was freshly built in an isolated target from 169 verified old production
+inputs; the separate old private regression test is not compiled into that binary.
+The healthy CLI-seeded control preserves rows, hidden rowids, SQLite types and
+BLOB bytes across all 66 old tables; nine registry tables start empty and its
+backup matches the manifest digest. This small control does not exercise rich
+issued/UNKNOWN histories. The inherited conflicting candidate remains unchanged
+and produces the exact open/migrate refusals before backup creation.
+Cleanup found zero containers, active test services or active
+browsers; 111 browser/crashpad zombies were recorded separately and not reaped.
+The independent audit confirms 20/20 stages and source/report/binary correspondence,
+SHA256 `fbba22cd7496ed40263c599a21fee8a0c7af2656550e3c8c8b42b863b833c7a8`.
+Targeted structure inspection of all 14 selected CI artifacts passed, SHA256
+`121638baa6724f9572a6e39d4b88a76fb471dec90993004debf1e8df95ae8334`.
+That inspection is not a general secret scan or an external Claude review.
+The frozen final local summary has SHA256
+`b91472b08488522940bed35e2f555e69ec9e2dd792ddb52af6706c24903ae179`.
+The preservation audit confirms 80 immutable original files and separately
+classifies the one legitimately changed migration regression fixture.
+
+Four preliminary canonical attempts failed on Clippy findings, a test-only
+recursive-hook borrow and a stale schema9 migration table-count expectation.
+Those failures and earlier protected-fixture setup failures remain private and
+are excluded from the final passing totals. Corrections preceded the fresh final
+freeze and checks; no production qualification is inferred from their success.
+
+Reproduce the main checks from the repository root with the pinned environment:
+
+```sh
+source scripts/dev-env.sh
+bash scripts/check.sh
+(umask 0002; cargo test --locked -p fw_authority -p fw_authority_service)
+cargo build --locked --workspace --bins --examples
+cargo test --locked -p fw_authority --test authority_registry_contracts --test authority_registry_store --test authority_registry_integrity --test authority_registry_admin --test authority_registry_matrix
+cargo test --locked -p fw_authority --lib schema15_
+cargo test --locked -p fw_signer
+python native/linux/test_core_snapshot_runner.py
+python native/linux/test_signed_runner.py
+python scripts/smoke_protected_signer.py --report reports/protected-signer-smoke.json
+python scripts/linux-lab.py --report reports/linux-lab.json
+python scripts/signed-linux-lab.py --report reports/signed-linux-lab.json
+python scripts/core-access-linux-lab.py --report reports/core-access-linux-lab.json
+python scripts/smoke_native_evidence.py --report reports/native-evidence-smoke.json
+```
+
+The last five commands require managed disposable Docker. Preserve its configured
+socket, proxy/CA and authentication; use `--skip-image-build` only after building
+the pinned lab image. No command targets a host's active firewall. Registry matrix
+tests live in [authority_registry_matrix.rs](../crates/fw_authority/tests/authority_registry_matrix.rs):
+two tests contain 144 refusal attempts and 52 rollback-only SQL controls; these
+are assertions within tests, not additional workspace test totals. Rich retained
+issued/UNKNOWN/active migration histories and hidden-rowid checks are in
+[migration_rebuild_tests.rs](../crates/fw_authority/src/store/migration_rebuild_tests.rs).
+The individual CLI migration test compares typed rows and original evidence;
+do not describe each CLI fixture as independently checking hidden rowids.
+
+D6's new regressions can be replayed against the exact old production Python
+modules without a private harness or Docker:
+
+```sh
+nox_d6_probe=$(mktemp -d /tmp/nox-d6-repro.XXXXXX)
+mkdir -p "$nox_d6_probe/native/linux" "$nox_d6_probe/scripts"
+cp native/linux/test_core_snapshot_runner.py native/linux/test_signed_runner.py "$nox_d6_probe/native/linux/"
+git show dded7e94e84ef0e59a0552e961c5c57eaaabdd81:native/linux/core_access_lifecycle.py > "$nox_d6_probe/native/linux/core_access_lifecycle.py"
+git show dded7e94e84ef0e59a0552e961c5c57eaaabdd81:native/linux/signed_lifecycle.py > "$nox_d6_probe/native/linux/signed_lifecycle.py"
+git show dded7e94e84ef0e59a0552e961c5c57eaaabdd81:scripts/signed-linux-lab.py > "$nox_d6_probe/scripts/signed-linux-lab.py"
+python -m unittest discover -s "$nox_d6_probe/native/linux" -p test_core_snapshot_runner.py
+python -m unittest discover -s "$nox_d6_probe/native/linux" -p test_signed_runner.py
+```
+
+Both old-module runs are expected to fail at the constants/shape/rounding
+assertions, including old missing-field errors; import/setup failures do not
+reproduce D6. Run both commands even when the first exits nonzero. The same
+committed tests against current modules must pass. These are new independent
+regressions, not the supplied reviewer's unavailable probes.
+
+For the genuine old CLI migration control, build the reviewed `3866cea` production
+source in a separate tree/target rather than reconstructing old SQL:
+
+```sh
+nox_old14_tree=$(mktemp -d /tmp/nox-old14-repro.XXXXXX)
+git archive 3866ceaa2b86da3ea3653da338d433a23a02b283 | tar -x -C "$nox_old14_tree"
+CARGO_TARGET_DIR="$nox_old14_tree/target" cargo build --locked --manifest-path "$nox_old14_tree/Cargo.toml" -p fw_authority --bin fw_authority_admin
+```
+
+Use that exact binary's `init`, `init-project` and `pin-target` commands with a
+private database and a synthetic public pin shaped as documented in the
+[metadata administration guide](../docs/target-metadata.md#local-maintenance-and-device-flow).
+They create a genuine schema14 namespace, target pin and two audit events. Stop
+all writers, preserve the original and migrate a consistent separate copy with
+the current `fw_authority_admin migrate --database COPY --backup UNUSED_PATH`.
+Compare original/copy/backup SQLite types and evidence bytes; this small control
+does not supply signed jobs or rich quota history.
+
+The incompatible schema14 candidate is separate preserved evidence created by
+the old `3866cea` public API in the earlier follow-up, not recreated by those three
+CLI seed commands. Its construction paths are the old full-core registration and
+legacy provenance APIs exercised by
+[core_access_window.rs](../crates/fw_authority/tests/core_access_window.rs) and the
+[F1 reproduction](../docs/pr26-follow-up.md#reproduction-and-verification).
+The current ordinary open may stop at `MigrationRequired`/`DATABASE_REJECTED`;
+explicit migration reaches strict window validation and refuses with
+`Binding`/`MIGRATION_REJECTED` before creating a new backup/manifest. The final
+report must distinguish that inherited byte-preserved candidate, the freshly
+built/CLI-seeded control and reconstructed permanent migration fixtures.
+
+<a id="current-pr26-review-follow-up"></a>
+
+## PR26 review follow-up checkpoint (historical)
 
 The [received PR26 review](../docs/reviews/pr26-claude-review.md) targets
 `3866ceaa2b86da3ea3653da338d433a23a02b283`.

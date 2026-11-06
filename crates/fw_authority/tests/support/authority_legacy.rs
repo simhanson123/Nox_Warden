@@ -564,6 +564,7 @@ pub fn restore_v12(path: &std::path::Path) {
 /// populated window would erase new authority evidence and is never allowed.
 #[allow(dead_code)]
 pub fn restore_v13(path: &std::path::Path) {
+    restore_v14(path);
     let db = rusqlite::Connection::open(path).unwrap();
     let version: i64 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
@@ -593,5 +594,50 @@ pub fn restore_v13(path: &std::path::Path) {
     db.execute_batch("DROP TABLE authority_core_access_lease_windows; DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=14;").unwrap();
     db.execute_batch(&guard).unwrap();
     db.pragma_update(None, "user_version", 13).unwrap();
+    db.pragma_update(None, "foreign_keys", "ON").unwrap();
+}
+
+/// Strip only empty schema15 additions in a test database. Product code has no
+/// downgrade; populated identity/proof history must never be silently removed.
+#[allow(dead_code)]
+pub fn restore_v14(path: &std::path::Path) {
+    let db = rusqlite::Connection::open(path).unwrap();
+    let version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    if version <= 14 {
+        return;
+    }
+    assert_eq!(version, 15);
+    db.pragma_update(None, "foreign_keys", "OFF").unwrap();
+    let tables = include_str!("../../src/store/migration_015.sql")
+        .lines()
+        .filter_map(|line| line.strip_prefix("CREATE TABLE "))
+        .map(|line| line.split_whitespace().next().unwrap())
+        .collect::<Vec<_>>();
+    for table in &tables {
+        let count: i64 = db
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "cannot reconstruct schema14 with registry authority evidence"
+        );
+    }
+    for table in tables.into_iter().rev() {
+        db.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+    }
+    let guard: String = db
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE name='authority_schema_migrations_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    db.execute_batch("DROP TRIGGER authority_schema_migrations_no_delete; DELETE FROM authority_schema_migrations WHERE version=15;").unwrap();
+    db.execute_batch(&guard).unwrap();
+    db.pragma_update(None, "user_version", 14).unwrap();
     db.pragma_update(None, "foreign_keys", "ON").unwrap();
 }

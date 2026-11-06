@@ -1,22 +1,30 @@
 # Independent review prompts
 
-> The supplied [Claude Opus5.5 PR26 review](reviews/pr26-claude-review.md) is received.
-> Its target is `3866ceaa2b86da3ea3653da338d433a23a02b283`; do not request another
-> review of that unchanged target. Read [the follow-up](pr26-follow-up.md).
-> The current correction batch addresses F1/F2, strict legacy upgrade and storage
-> boundary wording, and four native lab verification gaps. Use **Claude Opus5.5
-> only** for one consolidated review of the actual corrected head.
-> Final local checks and independent source/evidence review passed; the exact
-> new counts and qualifications are in [reports](../reports/README.md).
-> Next comparison base: `3866ceaa2b86da3ea3653da338d433a23a02b283`.
+> The supplied [Claude Opus5.5 PR26 follow-up review](reviews/pr26-follow-up-claude-review.md)
+> is received for `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, tree
+> `9108060e91b2cf9659b598e5f670f095f72f3305`, against
+> `3866ceaa2b86da3ea3653da338d433a23a02b283`. It confirms F1–F3 and
+> reports no development blocker. Do not request another review of either
+> unchanged received PR26 target. Read [the follow-up](pr26-follow-up.md).
+> The current substantial batch connects protected bootstrap/signed authority and
+> independent signer boundaries and addresses D6a/D6b plus conflict recovery docs.
+> Use **Claude Opus5.5 only** for one consolidated review of the actual new head.
+> Fresh checks and current qualifications belong in [reports](../reports/README.md);
+> prior counts remain historical. Preparing this request is not review execution.
+> Next comparison base: `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`.
 > Original PR base: `a624a1e684a8fc0065ac4f4609101410f56c50bb`.
-> Branch: `feat/core-access-enforcement`, PR26. Resolve the final target/tree and
-> CI from the retained PR completion record. Its initial CI was blocked before
-> execution by billing; local results never replace remote CI success.
+> Branch: `feat/protected-signing-authority`, based on open/unmerged PR26.
+> Resolve the final target/tree and new PR CI separately. PR26 CI remains blocked
+> before execution by billing; local results never replace remote CI success.
 > The full prompt with actual new SHAs must be printed in the conversation and
-> retained in PR26. Prompt preparation/internal review is not Claude execution.
+> retained in the new PR. Prompt preparation/internal review is not Claude execution.
 > Published SQL001–014 and original reviews/specs remain preserved; operational
 > signing/dispatch remain closed. Start with [the session prompt](session-start-prompt.txt).
+
+The current complete [Korean consolidated prompt](protected-signing-review-prompt-ko.txt)
+pins comparison base `dded7e9` and resolves the new target from the final feature
+commit/stacked-PR completion record. The PR and user handoff must additionally
+print the actual complete head/tree; preparing this prompt is not review execution.
 
 > Historical PR #16 prompts below. Historical reservation-integrity review prompts,
 > exact base and target are in [PR #19](https://github.com/simhanson123/Nox_Warden/pull/19).

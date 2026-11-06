@@ -8,6 +8,10 @@ use crate::{
 };
 use serde::Deserialize;
 
+#[cfg(test)]
+#[path = "signer_adapter_tests.rs"]
+mod signer_adapter_tests;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SigningRequest {
@@ -142,11 +146,19 @@ struct ProtectedSigningAuthority {
     trust: TrustKey,
 }
 fn protected_authority(
-    _tx: &Transaction<'_>,
-    _tenant: &AuthorityTenant,
-    _plan_id: &str,
-    _now: i64,
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    plan_id: &str,
+    now: i64,
 ) -> Result<ProtectedSigningAuthority> {
+    let retained = records::retained_plan(tx, tenant, plan_id)?;
+    let plan: Value = decode(&retained.subject.plan_bytes)?;
+    if plan["change_kind"] == "add_access_lease" {
+        // Signed workload identity and retained owner-authorized bootstrap are
+        // independently resolved. Even their successful verification cannot
+        // supply target epoch acceptance, native qualification or a policy key.
+        let _registry = authority_registry::core_registry_in_tx(tx, tenant, &plan, now)?;
+    }
     Err(invalid("protected signing authority unavailable"))
 }
 pub(super) fn protected_job_eligibility(
@@ -275,14 +287,20 @@ pub(super) fn intent_at(
         return Err(invalid("signing intent projection"));
     }
     hash(&record.payload_hash)?;
+    let plan = records::retained_plan(tx, tenant, &record.plan_id)?;
+    let retained_plan: Value = decode(&plan.subject.plan_bytes)?;
+    let expected_type = if retained_plan["change_kind"] == "add_access_lease" {
+        crate::CORE_GRANT_TYPE
+    } else {
+        crate::POLICY_CHANGE_GRANT_TYPE
+    };
     if record.signer_key.org_id != tenant.org_id
-        || record.signer_key.payload_type != crate::POLICY_CHANGE_GRANT_TYPE
+        || record.signer_key.payload_type != expected_type
         || record.signer_key.not_before > row.10
         || record.signer_key.not_after < row.11
     {
         return Err(invalid("retained signer binding"));
     }
-    let plan = records::retained_plan(tx, tenant, &record.plan_id)?;
     if plan.subject.plan_hash != record.plan_hash
         || row.10 < plan.registered_at
         || row.11 > plan.subject.valid_until
@@ -311,13 +329,40 @@ pub(super) fn job_at(
         || job.job().payload["approval_set_hash"] != intent.approval_set_hash
         || job.job().payload["authority_epoch"] != intent.authority_epoch
         || job.job().payload["target_generation"] != intent.target_generation
-        || job.job().payload["dispatch_reservation_id"] != intent.reservation_id
     {
         return Err(invalid("signing job projection"));
     }
     let retained = records::retained_plan(tx, tenant, &intent.plan_id)?;
     let plan: Value = decode(&retained.subject.plan_bytes)?;
     let payload = &job.job().payload;
+    let core = plan["change_kind"] == "add_access_lease";
+    if core {
+        let reservation = signing_quota::read_job_binding(tx, tenant, &intent.reservation_id)?;
+        // The signed counters are the immutable reservation snapshot. Current
+        // quota and pin revisions are checked separately before issuance.
+        if payload["reservation"] != core_reservation_payload(&reservation)? {
+            return Err(invalid("core signing reservation binding"));
+        }
+        let original = access_provenance::retained_in_tx(tx, tenant, &retained, row.2)?
+            .ok_or(AuthorityError::Binding)?;
+        if payload["lease_id"] != original.verified.lease_id()
+            || payload["request_id"] != original.verified.request_id()
+        {
+            return Err(invalid("core signing original binding"));
+        }
+        for field in [
+            "workload_binding_id",
+            "requested_policy_hashes",
+            "envelope_hash",
+            "delegation_hash",
+        ] {
+            if payload[field] != plan[field] {
+                return Err(invalid("core signing plan binding"));
+            }
+        }
+    } else if payload["dispatch_reservation_id"] != intent.reservation_id {
+        return Err(invalid("signing reservation binding"));
+    }
     for field in [
         "artifact_hash",
         "baseline_hash",
@@ -351,9 +396,7 @@ fn snapshot(
 ) -> Result<SigningSnapshot> {
     let subject = records::plan(tx, tenant, &request.plan_id, now)?;
     let plan: Value = decode(&subject.plan_bytes)?;
-    if plan["change_kind"] != "policy_change" {
-        return Err(invalid("core request authority unavailable"));
-    }
+    let core = plan["change_kind"] == "add_access_lease";
     if subject.plan_hash != request.expected_plan_hash {
         return Err(AuthorityError::Binding);
     }
@@ -388,13 +431,31 @@ fn snapshot(
     native_evidence::baseline_binding_in_tx(tx, tenant, &request.plan_id)?
         .ok_or(AuthorityError::Binding)?;
     let metadata_hash = canonical_hash(&metadata.receipt).map_err(|_| invalid("metadata hash"))?;
-    let inputs = json!({"schema_version":"fw.signing-inputs/v1","plan_hash":subject.plan_hash,"approval_set_hash":approval.hash(),"review_hash":review.evidence_hash(),"metadata_hash":metadata_hash,"native_compilation_hash":compilation.evidence_hash,"native_observation_hash":baseline.receipt_hash,"security_revision":security_revision(tx,tenant)?.to_string()});
-    let valid_until = subject
+    let mut inputs = json!({"schema_version":"fw.signing-inputs/v1","plan_hash":subject.plan_hash,"approval_set_hash":approval.hash(),"review_hash":review.evidence_hash(),"metadata_hash":metadata_hash,"native_compilation_hash":compilation.evidence_hash,"native_observation_hash":baseline.receipt_hash,"security_revision":security_revision(tx,tenant)?.to_string()});
+    let mut valid_until = subject
         .valid_until
         .min(approval.valid_until())
         .min(crate::timestamp(&metadata.receipt.valid_until)?)
         .min(crate::timestamp(&compilation.valid_until)?)
         .min(crate::timestamp(&baseline.valid_until)?);
+    if core {
+        let original = access_provenance::provenance_in_tx(tx, tenant, &subject, now)?
+            .ok_or(AuthorityError::Binding)?;
+        if !access_window::current_reviewed_window(tx, tenant, &subject, now)? {
+            return Err(AuthorityError::Binding);
+        }
+        let window = access_window::provenance_window_in_tx(tx, tenant, &plan, &original)?
+            .ok_or(AuthorityError::Binding)?;
+        if !window.current(tx, tenant, &original, now)? {
+            return Err(AuthorityError::Time);
+        }
+        inputs["schema_version"] = "fw.core-signing-inputs/v1".into();
+        inputs["core_provenance_hash"] = original.hash().into();
+        inputs["lease_window_hash"] = window.hash().into();
+        valid_until = valid_until
+            .min(original.valid_until())
+            .min(window.expires_at());
+    }
     Ok(SigningSnapshot {
         plan,
         inputs_hash: canonical_hash(&inputs).map_err(|_| invalid("signing input hash"))?,
@@ -710,6 +771,27 @@ fn latest_plan_job(
     ).optional()?)
 }
 
+fn core_reservation_payload(reservation: &SigningBudgetReservation) -> Result<Value> {
+    let root = reservation
+        .root_id
+        .as_deref()
+        .ok_or(AuthorityError::Binding)?;
+    let usage = reservation
+        .root_projected
+        .as_ref()
+        .ok_or(AuthorityError::Binding)?;
+    Ok(json!({
+        "reservation_id":reservation.reservation_id,"root_id":root,"status":"reserved",
+        "reserved_until":reservation.reserved_until,
+        "projected_active_leases":usage.active_leases,
+        "projected_new_leases_per_day":usage.new_leases_per_day,
+        "projected_unique_destinations_per_day":usage.unique_destinations_per_day,
+        "projected_cumulative_lease_seconds_per_day":usage.cumulative_seconds_per_day,
+        "projected_concurrent_deployments":usage.concurrent_deployments,
+        "window_start":reservation.window_start,"window_end":reservation.window_end
+    }))
+}
+
 fn prepare_in_tx(
     tx: &Transaction<'_>,
     tenant: &AuthorityTenant,
@@ -751,8 +833,14 @@ fn prepare_in_tx(
     {
         return Err(AuthorityError::Time);
     }
+    let core = snapshot.plan["change_kind"] == "add_access_lease";
     if authority.trust.org_id != tenant.org_id
-        || authority.trust.payload_type != crate::POLICY_CHANGE_GRANT_TYPE
+        || authority.trust.payload_type
+            != if core {
+                crate::CORE_GRANT_TYPE
+            } else {
+                crate::POLICY_CHANGE_GRANT_TYPE
+            }
     {
         return Err(AuthorityError::Binding);
     }
@@ -761,9 +849,32 @@ fn prepare_in_tx(
     let reservation_id = new_id()?;
     let grant_id = new_id()?;
     let cost = signing_quota::cost_for_plan(tx, tenant, &request.plan_id, now)?;
-    signing_quota::reserve(tx, tenant, &reservation_id, &cost, until, now)?;
+    let reservation = signing_quota::reserve(tx, tenant, &reservation_id, &cost, until, now)?;
     let plan = &snapshot.plan;
-    let payload = json!({"schema_version":"f.policy-change-grant/v1","grant_id":grant_id,"plan_id":request.plan_id,"plan_hash":request.expected_plan_hash,"org_id":tenant.org_id,"project_id":tenant.project_id,"target_id":target,"principal_id":plan["principal_id"],"approval_set_hash":snapshot.approval_set_hash,"authority_epoch":epoch.to_string(),"target_generation":generation.to_string(),"issued_at":at(now)?,"not_after":at(until)?,"artifact_hash":plan["artifact_hash"],"baseline_hash":plan["baseline_hash"],"confirm_timeout_seconds":60,"confirm_not_after":at(until.checked_add(60).ok_or(AuthorityError::Time)?)?,"rollback_authority":plan["rollback_authority"],"change_kind":"policy_change","request_patch_hash":plan["request_patch_hash"],"desired_state_hash":plan["desired_state_hash"],"dispatch_reservation_id":reservation_id});
+    let mut payload = json!({"schema_version":"f.policy-change-grant/v1","grant_id":grant_id,"plan_id":request.plan_id,"plan_hash":request.expected_plan_hash,"org_id":tenant.org_id,"project_id":tenant.project_id,"target_id":target,"principal_id":plan["principal_id"],"approval_set_hash":snapshot.approval_set_hash,"authority_epoch":epoch.to_string(),"target_generation":generation.to_string(),"issued_at":at(now)?,"not_after":at(until)?,"artifact_hash":plan["artifact_hash"],"baseline_hash":plan["baseline_hash"],"confirm_timeout_seconds":60,"confirm_not_after":at(until.checked_add(60).ok_or(AuthorityError::Time)?)?,"rollback_authority":plan["rollback_authority"],"change_kind":"policy_change","request_patch_hash":plan["request_patch_hash"],"desired_state_hash":plan["desired_state_hash"],"dispatch_reservation_id":reservation_id});
+    if core {
+        let retained = records::retained_plan(tx, tenant, &request.plan_id)?;
+        let original = access_provenance::provenance_in_tx(tx, tenant, &retained.subject, now)?
+            .ok_or(AuthorityError::Binding)?;
+        let map = payload.as_object_mut().ok_or(AuthorityError::Binding)?;
+        map.remove("dispatch_reservation_id");
+        map.insert("schema_version".into(), "f.grant/v1".into());
+        map.insert("change_kind".into(), "add_access_lease".into());
+        map.insert("lease_id".into(), original.lease_id().into());
+        map.insert("request_id".into(), original.request_id().into());
+        for field in [
+            "workload_binding_id",
+            "requested_policy_hashes",
+            "envelope_hash",
+            "delegation_hash",
+        ] {
+            map.insert(field.into(), plan[field].clone());
+        }
+        map.insert(
+            "reservation".into(),
+            core_reservation_payload(&reservation)?,
+        );
+    }
     let job = SigningJob {
         schema_version: SIGNING_JOB_SCHEMA.into(),
         job_id: job_id.clone(),
@@ -942,7 +1053,148 @@ fn grant_context(
         now_unix: now,
     })
 }
+
+/// A signer-local adapter, never a deserialized controller assertion. It binds
+/// sign_grant to the exact retained payload and authority snapshot checked under
+/// the same write transaction. It cannot be constructed outside this module.
+struct RetainedJobEvidence {
+    payload_bytes: Vec<u8>,
+    context: GrantContext,
+}
+impl crate::AuthorityEvidence for RetainedJobEvidence {
+    fn verify_for_signing(&self, payload: &Value, now: i64) -> Result<GrantContext> {
+        if now != self.context.now_unix || bytes(payload)? != self.payload_bytes {
+            return Err(AuthorityError::Binding);
+        }
+        Ok(self.context.clone())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sign_claim_in_tx(
+    tx: &Transaction<'_>,
+    tenant: &AuthorityTenant,
+    verifier: &WebAuthn,
+    claim: &signing_jobs::SigningClaim,
+    key_id: &str,
+    key: &ed25519_dalek::SigningKey,
+    authority: &ProtectedSigningAuthority,
+    now: i64,
+) -> Result<SignerResult> {
+    let prepared = job_at(tx, tenant, claim.job_id())?;
+    let intent = intent_at(tx, tenant, &prepared.job().intent_id)?;
+    if key_id != authority.trust.key_id
+        || key.verifying_key().to_bytes() != authority.trust.public_key
+        || RetainedSignerKey::from_trust(&authority.trust) != intent.signer_key
+    {
+        return Err(AuthorityError::Signature);
+    }
+    signing_jobs::validate_finalize_claim(tx, tenant, claim.job_id(), claim, now)?;
+    let snapshot = snapshot(tx, tenant, verifier, &intent.request, now)?;
+    if snapshot.inputs_hash != intent.inputs_hash
+        || now >= crate::timestamp(&intent.valid_until)?
+        || now >= snapshot.valid_until
+        || target_head(tx, tenant, &intent.target_id)?
+            != Some((
+                crate::counter(&intent.authority_epoch)?,
+                crate::counter(&intent.target_generation)?,
+            ))
+    {
+        return Err(AuthorityError::Binding);
+    }
+    // Independent current root/project quotas and exact pin revisions are
+    // checked before any private-key operation as well as at finalization.
+    signing_quota::finalize_admission(tx, tenant, &intent.reservation_id, now)?;
+    if authority.trust.revoked
+        || now < authority.trust.not_before
+        || now >= authority.trust.not_after
+        || crate::timestamp(&intent.valid_until)? > authority.trust.not_after
+    {
+        return Err(AuthorityError::Time);
+    }
+    let evidence = RetainedJobEvidence {
+        payload_bytes: prepared.payload_bytes().to_vec(),
+        context: grant_context(tenant, &snapshot, now)?,
+    };
+    let signed_grant =
+        crate::sign_grant(prepared.job().payload.clone(), key_id, key, &evidence, now)?;
+    let result = SignerResult {
+        schema_version: crate::SIGNER_RESULT_SCHEMA.into(),
+        job_id: intent.job_id,
+        intent_id: intent.intent_id,
+        payload_hash: intent.payload_hash,
+        signed_grant,
+    };
+    // Current originals, approvals, fencing and quotas are rechecked and the
+    // exact signed bytes/outbox/audit commit atomically. No socket I/O occurs
+    // while this transaction holds the write lock.
+    finalize_in_tx(tx, tenant, verifier, claim, &result, authority, now)?;
+    Ok(result)
+}
+
 impl AuthorityStore {
+    /// Independent signer process only. IPC callers supply retained job identity,
+    /// never grant payloads, signatures, approval flags or trust-key records.
+    /// Historical retries return the exact original result without new signing,
+    /// reservation, generation, clock renewal or dispatch authority.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sign_retained_job(
+        &mut self,
+        tenant: &AuthorityTenant,
+        verifier: &WebAuthn,
+        job_id: &str,
+        worker_id: &str,
+        expected_claim_generation: u64,
+        key_id: &str,
+        key: &ed25519_dalek::SigningKey,
+        now: i64,
+    ) -> Result<SignerResult> {
+        identifier(job_id)?;
+        identifier(worker_id)?;
+        if key_id.is_empty() || key_id.len() > 256 {
+            return Err(AuthorityError::Signature);
+        }
+        time(now)?;
+        let plan_id = {
+            let tx = self.connection.transaction()?;
+            let prepared = job_at(&tx, tenant, job_id)?;
+            let intent = intent_at(&tx, tenant, &prepared.job().intent_id)?;
+            tx.commit()?;
+            intent.plan_id
+        };
+        self.observe_signing_plan_time(tenant, &plan_id, now)?;
+        self.observe_signing_job_quota_time(tenant, job_id, now)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let prepared = job_at(&tx, tenant, job_id)?;
+        let intent = intent_at(&tx, tenant, &prepared.job().intent_id)?;
+        if key_id != intent.signer_key.key_id
+            || key.verifying_key().to_bytes() != intent.signer_key.public_key
+        {
+            return Err(AuthorityError::Signature);
+        }
+        if let Some(verified) = retained_result(&tx, tenant, &intent)? {
+            let original = crate::parse_signer_result(verified.canonical_result_bytes())?;
+            tx.commit()?;
+            return Ok(original);
+        }
+        let authority = protected_authority(&tx, tenant, &intent.plan_id, now)?;
+        let claim = signing_jobs::claim_in_tx(
+            &tx,
+            tenant,
+            job_id,
+            "signer",
+            worker_id,
+            expected_claim_generation,
+            30,
+            now,
+        )?;
+        let result = sign_claim_in_tx(&tx, tenant, verifier, &claim, key_id, key, &authority, now)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     /// Commit an independently verified signer reply only after protected
     /// authority resolution. Like preparation, this build fails closed.
     pub fn finalize_signing_intent(

@@ -7,7 +7,47 @@ Read this file, [startup prompt](session-start-prompt.txt), `AGENTS.md`,
 No previous chat, attachment, temporary file, agent mailbox or cached binary is
 needed. Preserve a dirty worktree and resolve the current branch/HEAD remotely.
 
-## Current PR26 review follow-up
+## Current protected authority and signer batch
+
+Branch `feat/protected-signing-authority` starts at
+`dded7e94e84ef0e59a0552e961c5c57eaaabdd81`. The lead rechecked that PR26
+is open/unmerged at that head, `main` is
+`a624a1e684a8fc0065ac4f4609101410f56c50bb`, and the PR check is blocked
+before execution by billing. The new branch depends on unmerged PR26; never
+claim a remote PASS, merge or separate main CI from local results.
+
+The [received follow-up review](reviews/pr26-follow-up-claude-review.md) targets
+that head/tree `9108060e91b2cf9659b598e5f670f095f72f3305` against
+`3866ceaa2b86da3ea3653da338d433a23a02b283`. It confirms F1–F3, retains
+F4's protected-storage boundary and reports no development blocker. Its original
+15,477 bytes, 193 CRLF endings and SHA256
+`5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa`
+are preserved. Private probes were not supplied; all four native/Docker suites
+were NOT_RUN there. The new batch addresses Low D6a/D6b and records the
+[whole-database legacy conflict recovery boundary](authority-store.md#conflicting-legacy-core-windows-and-recovery).
+
+Owner-authorized bootstrap, signed workload registry, original envelope/delegation
+staging and independent signer/peer-authenticated IPC are implemented for the
+explicit local profile. All 20 fresh final local stages and independent evidence/
+artifact review passed on the same 427-input digest; current exact counts and
+commands are in [reports](../reports/README.md). Bootstrap records
+advance only local pending history. Trusted target epoch/generation initialization
+remains unavailable, and bootstrap admission remains pending target durable
+epoch/baseline/probe confirmation; missing production build/native qualification
+continues to block signing and dispatch. Exact implemented contracts and fresh
+validation belong in the current ledger/reports. Prior counts below remain
+historical and must not be reused for changed source. Keep all published
+SQL001–014, specifications and original reviews byte-identical.
+This batch adds SQL015; after publication, preserve SQL015 and its schema/guard
+contract too. Future schema changes require a new migration.
+The feature's resulting head/tree, stacked PR and remote CI are resolved from
+the retained branch's PR completion record; local completion does not establish
+those remote outcomes. Continue with required PR26/stacked-PR CI and, after merge,
+separate main CI, then the target-confirmation/dispatch batch in the ledger.
+
+<a id="current-pr26-review-follow-up"></a>
+
+## PR26 review follow-up checkpoint (historical)
 
 PR26 remains on `feat/core-access-enforcement`. The supplied
 [Claude review](reviews/pr26-claude-review.md) targets
@@ -20,7 +60,7 @@ Read [the follow-up contract](pr26-follow-up.md). Its private probe sources were
 not supplied or rerun; its native Docker suites were NOT_RUN. The reported
 old-binary migration is external evidence, separate from repository fixtures.
 
-The current batch fixes F1 in both registration orders, adds strict current
+That follow-up batch fixes F1 in both registration orders, adds strict current
 window eligibility without changing historical accounting, validates closed
 input shape before F2 clock observation, preserves F3's explicit strict upgrade
 and clarifies F4's protected-storage boundary. Native work adds an independent
@@ -238,7 +278,8 @@ do not describe every fixture as old-binary-created.
 
 ## Working decisions
 
-Use GPT-6.1 Sol at ultra reasoning for workers; the lead orchestrates. Split file
+Use GPT-6.1 Sol at ultra for implementation and GPT-6 Astra at ultra for
+architecture and independent review; the lead orchestrates. Split file
 ownership and implement substantial integrated batches. Run focused necessary
 regressions while implementing, then one combined independent review and full
 validation. Avoid repeated small handoffs/full-suite waits. Fix found defects

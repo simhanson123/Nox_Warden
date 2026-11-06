@@ -30,6 +30,10 @@ mod quota;
 pub use quota::*;
 mod signing;
 pub use signing::*;
+#[cfg(feature = "approval-proofs")]
+mod authority_registry;
+#[cfg(feature = "approval-proofs")]
+pub use authority_registry::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};

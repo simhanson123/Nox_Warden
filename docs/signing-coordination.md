@@ -1,6 +1,6 @@
 # Durable signing coordination
 
-Authority schema 13 retains the two-phase signing mechanics introduced in schema
+Authority schema 15 retains the two-phase signing mechanics introduced in schema
 7, original core-access cost provenance added in schema 9 and the history/audit
 protections added in schema 11. It supports general-policy quota without a
 delegation root while keeping issued dispatch capacity occupied until an
@@ -8,9 +8,13 @@ authenticated completion receipt can establish release. Here project-only quota
 changes accounting scope; native OS privilege requirements remain unchanged.
 The store also exposes a read-only readiness summary and trusted local quota and
 provenance administration. The
-public preparation and worker paths remain
-closed: protected bootstrap, independently verified build identity, qualified
-native evidence and a protected signer are not implemented. No configuration
+public production preparation and worker paths remain
+closed: target-confirmed bootstrap, independently verified build identity and
+qualified native evidence are unavailable. The separate Linux
+[`fw_signer`](../crates/fw_signer/README.md) process adds protected key/file and
+peer-identity checks around retained jobs; signed workload/bootstrap records
+remain subject to the [pending target-confirmation boundary](protected-signing-authority.md).
+No configuration
 flag, browser approval, lab receipt or CLI option bypasses those requirements.
 
 The controller still cannot issue or dispatch a policy grant. Successful
@@ -29,10 +33,12 @@ below share the independent authority SQLite database; the older standalone
    It derives cost from retained evidence and checks independently pinned project
    limits, plus root limits for rooted obligations. Generation advancement, reservation, immutable intent,
    signer job and audit commit together under `BEGIN IMMEDIATE`.
-2. A separately deployed signer would process the immutable job outside the
+2. A separately deployed signer processes the immutable job outside the
    database transaction. The job binds the exact canonical grant payload,
-   reservation, generation, plan and approval hashes. This batch does not deploy
-   that signer or provide an `AuthorityEvidence` adapter.
+   reservation, generation, plan and approval hashes. The Linux signer accepts a
+   job reference and expected claim generation, resolves authority from protected
+   storage and cannot sign arbitrary controller-supplied bytes. Process status
+   alone does not satisfy missing production qualification or open the resolver.
 3. Finalization verifies the returned Ed25519 DSSE grant against the pinned
    purpose-specific key and exact prepared payload. It rechecks current evidence,
    approvals, quota pins and claim ownership. Signed bytes, first issuance cost,
@@ -53,7 +59,7 @@ The native observation must be a current **baseline** match for the exact
 retained plan. A candidate match cannot substitute. The observation's generation
 describes the reviewed plan's proposed generation; it is not a protected host
 journal high-water mark. Signing has a separate target generation head, which
-normal builds currently have no trusted bootstrap path to initialize.
+normal builds still lack target-confirmed bootstrap to initialize safely.
 
 ## Quota and supported cost profile
 
@@ -118,16 +124,19 @@ limits may be higher because every reservation must pass both buckets; the root
 still enforces the delegation ceiling. Provenance does not create pins or permit
 the caller to select another bucket.
 
-Each plan's requested policy window must fit the original duration, but this
-provenance record does not retain one absolute lease start/end across compatible
-later plans. A later plan can propose a shifted window. The future core signing
-profile must retain and enforce a single lease window before those plans can
-authorize access; original cost retention alone does not supply that constraint.
+Schema14 additionally retains the original absolute core window through strict
+combined plan/review/provenance/window admission. Every reviewed core plan uses
+that exact `[S,E)`; a compatible legacy cost-only binding must fit it. Creating
+the first window checks all earlier bindings and refuses conflicting history.
+Legacy canonical cost bytes remain unchanged. New live cost/readiness requires
+the plan's full review and fixed window, while issued/UNKNOWN/unsigned-delivered
+obligations remain occupied. See the [fixed-window contract](core-access-enforcement.md).
 
 This binding establishes cost inputs, not approval. Envelope/delegation approval
-hashes and the workload reference do not prove signatures, authenticated identity
-or current authority. A complete core semantic-review/native/signing profile is
-still unavailable, so every core plan retains
+hashes and the workload reference alone do not prove signatures, authenticated
+identity or current authority. The signed registry adds independent cryptographic
+authority records, while development semantic/native evidence still lacks
+production qualification and target-confirmed bootstrap. Every core plan retains
 `CORE_SIGNING_PROFILE_UNAVAILABLE`. Missing or no longer current provenance also
 produces `CORE_REQUEST_BINDING_UNAVAILABLE`. No core grant can be prepared through
 the public resolver.

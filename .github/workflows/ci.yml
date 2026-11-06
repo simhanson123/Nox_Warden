@@ -64,6 +64,8 @@ jobs:
         run: python scripts/core-access-linux-lab.py --skip-image-build --report reports/core-access-linux-lab.json
       - name: Retained compilation and actual native observation evidence
         run: python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json
+      - name: Protected independent local signer and bootstrap authorization
+        run: python scripts/smoke_protected_signer.py --skip-image-build --report reports/protected-signer-smoke.json
       - name: Retain smoke reports for seven days
         if: always()
         # actions/upload-artifact v7.0.2; Node 24, pinned to the release commit.
@@ -80,6 +82,7 @@ jobs:
             reports/signed-linux-lab.json
             reports/core-access-linux-lab.json
             reports/native-evidence-smoke.json
+            reports/protected-signer-smoke.json
             reports/passkey-smoke.json
             reports/login-admission-smoke.json
             reports/authority-browser.json

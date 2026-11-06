@@ -248,8 +248,9 @@ result. Output failure does not establish rollback. Read and retry do not erase
 or replace committed evidence. A writable `/dev/null` is a valid destination.
 
 Schema 9 introduced the provenance records. Current authority databases use
-schema14; schema14 adds the reviewed-core window sidecar and preserves published
-SQL001–013 and legacy provenance bytes. Opening a populated schema1–13 database
+schema15; schema14 added the reviewed-core window sidecar and schema15 adds the
+signed authority/bootstrap registry, preserving published SQL001–014 and legacy
+provenance bytes. Opening a populated schema1–14 database
 requires explicit backed-up migration. Migration preserves existing state and
 does not manufacture original requests, windows, reviews or approval. See
 [authority storage](authority-store.md) for the migration procedure and

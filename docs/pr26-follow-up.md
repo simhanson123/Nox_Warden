@@ -38,6 +38,16 @@ a nonzero executed count.
 
 ## Source assessment and correction contract
 
+The [received follow-up review](reviews/pr26-follow-up-claude-review.md) covers
+corrected head `dded7e94e84ef0e59a0552e961c5c57eaaabdd81`, tree
+`9108060e91b2cf9659b598e5f670f095f72f3305`, against the baseline above. It
+confirms F1–F3 and reports no blocker to continued development. Its new Low
+findings concern native lab timing validation (D6a/D6b) and the recovery
+documentation below; those are a subsequent batch, not a change to the
+historical validation recorded in this document. The original 15,477 uploaded
+bytes, including 193 CRLF endings and opening notes, are preserved, SHA256
+`5fdd4046a0cde498d3e91b1589db8a2613e07883307782a75113ae1ad8deafaa`.
+
 | Item | Assessment and resulting behavior |
 | --- | --- |
 | F1, Low | Baseline provenance-only registration did not consult an already retained request window; a shifted plan could be marked current beyond `E`. Provenance-only intervals now must fit any retained `[S,E)`. Before creating the first window, combined admission checks every existing binding of that request and atomically refuses an out-of-window legacy history. A full reviewed plan still requires the exact original interval, not merely containment. |
@@ -52,6 +62,21 @@ The relevant baseline paths are
 [`signing_quota.rs`](../crates/fw_authority/src/store/signing_quota.rs).
 No published migration001–014 or original schema/specification is rewritten.
 No new migration is needed for these validation changes.
+
+An older schema14 binary may already have created incompatible retained window
+and provenance history. The corrected schema14 checkpoint refuses the entire
+database at open with `Binding` (`DATABASE_REJECTED` from the admin command), so all tenants in
+that file are unavailable. The rejected original evidence is preserved. Follow
+the [legacy-conflict recovery boundary](authority-store.md#conflicting-legacy-core-windows-and-recovery):
+retain the original and private backups, restore only independently trustworthy
+history compatible with current authority/epoch/generation, prevent rollback
+resurrection and retain issued obligations. Any later registration needs a
+genuine request, authentic original material, strict full-state review and valid
+current authority; no tool automatically repairs the database, edits history or
+invents approval/window/completion evidence.
+The later schema15 binary first requires explicit migration for a schema14 file;
+that migration rejects the same conflict during retained validation before a new
+backup is created. It provides no repair path.
 
 An additional internal review of the follow-up found a concurrent selection gap:
 a provenance/window operation could initially select no window, skip observation,
@@ -118,6 +143,30 @@ success cannot open production signing or dispatch. Anonymous multiport
 companion fixture does not establish support for that native shape.
 
 ## Reproduction and verification
+
+The subsequent protected-authority batch also corrects the new review's D6a/D6b
+lab evidence findings. Both the inner runner and outer report checker require
+typed `U=1`, `e=0`, `C=5`, deduction 6 and the exact positive target `E−8`.
+They compare the observation wall clock with the binding wall clock plus elapsed
+monotonic time within one second. Missing or malformed report fields produce a
+bounded stage refusal. These are lab evidence checks; executor deadlines and
+the five-second installation/two-second process budgets are unchanged.
+
+For original token lifetime `T = E − binding_wall − 6` and elapsed truncated
+boottime milliseconds `d`, the conservative minimum is
+`max(0, floor((1000*T − d − 1)/1000))`. Reserving one millisecond accounts for
+the two truncated monotonic samples, then integer-second conversion happens once.
+For `T=54` and `d=52001`, the former double rounding incorrectly required a
+positive observation window to have been missed; the corrected minimum is one
+second. Removing every rounding allowance would reject a valid one-second token
+when a 52000 ms sample represents a slightly longer true interval. This correction
+does not improve native timer precision or establish a new kernel qualification.
+
+New independent baseline probes load the exact `dded7e9` runner/checker modules
+and demonstrate the constants/shape/rounding gaps; these are newly authored
+regressions, not the external reviewer's unavailable probes. Current focused and
+full execution results belong in the current reports/ledger. The test counts in
+the following original PR26 correction section remain historical.
 
 The permanent [window regressions](../crates/fw_authority/tests/core_access_window.rs)
 include the three independently reproduced baseline cases:

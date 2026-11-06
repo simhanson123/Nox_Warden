@@ -793,6 +793,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "fw_signer"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "ed25519-dalek",
+ "fw_authority",
+ "fw_contracts",
+ "fw_webauthn",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "fw_store"
 version = "0.1.0"
 dependencies = [

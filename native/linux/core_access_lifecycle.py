@@ -9,7 +9,6 @@ import copy
 import base64
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import socket
@@ -331,6 +330,16 @@ def reject_before_write(case, bundle, before, check_id, expected_reason, *, comm
 def original_token_lifetime_bounds(record, installation, metadata):
     """Recompute TTL bounds from original E and clocks, never an observed timeout."""
     binding = installation['manifest']['binding']
+    # This lab profile measures the executor's fixed model, rather than trusting
+    # a self-consistent manifest with weaker/different timing parameters.
+    for field, expected in (('clock_uncertainty_seconds', 1), ('elapsed_seconds', 0),
+                            ('commit_budget_seconds', 5)):
+        if type(binding[field]) is not int or binding[field] != expected:
+            raise ValueError('original executor timing constants')
+    if any(type(value) is not int or value < 0 for value in
+           (binding['wall_time_unix'], binding['monotonic_millis'], record['observed_at_unix'],
+            record['started_monotonic_millis'], record['monotonic_millis'], metadata['expires_at_unix'])):
+        raise ValueError('original token clock shape')
     names = set(metadata['core_token_names'])
     tokens = {token['token_name']: token for token in installation['manifest']['tokens']
               if token['token_name'] in names}
@@ -339,21 +348,27 @@ def original_token_lifetime_bounds(record, installation, metadata):
     elapsed_millis = record['monotonic_millis'] - binding['monotonic_millis']
     if elapsed_millis < 0 or record['monotonic_millis'] < record['started_monotonic_millis']:
         raise ValueError('token clock bracket')
+    if abs((record['observed_at_unix'] - binding['wall_time_unix']) * 1000
+           - (record['started_monotonic_millis'] - binding['monotonic_millis'])) > 1000:
+        raise ValueError('token binding wall clock relationship')
     original_end = metadata['expires_at_unix']
     deductions = (binding['clock_uncertainty_seconds'] + binding['elapsed_seconds']
                   + binding['commit_budget_seconds'])
     initial_timeout = original_end - binding['wall_time_unix'] - deductions
-    # The kernel starts its timer after the binding sample. Counting all elapsed
-    # time since binding is conservative; only one extra second covers nft's
-    # integer-seconds representation. No observed timeout lowers this minimum.
-    minimum = max(0, initial_timeout - math.ceil(elapsed_millis / 1000) - 1)
+    # The kernel starts its timer after binding. For integer T, nft's seconds
+    # floor is floor(T-d) = T-ceil(d). The two truncated millisecond clock reads
+    # can hide <1ms, hence ceil((elapsed_millis+1)/1000). Subtracting another
+    # whole second after ceil(d) double-counted the same quantization and made
+    # ordinary fractional samples at E-8 spuriously lose their positive floor.
+    # No observed timeout or remaining lifetime participates in this bound.
+    minimum = max(0, (initial_timeout * 1000 - elapsed_millis - 1) // 1000)
     if minimum <= 0:
         raise ValueError('positive token observation window missed')
-    maximum = min(original_end - binding['clock_uncertainty_seconds'] - record['observed_at_unix'],
-                  math.ceil((binding['monotonic_millis']
-                             + (original_end - binding['clock_uncertainty_seconds']
-                                - binding['wall_time_unix']) * 1000
-                             - record['started_monotonic_millis']) / 1000))
+    horizon_millis = (binding['monotonic_millis']
+                      + (original_end - binding['clock_uncertainty_seconds'] - binding['wall_time_unix']) * 1000)
+    maximum = min(initial_timeout,
+                  original_end - binding['clock_uncertainty_seconds'] - record['observed_at_unix'],
+                  (horizon_millis - record['started_monotonic_millis'] + 999) // 1000)
     actual = {}
     for item in record['raw']['nftables']:
         token_set = item.get('set', {})
@@ -379,15 +394,20 @@ def original_token_lifetime_bounds(record, installation, metadata):
             'actual_remaining_seconds': actual, 'original_expires_at_unix': original_end,
             'binding_wall_time_unix': binding['wall_time_unix'],
             'binding_monotonic_millis': binding['monotonic_millis'],
+            'sample_observed_at_unix': record['observed_at_unix'],
+            'sample_started_monotonic_millis': record['started_monotonic_millis'],
             'sample_finished_monotonic_millis': record['monotonic_millis'],
+            'initial_timeout_seconds': initial_timeout,
             'clock_uncertainty_seconds': binding['clock_uncertainty_seconds'],
             'elapsed_seconds': binding['elapsed_seconds'],
             'commit_budget_seconds': binding['commit_budget_seconds'],
-            'nft_representation_tolerance_seconds': 1}
+            'nft_representation_tolerance_seconds': 1,
+            'monotonic_sampling_tolerance_millis': 1}
 
 
 def original_positive_bracket(target, end, deduction, started_at, finished_at, duration):
-    return (target <= started_at <= finished_at < end - deduction and 0 <= duration < 2
+    return (target == end - 8 and deduction == 6
+            and target <= started_at <= finished_at < end - deduction and 0 <= duration < 2
             and abs((finished_at - started_at) - duration) < .1)
 
 
@@ -421,6 +441,9 @@ def verify_original_positive_boundary(case, installation, established):
               actual_elapsed_monotonic_seconds=duration)
     boundary_observations.append({'kind': 'positive', 'target_unix': target,
                                   'started_at_unix': started_at, 'finished_at_unix': finished_at,
+                                  'actual_elapsed_monotonic_seconds': duration,
+                                  'packet_sampling_margin_seconds': 2,
+                                  'conservative_binding_deduction_seconds': deduction,
                                   'original_expires_at_unix': end, **bounds})
 
 
