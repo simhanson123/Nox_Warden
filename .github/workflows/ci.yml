@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   development:
-    name: Core and isolated Linux smoke
+    name: Core, browser and isolated Linux suites
     # Includes retained-history suites and the isolated Linux execution labs.
     timeout-minutes: 60
     runs-on: ubuntu-24.04
@@ -66,8 +66,6 @@ jobs:
         run: python scripts/smoke_native_evidence.py --skip-image-build --report reports/native-evidence-smoke.json
       - name: Protected independent local signer and bootstrap authorization
         run: python scripts/smoke_protected_signer.py --skip-image-build --report reports/protected-signer-smoke.json
-      - name: Target bootstrap journal, management paths and signed confirmation
-        run: python scripts/target-bootstrap-linux-lab.py --skip-image-build --report reports/target-bootstrap-linux-lab.json
       - name: Retain smoke reports for seven days
         if: always()
         # actions/upload-artifact v7.0.2; Node 24, pinned to the release commit.
@@ -85,10 +83,49 @@ jobs:
             reports/core-access-linux-lab.json
             reports/native-evidence-smoke.json
             reports/protected-signer-smoke.json
-            reports/target-bootstrap-linux-lab.json
             reports/passkey-smoke.json
             reports/login-admission-smoke.json
             reports/authority-browser.json
             reports/audit-smoke.json
           retention-days: 7
           if-no-files-found: ignore
+  target_bootstrap:
+    name: Target bootstrap isolated Linux suite
+    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install checksum-pinned Rust
+        run: FW_TOOLCHAIN_ROOT="$RUNNER_TEMP/rust" bash scripts/install-rust.sh
+      - name: Activate Rust
+        run: echo "$RUNNER_TEMP/rust/bin" >> "$GITHUB_PATH"
+      - run: python -m pip install -r scripts/requirements.txt
+      - name: Fetch locked Rust dependencies for the offline lab build
+        run: cargo fetch --locked
+      - name: Target bootstrap journal, management paths and signed confirmation
+        run: python scripts/target-bootstrap-linux-lab.py --report reports/target-bootstrap-linux-lab.json
+      - name: Retain target bootstrap report for seven days
+        if: always()
+        # actions/upload-artifact v7.0.2; Node 24, pinned to the release commit.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: target-bootstrap-report-${{ github.run_attempt }}
+          path: reports/target-bootstrap-linux-lab.json
+          retention-days: 7
+          if-no-files-found: ignore
+  required_checks:
+    name: Core and isolated Linux smoke
+    needs: [development, target_bootstrap]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both complete suites to succeed
+        env:
+          DEVELOPMENT_RESULT: ${{ needs.development.result }}
+          TARGET_BOOTSTRAP_RESULT: ${{ needs.target_bootstrap.result }}
+        shell: bash
+        run: |
+          if [[ "$DEVELOPMENT_RESULT" != success || "$TARGET_BOOTSTRAP_RESULT" != success ]]; then
+            printf 'Required suites did not both succeed: development=%s target_bootstrap=%s\n' "$DEVELOPMENT_RESULT" "$TARGET_BOOTSTRAP_RESULT" >&2
+            exit 1
+          fi

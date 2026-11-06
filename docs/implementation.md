@@ -4,6 +4,12 @@ The original specification under `docs/specs` is retained byte-for-byte. Attache
 
 ## Completion assessment
 
+PR28 now integrates the retained PR26/27 history into `main`, but is not merged.
+Its first real CI42277449076 passed through protected signer and failed target
+namespace setup at marker1/packet0. Bounded diagnostic and parallel CI follow-up
+is in progress; see the current verification report. Do not infer the exact
+OS restriction or a remote PASS from earlier local results.
+
 Branch `feat/target-authority-confirmation` starts at PR27 head
 `5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
 `719b80f88255921711ede7b4f4da81876568f7e3`. The change repairs SQLite lock-safe

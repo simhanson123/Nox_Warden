@@ -8,6 +8,45 @@ The supplied specification and fixtures under `docs/specs` remain unchanged.
 
 ## Current signer durability and target-confirmation follow-up
 
+The first remote run of published head `2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d`,
+[CI42277449076](https://github.com/simhanson123/Nox_Warden/actions/runs/42277449076),
+executed successfully through canonical/shared storage, API/browser, existing
+Linux labs, native evidence and protected signer. Its final target stage failed
+after the marker check: checks1, packet/probe0, container cleanup complete.
+The original failure report SHA256 is
+`6889ceda78ed17f211303fa3da071c20e71f608e334c56ac8dd8dbaa2ac2a67f`;
+the separate remote receipt SHA256 is
+`b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a`.
+All281 remote build inputs matched the source. The old lab discarded the
+namespace child's exact syscall/errno, leaving only `isolated namespace setup
+refused`; no AppArmor, seccomp or kernel cause is established by that evidence.
+This remote failure is not overwritten by the earlier local PASS.
+
+The follow-up preserves a bounded512-byte diagnostic with fixed setup stage,
+errno/cleanup errno and restricted UID/capability/LSM context. It records no raw
+exception, argv, environment or stderr and leaves the original namespace/sysctl
+operations, capabilities, profiles and product guards unchanged. Four additional
+regressions include actual fork/pipe control with all privileged syscalls mocked,
+proving that a later unmount error cannot hide the original write error; the
+14 target-runner tests, pycompile and whitespace checks passed. This is diagnostic
+validation, not a claim that remote target setup is repaired.
+The complete related native-runner unit suite passed50/50. A same-seven-cap,
+default-profile, network-none/read-only local setup-only control also passed:
+three distinct namespaces, unchanged parent sysctl, target loose0 and exact
+NET_ADMIN-only E/P/B readback, child reap and container cleanup. It executed no
+product or packet scenario; its LSM label was unavailable, not assumed equal to
+GitHub. Receipt SHA256:
+`a337d98456167f877ec6a22db3ed57e2bf8a27f9c4510756dd2d74e212359ba0`.
+
+CI now runs the same target suite in a separate parallel job, with its own pinned
+toolchain, locked dependency fetch and image build. The other development steps
+are unchanged. The existing required check name is an `always()` aggregate that
+requires both jobs to report exact `success`;49 result combinations admit only
+success/success. Artifacts retain the same14+1 JSON allowlist, pinned upload action
+and seven-day retention. Independent reading review found no concrete issue.
+A new complete remote run is required before merge; the source/ref and actual
+outcome belong in the PR28 completion record. Published SQL001–016 is unchanged.
+
 `feat/target-authority-confirmation` starts at
 `5fc576f672c2e0671164b73a667e3452b99ea82a`, tree
 `719b80f88255921711ede7b4f4da81876568f7e3`.

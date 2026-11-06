@@ -9,7 +9,7 @@
     "independent_review_prompts": "docs/review-prompts.md",
     "method": "GPT-6.1 Sol ultra implementation and GPT-6 Astra ultra architecture/independent review, both at maximum reasoning with disjoint ownership; lead orchestration. Substantial integrated batches, one consolidated review and fresh coordinated validation, then authorized commit/push/stacked PR/CI/merge and separate main CI when available. Preserve remote branches and shared history.",
     "next_dependencies": [
-      "Complete consolidated review and required stacked PR/main CI without bypassing billing. Retain signer lock/exact-retry, origin, key-purpose and target-history regressions. Preserve published SQL001..016.",
+      "Resolve the actual remote namespace setup failure using bounded diagnostics without relaxing product/capability/profile boundaries; pass both parallel CI jobs and required aggregate, merge the integrated PR28 and inspect separate main CI. Preserve SQL001..016 and original review bytes.",
       "Qualify compiler/validator/build identity, protected observer/native evidence and management baseline; independently resolve workload asset revisions and actual packet source identity.",
       "Qualify isolated durable epoch/receipt/management-probe integration for installed contexts; no genesis reset, invented predecessor or issued/UNKNOWN refund.",
       "Connect authenticated executor dispatch/completion/reconciliation and current policy-signer key trust. Existing distinct-UID Unix signer IPC is implemented; installed OS account/ACL/key provisioning and authenticated executor completion are still required.",
@@ -1417,7 +1417,7 @@
         "M05",
         "M06"
       ],
-      "status": "implemented_all21_local_stages_and_independent_evidence_audits_passed_pending_external_review_required_remote_CI",
+      "status": "implemented_local21_passed_remote_target_setup_failure_followup_in_progress",
       "unmerged_dependencies": [
         {
           "pull_request": 26,
@@ -1430,7 +1430,7 @@
           "latest_recorded_ci": 42216796210
         }
       ],
-      "remote_status": "BothOPEN_unmerged_last_recorded_CI_billing_failure_before_execution_noPASS",
+      "remote_status": "CI42277449076 executed: all prior suites passed; target namespace setup FAIL marker1/packet0; no merge; bounded diagnostics and parallel mandatory gating added.",
       "schema_base": 15,
       "schema": 16,
       "schema_change": "New016 includes3 explicit origin and6 target-bootstrap tables; preserve published001..015 and schema/guard contracts. Once016 is published, preserve it too and use a new future migration.",
@@ -1439,7 +1439,10 @@
       "signing_allowed": false,
       "dispatch_allowed": false,
       "design": "docs/target-authority-confirmation.md",
-      "validation": "reports/README.md:18 stages at08d and3 at a0e after one lab-only helper correction; not one unchanged whole-source run."
+      "validation": "reports/README.md:18 stages at08d and3 at a0e after one lab-only helper correction; not one unchanged whole-source run.",
+      "pull_request": 28,
+      "pr_base": "main",
+      "published_head": "2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d"
     },
     "verification": {
       "status": "all21_selected_local_stages_and_independent_evidence_artifact_audits_passed",
@@ -1826,7 +1829,44 @@
         "binary_chain_stages": 23,
         "qualification": "Evidence/source-to-report/binary continuity audit; not independent review of this auditor-authored code, remote CI execution or production qualification."
       },
-      "combined_summary_sha256": "c2fca63998858021d3c4650d22cc5be54d0c248ba9237d0ec894b0d4f518a485"
+      "combined_summary_sha256": "c2fca63998858021d3c4650d22cc5be54d0c248ba9237d0ec894b0d4f518a485",
+      "remote_ci_followup": {
+        "run": 42277449076,
+        "head": "2403eeb0e0d2b15434320a0c51d3ffe9f4bcff8d",
+        "status": "FAIL",
+        "prior_stages": "All canonical/shared/API/browser/existingLinux/nativeEvidence/protectedSigner passed.",
+        "target_checks": 1,
+        "target_packet_probes": 0,
+        "target_probe_attempts": 0,
+        "container_removed": true,
+        "failure": "isolated namespace setup refused; exact child syscall/errno was discarded and is unknown",
+        "failure_report_sha256": "6889ceda78ed17f211303fa3da071c20e71f608e334c56ac8dd8dbaa2ac2a67f",
+        "remote_receipt_sha256": "b7fc0f8d988c23db84152451b00addc6f8df943368a4fb30c40c67aad6d35b6a",
+        "remote_inputs_compared": 281,
+        "source_mismatches": 0,
+        "followup": "Bounded fixed stage/errno/cleanup/context diagnostics; original operations/caps/profiles/product guards unchanged. Parallel target job and always aggregate retaining existing required name; all previous checks and14+1 artifacts preserved.",
+        "target_runner_tests_passed": 14,
+        "aggregate_result_combinations_checked": 49,
+        "aggregate_success_cases": 1,
+        "independent_reading_review": "No concrete finding; not an executed remote repair proof.",
+        "native_runner_suite_passed": 50,
+        "local_setup_only": {
+          "status": "PASS",
+          "duration_seconds": 1.553,
+          "product_scenarios": 0,
+          "packet_probes": 0,
+          "namespace_count": 3,
+          "parent_conntrack_unchanged": true,
+          "target_tcp_loose": 0,
+          "target_cap_e_p_b": 4096,
+          "target_cap_inh_amb": 0,
+          "children_reaped": true,
+          "container_removed": true,
+          "lsm_label": null,
+          "report_sha256": "a337d98456167f877ec6a22db3ed57e2bf8a27f9c4510756dd2d74e212359ba0",
+          "qualification": "Does not establish the unknown GitHub syscall failure or a remote repair."
+        }
+      }
     },
     "next_product_batch": {
       "scope": "Qualified authority inputs/policy signing, authenticated dispatch/completion/reconciliation and installed Linux lifecycle.",

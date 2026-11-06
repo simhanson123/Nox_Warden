@@ -24,6 +24,16 @@ operator_operations = []
 packets = 0
 probe_attempts = 0
 libc = ctypes.CDLL(None, use_errno=True)
+NAMESPACE_DIAGNOSTIC_LIMIT = 512
+NAMESPACE_STAGES = frozenset({
+    'initial', 'unshare_net', 'unshare_net_mount', 'mount_private_propagation',
+    'create_private_proc', 'mount_private_proc', 'read_namespace_identity',
+    'write_conntrack', 'verify_conntrack', 'unmount_private_proc',
+    'remove_private_proc', 'send_ready', 'ready', 'diagnostic_channel',
+})
+NAMESPACE_FIELDS = frozenset({'version', 'status', 'stage', 'errno', 'cleanup_errno',
+                             'euid', 'egid', 'cap_eff', 'cap_prm', 'cap_bnd',
+                             'no_new_privs', 'seccomp', 'lsm'})
 
 
 def check(name, condition):
@@ -106,48 +116,164 @@ def successful(args, **options):
     return out
 
 
+def namespace_context():
+    value = {'euid': os.geteuid(), 'egid': os.getegid(), 'cap_eff': None,
+             'cap_prm': None, 'cap_bnd': None, 'no_new_privs': None,
+             'seccomp': None, 'lsm': None}
+    try:
+        with Path('/proc/self/status').open() as source:
+            fields = dict(line.split(':', 1) for line in source.read(8192).splitlines() if ':' in line)
+        for key, field in [('cap_eff', 'CapEff'), ('cap_prm', 'CapPrm'), ('cap_bnd', 'CapBnd')]:
+            text = fields.get(field, '').strip().lower()
+            if re.fullmatch(r'[0-9a-f]{16}', text):
+                value[key] = text
+        for key, field, allowed in [('no_new_privs', 'NoNewPrivs', {'0', '1'}),
+                                    ('seccomp', 'Seccomp', {'0', '1', '2'})]:
+            text = fields.get(field, '').strip()
+            if text in allowed:
+                value[key] = int(text)
+    except (OSError, ValueError):
+        pass
+    try:
+        with Path('/proc/self/attr/current').open('rb') as source:
+            label = source.read(98).strip().decode('ascii')
+        if 0 < len(label) <= 96 and all(32 <= ord(char) <= 126 for char in label):
+            value['lsm'] = label
+    except (OSError, UnicodeError):
+        pass
+    return value
+
+
+def namespace_diagnostic(status, stage, error=None, cleanup_errno=None):
+    # Never serialize exception text, filenames, argv, environment or stderr.
+    number = getattr(error, 'errno', None)
+    number = number if type(number) is int and 0 < number <= 4095 else None
+    return {'version': 1, 'status': status, 'stage': stage, 'errno': number,
+            'cleanup_errno': cleanup_errno, **namespace_context()}
+
+
+def parse_namespace_diagnostic(raw):
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('duplicate field')
+            value[key] = item
+        return value
+    try:
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= NAMESPACE_DIAGNOSTIC_LIMIT:
+            raise ValueError('size')
+        value = json.loads(raw.decode('ascii'), object_pairs_hook=unique)
+        if (not isinstance(value, dict) or set(value) != NAMESPACE_FIELDS
+                or type(value['version']) is not int or value['version'] != 1
+                or value['status'] not in {'READY', 'ERROR'} or value['stage'] not in NAMESPACE_STAGES
+                or (value['status'] == 'READY') != (value['stage'] == 'ready')):
+            raise ValueError('shape')
+        for key in ['errno', 'cleanup_errno']:
+            if value[key] is not None and (type(value[key]) is not int or not 0 < value[key] <= 4095):
+                raise ValueError('errno')
+        if value['status'] == 'READY' and (value['errno'] is not None or value['cleanup_errno'] is not None):
+            raise ValueError('ready error')
+        for key in ['euid', 'egid']:
+            if value[key] is not None and (type(value[key]) is not int or not 0 <= value[key] <= 4294967295):
+                raise ValueError('identity')
+        for key in ['cap_eff', 'cap_prm', 'cap_bnd']:
+            if value[key] is not None and (not isinstance(value[key], str) or not re.fullmatch(r'[0-9a-f]{16}', value[key])):
+                raise ValueError('capability')
+        for key, allowed in [('no_new_privs', {0, 1}), ('seccomp', {0, 1, 2})]:
+            if value[key] is not None and (type(value[key]) is not int or value[key] not in allowed):
+                raise ValueError('process boundary')
+        label = value['lsm']
+        if label is not None and (not isinstance(label, str) or not 0 < len(label) <= 96
+                                  or any(not 32 <= ord(char) <= 126 for char in label)):
+            raise ValueError('label')
+        return value
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise RuntimeError('namespace diagnostic channel rejected') from None
+
+
+def namespace_diagnostic_bytes(value):
+    raw = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode('ascii')
+    parse_namespace_diagnostic(raw)
+    return raw
+
+
 def new_namespace(label, configure_conntrack=False):
     read, send = os.pipe()
     pid = os.fork()
     if pid == 0:
         os.close(read)
+        stage = 'initial'
+        first_failure = None
+        cleanup_errno = None
         try:
             flags = CLONE_NEWNET | (CLONE_NEWNS if configure_conntrack else 0)
+            stage = 'unshare_net_mount' if configure_conntrack else 'unshare_net'
             if libc.unshare(flags) != 0:
                 raise OSError(ctypes.get_errno(), 'fixture unshare failed')
             if configure_conntrack:
                 libc.mount.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_ulong, ctypes.c_void_p]
                 libc.umount2.argtypes = [ctypes.c_char_p, ctypes.c_int]
+                stage = 'mount_private_propagation'
                 if libc.mount(None, b'/', None, 16384 | 262144, None) != 0:
                     raise OSError(ctypes.get_errno(), 'private propagation refused')
                 proc = ROOT / ('private-proc-' + label)
+                stage = 'create_private_proc'
                 proc.mkdir(mode=0o700)
                 encoded = str(proc).encode()
+                stage = 'mount_private_proc'
                 if libc.mount(b'proc', encoded, b'proc', 2 | 4 | 8, None) != 0:
                     raise OSError(ctypes.get_errno(), 'private proc mount refused')
                 try:
+                    stage = 'read_namespace_identity'
                     current = os.readlink('/proc/self/ns/net')
+                    stage = 'write_conntrack'
                     with (proc / 'sys/net/netfilter/nf_conntrack_tcp_loose').open('w') as field:
                         field.write('0')
+                    stage = 'verify_conntrack'
                     if (proc / 'sys/net/netfilter/nf_conntrack_tcp_loose').read_text().strip() != '0' or os.readlink('/proc/self/ns/net') != current:
                         raise RuntimeError('target namespace sysctl readback failed')
+                except BaseException as error:
+                    first_failure = (stage, error)
+                    raise
                 finally:
+                    stage = 'unmount_private_proc'
                     if libc.umount2(encoded, 0) != 0:
-                        raise OSError(ctypes.get_errno(), 'private proc unmount refused')
+                        cleanup_errno = ctypes.get_errno()
+                        raise OSError(cleanup_errno, 'private proc unmount refused')
+                stage = 'remove_private_proc'
                 proc.rmdir()
-            os.write(send, b'READY')
+            stage = 'send_ready'
+            os.write(send, namespace_diagnostic_bytes(namespace_diagnostic('READY', 'ready')))
             os.close(send)
             signal.pause()
-        except BaseException:
+        except BaseException as error:
+            failed_stage, failed_error = first_failure or (stage, error)
             try:
-                os.write(send, b'ERROR')
-            except OSError:
+                os.write(send, namespace_diagnostic_bytes(namespace_diagnostic(
+                    'ERROR', failed_stage, failed_error, cleanup_errno)))
+            except (OSError, RuntimeError):
                 pass
         os._exit(0)
     os.close(send)
-    result = os.read(read, 16)
+    result = b''
+    while len(result) <= NAMESPACE_DIAGNOSTIC_LIMIT:
+        part = os.read(read, NAMESPACE_DIAGNOSTIC_LIMIT + 1 - len(result))
+        if not part:
+            break
+        result += part
     os.close(read)
-    if result != b'READY':
+    try:
+        diagnostic = parse_namespace_diagnostic(result)
+    except RuntimeError:
+        diagnostic = {field: None for field in NAMESPACE_FIELDS}
+        diagnostic.update(version=1, status='ERROR', stage='diagnostic_channel')
+    observations.setdefault('namespace_setup_diagnostics', []).append({'namespace': label, **diagnostic})
+    if diagnostic['status'] != 'READY':
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         os.waitpid(pid, 0)
         raise RuntimeError('isolated namespace setup refused')
     return pid
